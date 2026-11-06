@@ -8,7 +8,7 @@ A from-scratch C++23 game engine whose first project is an **arcade space sim**:
 - **Deterministic simulation.** Fixed-timestep physics, fp64 positions, floating-origin world, replay-hash tests.
 - **VR is a seam, not an afterthought.** All rendering targets pass through a Presenter abstraction; desktop and OpenXR are interchangeable consumers.
 - **Engine vs game is a hard line.** The engine provides attributes, modifiers, gameplay tags, and effects; every named game stat or weapon is data.
-- **Cockpit-first UI.** One shared, diegetic cockpit for desktop and VR: the same dash with in-world instrument panels, cockpit view as the default, and a walkable 3D hangar for ship design. Flight and targeting assists are always visible, named toggles — never silent.
+- **Cockpit-first UI.** One shared, diegetic cockpit for desktop and VR: the same dash with in-world instrument panels, cockpit view as the default, and a walkable 3D hangar for ship design. Walkable ship interiors put you on foot between crew stations — and stations must be manned: hire a pilot, gunner, engineer, navigator, and trader, or their systems simply don't run. Flight and targeting assists are always visible, named toggles — never silent.
 
 ## Status
 
