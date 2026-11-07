@@ -8,5 +8,10 @@
 ## Prereq probe (2026-11-07, pre-install)
 - `libvulkan.so.1` + `nvidia_icd.json` + `lvp_icd.json` present; NO validation layer, NO vulkan-tools/glslang/spirv-tools, NO glfw dev. User runs: `sudo apt install vulkan-tools vulkan-validationlayers libglfw3-dev glslang-tools spirv-tools xvfb`.
 
+## 2.1 probe evidence (2026-11-07, post-install)
+- `vulkaninfo --summary`: **3 devices** — NVIDIA GeForce RTX 3090 (api 1.4.312, driver 580.178.4), **Quadro P5000 visible again and idle** (same driver), llvmpipe (LLVM 21.1.8, 256 bits) = PHYSICAL_DEVICE_TYPE_CPU, api 1.4.335, driver 26.0.8. Loader 1.4.
+- `VK_LAYER_KHRONOS_validation` 1.4.341 installed; `glslangValidator`, `spirv-val` present; **GLFW 3.4.0** via pkg-config; Xvfb present.
+- P5000 re-appearance flips the #35 note about "no NVIDIA ICD dependency" — real-GPU dev runs now have a *free* 16 GB device (`VE_GPU=P5000`), keeping the 3090 untouched.
+
 ## Gotchas
 (to fill as tasks land)
