@@ -14,4 +14,8 @@
 - P5000 re-appearance flips the #35 note about "no NVIDIA ICD dependency" — real-GPU dev runs now have a *free* 16 GB device (`VE_GPU=P5000`), keeping the 3090 untouched.
 
 ## Gotchas
-(to fill as tasks land)
+- **volk tags follow Vulkan SDK releases** (`vulkan-sdk-1.4.313.0`), not semver — `v1.4.0` does not exist. Pinned at/above the box's loader (1.4.312); volk compiles clean under our full wall, no `-w` cheat needed.
+- `VkPhysicalDeviceProperties` (v1) has **no sType member** — designated-init `.sType=` fails to compile; plain `{}` value-init is correct.
+- volk's `volkInitialize()` covers instance-independent commands only (layer/ext enum, `vkCreateInstance`); instance+physical commands need `volkLoadInstance(handle)` immediately after create.
+- VE_LOG_* is printf-style (format string first); string concatenation into it = `-Wformat-extra-args`.
+- doctest include in this repo is `<doctest/doctest.h>`, not `<doctest.h>`.
