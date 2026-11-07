@@ -12,10 +12,15 @@ FetchContent_MakeAvailable(doctest)
 
 add_executable(engine_tests
     core/test_smoke.cpp
+    core/test_log.cpp
+    core/test_assert.cpp
+    core/test_crash.cpp
 )
 target_link_libraries(engine_tests PRIVATE
     ve_core ve_gfx ve_platform ve_game
     doctest::doctest
 )
+# backtrace_symbols needs dynamic symbols for readable frames
+target_link_options(engine_tests PRIVATE -rdynamic)
 
 add_test(NAME engine_tests COMMAND engine_tests)
