@@ -21,6 +21,7 @@ add_executable(engine_tests
     core/test_math_dvec3.cpp
     core/test_math_mat4.cpp
     core/test_math_quat.cpp
+    core/test_math_projection.cpp
     tools/test_container.cpp
     tools/test_glb.cpp
     tools/test_incremental.cpp
