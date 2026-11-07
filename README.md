@@ -12,12 +12,14 @@ A from-scratch C++23 game engine whose first project is an **arcade space sim**:
 
 ## Status
 
-Phase 0 (toolchain & skeleton) **complete** (2026-11-07): reproducible toolchain bootstrap, CMake+C++23 warning-wall build with ASan/UBSan, doctest/ctest, headless CI script, logging/asserts/crash handler, and the content cooklet (incremental + watch-mode, content-hash gating, PNG→texture and glTF→mesh cooking with a runtime readback path). 15 test cases / 127 assertions, green with no display.
+Phase 0 (toolchain & skeleton) **complete** (2026-11-07): reproducible toolchain bootstrap, CMake+C++23 warning-wall build with ASan/UBSan, doctest/ctest, headless CI script, logging/asserts/crash handler, the content cooklet (incremental + watch-mode, content-hash gating, PNG→texture and glTF→mesh cooking with a runtime readback path), and day-one Tracy profiling hooks.
+
+Phase 1 (math & headless core) **complete** (2026-11-07): hand-rolled `core/math` — fp32 vec/mat4/quat + fp64 `dvec3` sim positions with AU-scale precision proven, euler/rig-frame conventions, `look_at_rh`, TRS decompose/compose, projection builders where **off-axis asymmetric (L/R/T/B-tan) perspective is the primary implementation** (VR per-eye ready, Vulkan depth + reversed-Z variants), spherical↔cartesian, and a floating-origin frame. World frame pinned by decision #34: right-handed, Y-up, −Z forward — matching glTF and OpenXR natively. 33 test cases / 404 assertions, green with no display.
 
 | Phase | Area | Status |
 |---|---|---|
 | 0 | Toolchain & skeleton | **complete** |
-| 1 | Math & headless core | next |
+| 1 | Math & headless core | **complete** |
 | 2 | Vulkan bring-up | not started |
 | 3 | Mini render framework | not started |
 | 4 | Arcade flight & gravity core | not started |

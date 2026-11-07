@@ -1,5 +1,5 @@
 # Phase 1 — Math & the headless core
-Status: in progress
+Status: DONE (2026-11-07)
 
 World frame pinned by **decision #34: right-handed, Y-up, −Z forward** (`+X` right, `+Y` up, `−Z` forward, cross(X,Y)=Z). Matches glTF and OpenXR natively — every test below asserts *that* convention; a convention drift later = these tests fail, which is the point. fp32 (`vec*`/`mat4`/`quat`) is for rendering math + stats; **fp64 (`dvec3`) is sim positions/velocities** (decision #3).
 
@@ -10,12 +10,12 @@ World frame pinned by **decision #34: right-handed, Y-up, −Z forward** (`+X` r
 - [x] 1.4 `mat4f`: multiply, transpose, point-vs-vector transform (w semantics), general inverse + fast rigid-body inverse (assert rigid precondition), trs constructors (column-major, right-handed) — test: `math_mat4_ops`, `math_mat4_inverse` — commit: aeebf42 (rigid precondition *reported* via nullopt, not asserted — core is exception-free)
 - [x] 1.5 `quatf`: axis-angle (signed angle covers `from_signed_axis_angle`), multiply (composition order documented + tested non-commutative), conjugate/inverse/normalize, rotate(vec), slerp, quat↔mat4 both ways, euler(yaw-Y, pitch-X, roll-Z per #34)↔quat round-trips incl. gimbal-lock fold, `integrate_angular` — test: `math_quat_ops`, `math_euler_roundtrip`, `math_rig_frames` (names as shipped) — commit: c49dbd4
 - [x] 1.5a (inserted) `look_at_rh` view builder + TRS decompose/compose + nlerp — split out of 1.5 when scope check flagged it as extra surface needing its own tests — test: `math_frame_change` — commit: eb70a7f
-- [ ] 1.6 Projection builders (the VR-critical task): symmetric perspective, ortho, and **off-axis asymmetric from explicit L/R/T/B tans + near/far** (AGENTS VR rule — no symmetric-only shortcut); Vulkan depth [0,1] mapping + reversed-Z variant; clip-space convention tests with hand-derived corner coords — test: `proj_symmetric`, `proj_ortho`, `proj_offaxis` — commit: —
-- [ ] 1.7 Coordinate utilities: world↔local via trs (round-trip), spherical↔cartesian (polar singularity handled), dvec3 **floating-origin recenter** helper (origin shift preserves deltas; positions stay fp64) — test: `math_coord_conversions`, `math_origin_shift` — commit: —
+- [x] 1.6 Projection builders (the VR-critical task): symmetric perspective, ortho, and **off-axis asymmetric from explicit L/R/T/B tans + near/far** (AGENTS VR rule — no symmetric-only shortcut); Vulkan depth [0,1] mapping + reversed-Z variant; clip-space convention tests with hand-derived corner coords — test: `proj_symmetric`, `proj_ortho`, `proj_offaxis` — commit: 506b902
+- [x] 1.7 Coordinate utilities: world↔local via trs (round-trip), spherical↔cartesian (polar singularity handled), dvec3 **floating-origin recenter** helper (origin shift preserves deltas; positions stay fp64) — test: `math_coord_conversions`, `math_origin_shift` — commit: 5f87245 (world<->local-via-trs round-trip lives in 1.5a `math_frame_change` compose/decompose + `math_mat4_inverse`; 1.7 ships spherical/cart + floating origin)
 
 ## Done-when (every PLAN.md "Done when" bullet linked to a task; all checked = phase DONE)
 - [x] (a) 100+ math assertions pass headless ← 1.1–1.7 (count in final CI) — already 325 at 1.5a
-- [ ] (b) Projection math supports off-axis asymmetric frustums from day one ← 1.6
+- [x] (b) Projection math supports off-axis asymmetric frustums from day one ← 1.6 (506b902 — off-axis is THE builder; symmetric wraps it, byte-identical)
 - [x] (c) fp64 position types exist and cannot be "retrofitted later" — precision proven at real-system scale ← 1.3 (5de46b9)
 - [x] (d) Right-handed / Y-up / −Z-forward frame pinned by test (decision #34) ← 1.2 (eb2e8da)
 
