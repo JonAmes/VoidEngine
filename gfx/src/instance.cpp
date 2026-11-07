@@ -4,13 +4,59 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <mutex>
+#include <string>
 #include <utility>
 
 namespace ve::gfx {
 
+// 2.7: strict messenger state. ERROR/WARNING land here; tests fail on them.
+struct detail::validation_state {
+    std::mutex mutex;
+    std::vector<std::string> problems;
+};
+
 namespace {
 
 constexpr const char* kValidationLayer = "VK_LAYER_KHRONOS_validation";
+constexpr const char* kDebugUtilsExt = "VK_EXT_debug_utils"; // literal: header macro absent in some SDK revisions
+
+// Returns VK_FALSE: the layer's own logging still happens (useful in CI
+// logs) — the *failure* comes from tests asserting validation_problems()
+// empty, which keeps the policy inside the test contract, not in a callback
+// that could be silently removed.
+VKAPI_ATTR VkBool32 VKAPI_CALL validation_callback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    VkDebugUtilsMessageTypeFlagsEXT /*type*/,
+    const VkDebugUtilsMessengerCallbackDataEXT* data,
+    void* user_data) {
+    if ((severity & (VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
+                     VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)) == 0) {
+        return VK_FALSE; // INFO/VERBOSE filtered by policy
+    }
+    auto* state = static_cast<detail::validation_state*>(user_data);
+    std::string msg = data->pMessage != nullptr ? data->pMessage : "(no message)";
+    if (data->pMessageIdName != nullptr) {
+        msg = std::string(data->pMessageIdName) + ": " + msg;
+    }
+    std::lock_guard lock(state->mutex);
+    state->problems.push_back(std::move(msg));
+    return VK_FALSE;
+}
+
+VkDebugUtilsMessengerCreateInfoEXT messenger_create_info(detail::validation_state* state) {
+    // Value-init + assign: extension structs drift across SDK revisions.
+    VkDebugUtilsMessengerCreateInfoEXT ci{};
+    ci.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    ci.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                         VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    ci.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                     VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                     VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    ci.pfnUserCallback = validation_callback;
+    ci.pUserData = state;
+    return ci;
+}
 
 bool validation_layer_available() {
     std::uint32_t count = 0;
@@ -59,15 +105,23 @@ std::expected<instance, std::string> instance::create(const char* app_name) {
         .engineVersion = VK_MAKE_VERSION(0, 0, 0),
         .apiVersion = VK_API_VERSION_1_3, // decision #37 floor
     };
+    auto validation = std::make_unique<detail::validation_state>();
+    // Chaining the messenger into vkCreateInstance catches instance-creation
+    // errors themselves (a bad layer/extension combo would otherwise print
+    // nowhere). VK_EXT_debug_utils comes bundled with the validation layer —
+    // since the layer is required (2.2 policy), the extension is too.
+    const VkDebugUtilsMessengerCreateInfoEXT messenger_ci =
+        messenger_create_info(validation.get());
+    const char* extensions[] = {kDebugUtilsExt};
     const VkInstanceCreateInfo ci{
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-        .pNext = nullptr,
+        .pNext = &messenger_ci,
         .flags = 0,
         .pApplicationInfo = &app,
         .enabledLayerCount = 1,
         .ppEnabledLayerNames = &kValidationLayer,
-        .enabledExtensionCount = 0,
-        .ppEnabledExtensionNames = nullptr,
+        .enabledExtensionCount = 1,
+        .ppEnabledExtensionNames = extensions,
     };
 
     VkInstance handle = VK_NULL_HANDLE;
@@ -77,7 +131,19 @@ std::expected<instance, std::string> instance::create(const char* app_name) {
 
     instance out;
     out.handle_ = handle;
+    out.validation_ = std::move(validation);
     volkLoadInstance(handle); // instance+physical-device commands from now on
+
+    // Persistent messenger for everything after instance creation. volk
+    // resolves vkCreateDebugUtilsMessengerEXT at runtime (no static link to
+    // the layer; #38 OS-neutral).
+    if (const VkResult r = vkCreateDebugUtilsMessengerEXT(handle, &messenger_ci, nullptr,
+                                                          &out.messenger_);
+        r != VK_SUCCESS) {
+        vkDestroyInstance(handle, nullptr);
+        return std::unexpected("vkCreateDebugUtilsMessengerEXT failed: " + result_text(r) +
+                               " — strict validation is engine policy");
+    }
 
     // Log what we are actually running on: the #35 policy (lavapipe in CI vs
     // VE_GPU dev runs) must be obvious in every test log.
@@ -88,21 +154,49 @@ std::expected<instance, std::string> instance::create(const char* app_name) {
 }
 
 instance::~instance() {
+    // Messenger must die before the instance it belongs to.
+    if (messenger_ != VK_NULL_HANDLE) {
+        vkDestroyDebugUtilsMessengerEXT(handle_, messenger_, nullptr);
+    }
     if (handle_ != VK_NULL_HANDLE) {
         vkDestroyInstance(handle_, nullptr);
     }
 }
 
-instance::instance(instance&& other) noexcept : handle_(std::exchange(other.handle_, VK_NULL_HANDLE)) {}
+instance::instance(instance&& other) noexcept
+    : handle_(std::exchange(other.handle_, VK_NULL_HANDLE)),
+      messenger_(std::exchange(other.messenger_, VK_NULL_HANDLE)),
+      validation_(std::move(other.validation_)) {}
 
 instance& instance::operator=(instance&& other) noexcept {
     if (this != &other) {
+        if (messenger_ != VK_NULL_HANDLE) {
+            vkDestroyDebugUtilsMessengerEXT(handle_, messenger_, nullptr);
+        }
         if (handle_ != VK_NULL_HANDLE) {
             vkDestroyInstance(handle_, nullptr);
         }
         handle_ = std::exchange(other.handle_, VK_NULL_HANDLE);
+        messenger_ = std::exchange(other.messenger_, VK_NULL_HANDLE);
+        validation_ = std::move(other.validation_);
     }
     return *this;
+}
+
+std::vector<std::string> instance::validation_problems() const {
+    if (validation_ == nullptr) {
+        return {};
+    }
+    std::lock_guard lock(validation_->mutex);
+    return validation_->problems; // copy: tests may inspect after further calls
+}
+
+void instance::clear_validation_problems() {
+    if (validation_ == nullptr) {
+        return;
+    }
+    std::lock_guard lock(validation_->mutex);
+    validation_->problems.clear();
 }
 
 std::vector<VkPhysicalDevice> instance::enumerate_physical_devices() const {

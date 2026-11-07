@@ -59,4 +59,6 @@ TEST_CASE("gfx_device_vegpu_override") {
     auto hit = ve::gfx::device::create(*inst);
     REQUIRE(hit.has_value());
     unsetenv("VE_GPU");
+
+    gfx_test::check_clean_validation(*inst);
 }

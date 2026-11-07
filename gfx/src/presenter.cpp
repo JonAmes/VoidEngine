@@ -183,7 +183,7 @@ offscreen_presenter::offscreen_presenter(offscreen_presenter&& other) noexcept
 
 namespace {
 
-VkCommandBuffer alloc_one_shot(VkDevice device, VkCommandPool pool) {
+VkCommandBuffer alloc_cmd(VkDevice device, VkCommandPool pool) {
     const VkCommandBufferAllocateInfo ai{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .pNext = nullptr,
@@ -193,19 +193,35 @@ VkCommandBuffer alloc_one_shot(VkDevice device, VkCommandPool pool) {
     };
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     vkAllocateCommandBuffers(device, &ai, &cmd);
-    if (cmd != VK_NULL_HANDLE) {
-        const VkCommandBufferBeginInfo bi{
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .pNext = nullptr,
-            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-            .pInheritanceInfo = nullptr,
-        };
-        vkBeginCommandBuffer(cmd, &bi);
+    return cmd;
+}
+
+VkResult begin_one_shot(VkCommandBuffer cmd) {
+    const VkCommandBufferBeginInfo bi{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .pNext = nullptr,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        .pInheritanceInfo = nullptr,
+    };
+    return vkBeginCommandBuffer(cmd, &bi);
+}
+
+// Allocate AND begin: for internal one-op uses (clear, capture) whose
+// caller never touches the buffer. The frame helper begin_command() must
+// NOT use this — it would begin twice (VUID-vkBeginCommandBuffer-...-00049).
+VkCommandBuffer alloc_one_shot(VkDevice device, VkCommandPool pool) {
+    VkCommandBuffer cmd = alloc_cmd(device, pool);
+    if (cmd != VK_NULL_HANDLE && begin_one_shot(cmd) != VK_SUCCESS) {
+        vkFreeCommandBuffers(device, pool, 1, &cmd);
+        return VK_NULL_HANDLE;
     }
     return cmd;
 }
 
-void submit_and_wait(VkQueue queue, VkCommandBuffer cmd) { // QueueWaitIdle covers this queue's work
+void submit_and_wait(VkQueue queue, VkCommandBuffer cmd) {
+    // End + submit + wait only: whoever allocated the buffer frees it
+    // (double-free is a validation failure, proven by the strict messenger).
+    // QueueWaitIdle covers this queue's work.
     vkEndCommandBuffer(cmd);
     const VkSubmitInfo si{
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -276,17 +292,12 @@ bool offscreen_presenter::clear(const float rgba[4]) {
 // --- Tier-2 frame helpers: presenter-owned layout transitions -------------
 
 VkCommandBuffer offscreen_presenter::begin_command() {
-    VkCommandBuffer cmd = alloc_one_shot(device_, pool_);
+    // alloc + exactly one begin (alloc_one_shot would begin a second time).
+    VkCommandBuffer cmd = alloc_cmd(device_, pool_);
     if (cmd == VK_NULL_HANDLE) {
         return cmd;
     }
-    const VkCommandBufferBeginInfo bi{
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .pInheritanceInfo = nullptr,
-    };
-    if (vkBeginCommandBuffer(cmd, &bi) != VK_SUCCESS) {
+    if (begin_one_shot(cmd) != VK_SUCCESS) {
         vkFreeCommandBuffers(device_, pool_, 1, &cmd);
         return VK_NULL_HANDLE;
     }

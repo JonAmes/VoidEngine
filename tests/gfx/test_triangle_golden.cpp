@@ -353,4 +353,8 @@ void main() { outColor = vec4(col, 1.0); }
 
     vkDestroyPipeline(dev->handle(), pipe, nullptr);
     vkDestroyPipelineLayout(dev->handle(), layout, nullptr);
+
+    // The Tier-2 golden gate doubles as a strict-validation gate: a triangle
+    // that "works" with a pile of validation problems is not green.
+    gfx_test::check_clean_validation(*inst);
 }

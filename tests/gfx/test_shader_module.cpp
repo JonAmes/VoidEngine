@@ -77,4 +77,6 @@ TEST_CASE("gfx_shader_module") {
     odd.push_back(0u);
     auto todd = ve::gfx::shader_module::create(*dev, odd);
     REQUIRE_FALSE(todd.has_value());
+
+    gfx_test::check_clean_validation(*inst);
 }

@@ -57,4 +57,6 @@ TEST_CASE("gfx_offscreen_target") {
     CHECK(px2[1] == 255u);
     CHECK(px2[2] == 0u);
     CHECK(px2[3] == 255u);
+
+    gfx_test::check_clean_validation(*inst);
 }

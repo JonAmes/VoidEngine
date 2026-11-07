@@ -1,8 +1,24 @@
 #pragma once
+#include <doctest/doctest.h>
+#include <ve/gfx/instance.h>
+
 #include <cstdlib>
 #include <filesystem>
+#include <string>
 
 namespace gfx_test {
+
+// The 2.7 failure policy, made visible: when the strict messenger recorded
+// anything, the failure prints the actual VUID messages at the call site —
+// never a bare "false".
+inline void check_clean_validation(const ve::gfx::instance& inst) {
+    const auto problems = inst.validation_problems();
+    std::string dump;
+    for (const auto& p : problems) {
+        dump += "\n  " + p;
+    }
+    CHECK_MESSAGE(problems.empty(), "validation problems:\n" << dump);
+}
 
 // Decision #35: Tier-2 gfx tests run on lavapipe — deterministic software
 // Vulkan, no display, and it never touches the inference GPUs (3090/P5000).

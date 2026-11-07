@@ -31,4 +31,8 @@ TEST_CASE("gfx_device_enumerate") {
     vkGetPhysicalDeviceProperties(devices[0], &props);
     CHECK(std::string(props.deviceName).find("llvmpipe") != std::string::npos);
     CHECK(props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU);
+
+    // 2.7: merely existing validated is not enough — the strict messenger
+    // must have seen zero ERROR/WARNING while we poked the API.
+    gfx_test::check_clean_validation(*inst);
 }
