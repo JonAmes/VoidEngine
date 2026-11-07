@@ -1,5 +1,4 @@
 #pragma once
-#include <ve/gfx/device.h>
 #include <ve/gfx/presenter.h>
 
 #include <cstdint>
@@ -9,33 +8,31 @@
 
 namespace ve::gfx {
 
-// Desktop WSI presenter (2.8). AGENTS boundary 3 holds exactly as it does
-// for the offscreen presenter: the pass renders into a *presenter-owned
-// render target*; present() BLITS that RT into the swapchain image acquired
-// for the frame. The swapchain is just another target — a pass never sees a
-// swapchain image, and nothing outside this class ever reads one ("backbuffer"
-// never leaks upstream). The seam from 2.4 is untouched: begin_command/
-// begin_pass/end_pass/submit are identical to offscreen_presenter's.
+// Desktop WSI presenter (2.8) — the second presenter behind the 2.4 seam, and
+// the ONLY thing in the engine that ever touches a swapchain (AGENTS boundary 3
+// + Phase 2 note). The rule that keeps the seam honest: a render pass sees
+// color_view(), which here is a presenter-owned render target, never a swapchain
+// image. "Presenting" means this class blits that target into a swapchain image
+// it acquired itself. Nothing upstream ever learns a swapchain exists — which is
+// exactly why the same passes will drive OpenXR later (Presenter is the seam).
 //
-// Frame model = offscreen's Tier-2 simplification (2.10 brings real
-// fences/semaphores): exactly one frame in flight, submit() waits its queue.
-// Present mode is FIFO unconditionally (never assume mailbox, never force
-// tearing). surface_lost() reports OUT_OF_DATE/SUBOPTIMAL — on desktop that
-// means "the window resized": poll_events, framebuffer_size, recreate().
+// Swapchain policy (checklist 2.8): FIFO (the one present mode Vulkan guarantees
+// exists), one frame in flight, and the swapchain format IS the render-target
+// format — blits require format-compatible images, and UNORM vs SRGB of the same
+// channel layout is not format-compatible, so choosing one format everywhere
+// removes a whole class of driver-dependent blit validation.
 //
-// #38: VkSurfaceKHR comes from platform/window.cpp (GLFW on Linux, its
-// Windows twin later); from here up everything is VK_KHR_surface/volk —
-// no GLFW, no X11, no windows.h anywhere in gfx/.
+// CI stance: a window needs a desktop seat, so none of this RUNS in CI (decision
+// #36). It compiles in CI (ve_gfx always builds this TU + the gfx_wsi_compile_gate
+// case pins the seam), and 2.9 exercises it for real under Xvfb + lavapipe.
 class wsi_presenter final : public presenter {
 public:
-    // The device's graphics queue family must be present-capable on this
-    // surface (checked at create — desktop families always are; a queue
-    // split would arrive with the XR presenter in platform/xr, not here).
-    // req_w/req_h are used only when the window system advertises no
-    // current extent; the extent is then clamped to surface capabilities.
+    // surface comes from ve::platform::window::create_surface(). The caller owns
+    // it: it must outlive this presenter and be destroyed before the VkInstance.
+    // dev must have been created WITH that surface (device::create takes it) so
+    // VK_KHR_swapchain is enabled and the queue is present-capable.
     static std::expected<wsi_presenter, std::string> create(
-        const device& dev, VkSurfaceKHR surface,
-        std::uint32_t req_w, std::uint32_t req_h);
+        const device& dev, VkSurfaceKHR surface, std::uint32_t width, std::uint32_t height);
 
     ~wsi_presenter() override;
     wsi_presenter(const wsi_presenter&) = delete;
@@ -43,70 +40,77 @@ public:
     wsi_presenter(wsi_presenter&& other) noexcept;
     wsi_presenter& operator=(wsi_presenter&& other) noexcept;
 
-    // The pass target is the RT — never a swapchain image (see header note).
+    // --- presenter seam: the pass renders into the RT below, never the swapchain.
     VkImageView color_view() const override { return rt_view_; }
     VkFormat color_format() const override { return format_; }
     std::uint32_t width() const override { return width_; }
     std::uint32_t height() const override { return height_; }
+    std::vector<std::uint8_t> capture_rgba8() override; // RT readback, as Tier 2
 
-    // Readback of the RT (works headless-ish: no compositor round-trip).
-    std::vector<std::uint8_t> capture_rgba8() override;
+    // --- frame loop: one frame in flight. 2.10 replaces this fence discipline
+    // with presenter-independent sync at the same call sites.
+    std::expected<std::uint32_t, std::string> acquire(); // index + image_available_ signaled
+    VkCommandBuffer begin_command();                     // from the internal pool
+    bool begin_pass(VkCommandBuffer cmd);                // RT current -> COLOR_ATTACHMENT
+    bool end_pass(VkCommandBuffer cmd);                  // RT -> TRANSFER_SRC (blit-ready)
+    bool present(VkCommandBuffer cmd);                   // blit RT -> image, present, fence armed
 
-    // Frame helpers mirror offscreen_presenter — a render pass may be written
-    // against EITHER presenter without change (the whole point of 2.4).
-    VkCommandBuffer begin_command();
-    bool begin_pass(VkCommandBuffer cmd);          // RT -> COLOR_ATTACHMENT_OPTIMAL
-    bool end_pass(VkCommandBuffer cmd);            // RT -> TRANSFER_SRC_OPTIMAL
-    bool submit(VkCommandBuffer cmd);              // end + submit + wait (one in flight)
+    // Resize / stale-surface rebuild ("resize → VB + recreate"): the 2.6 pipeline
+    // keeps viewport+scissor DYNAMIC and its vertex data in NDC, so a resize
+    // rebuilds the swapchain, the RT and their views — no pipeline or vertex
+    // buffer re-upload. Returns false if the surface cannot be rebuilt.
+    bool recreate(std::uint32_t width, std::uint32_t height);
 
-    // acquire -> barrier -> blit RT->image -> barrier -> submit+wait -> FIFO
-    // present. OUT_OF_DATE/SUBOPTIMAL (acquire or present) set surface_lost()
-    // and still return true — the frame was skipped or shown, and the
-    // swapchain needs recreate(). Hard failures return false.
-    bool present();
-    bool surface_lost() const { return surface_lost_; }
-
-    // Resize path (2.9 demo loop): rebuild swapchain AND the RT together at
-    // the new extent. Call with no frame in flight — submit()/present()
-    // waited everything, and this waits again as a belt.
-    bool recreate(std::uint32_t req_w, std::uint32_t req_h);
+    // True once the swapchain reports OUT_OF_DATE/SUBOPTIMAL: the frame loop must
+    // call recreate() before the next acquire. Never silent — acquire()/present()
+    // set it and say so in their messages.
+    bool needs_recreate() const { return stale_; }
 
 private:
     wsi_presenter() = default;
 
-    // (Re)build swapchain + images/views + RT + readback at the clamped
-    // extent. Shared by create() and recreate(). Fills err on failure.
-    // Memory types come from physical_ (stored), so recreate needs nothing
-    // but the requested extent.
-    bool build(std::uint32_t req_w, std::uint32_t req_h, std::string& err);
-    void destroy_targets() noexcept; // everything except surface_/pool_
-    bool make_rt(std::string& err);
-    bool make_readback(std::string& err);
+    bool create_targets(std::uint32_t width, std::uint32_t height, std::string& err);
+    void destroy_targets();
+    bool create_sync(std::string& err);
+    void destroy_sync();
 
     VkDevice device_ = VK_NULL_HANDLE;
     VkPhysicalDevice physical_ = VK_NULL_HANDLE;
-    VkQueue queue_ = VK_NULL_HANDLE;
+    VkQueue queue_ = VK_NULL_HANDLE; // the present-capable queue (one queue, 2.8)
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
 
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
-    std::vector<VkImage> swapchain_images_;        // owned by the swapchain
-    std::vector<VkImageView> swapchain_views_;     // ours; never handed out
+    std::vector<VkImage> swapchain_images_; // owned by the swapchain, never by us
+    std::vector<VkImageView> swapchain_views_;
 
-    // The presenter's real render target (what color_view() exposes).
+    // The render target a pass actually writes (the seam from 2.4, unchanged).
     VkImage rt_ = VK_NULL_HANDLE;
     VkDeviceMemory rt_memory_ = VK_NULL_HANDLE;
     VkImageView rt_view_ = VK_NULL_HANDLE;
+
     VkBuffer readback_ = VK_NULL_HANDLE;
     VkDeviceMemory readback_memory_ = VK_NULL_HANDLE;
+    VkDeviceSize readback_size_ = 0; // width*height*4, recomputed by create_targets
     VkCommandPool pool_ = VK_NULL_HANDLE;
+    std::uint32_t queue_family_ = 0; // the family queue_ came from (pools are per-family)
 
-    // Layout bookkeeping, presenter-owned (a pass may never barrier this).
-    // RT starts UNDEFINED; submits leave it TRANSFER_SRC (blit source).
+
+    VkSemaphore image_available_ = VK_NULL_HANDLE; // acquire -> blit
+    VkSemaphore render_finished_ = VK_NULL_HANDLE; // blit -> present
+    VkFence frame_fence_ = VK_NULL_HANDLE;         // blit completion (one in flight)
+
+    // Layout bookkeeping, same doctrine as offscreen_presenter: the presenter
+    // owns its image's transitions, a pass may never barrier the target.
     VkImageLayout rt_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
     VkFormat format_ = VK_FORMAT_UNDEFINED;
-    std::uint32_t width_ = 0;   // swapchain extent == RT extent, always
+    VkColorSpaceKHR color_space_ = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+
+    std::uint32_t width_ = 0;
     std::uint32_t height_ = 0;
-    bool surface_lost_ = false;
+    std::uint32_t current_ = 0; // the image index acquire() handed out
+    bool acquired_ = false;     // holding an image between acquire and present
+    bool in_flight_ = false;    // a blit is outstanding (fence not yet waited)
+    bool stale_ = false;        // recreate() required before the next frame
 };
 
 } // namespace ve::gfx

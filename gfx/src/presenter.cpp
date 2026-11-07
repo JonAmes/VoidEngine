@@ -1,11 +1,26 @@
 #include <ve/gfx/presenter.h>
 
-#include "cmd_helpers.h"
-
 #include <optional>
 #include <utility>
 
 namespace ve::gfx {
+
+namespace {
+
+std::optional<std::uint32_t> find_memory_type(const device& dev, std::uint32_t type_bits,
+                                              VkMemoryPropertyFlags wanted) {
+    VkPhysicalDeviceMemoryProperties mem_props{};
+    vkGetPhysicalDeviceMemoryProperties(dev.physical(), &mem_props);
+    for (std::uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
+        if ((type_bits & (1u << i)) != 0u &&
+            (mem_props.memoryTypes[i].propertyFlags & wanted) == wanted) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
+
+} // namespace
 
 std::expected<offscreen_presenter, std::string> offscreen_presenter::create(
     const device& dev, std::uint32_t width, std::uint32_t height, VkFormat format) {
@@ -43,8 +58,7 @@ std::expected<offscreen_presenter, std::string> offscreen_presenter::create(
 
     VkMemoryRequirements image_reqs{};
     vkGetImageMemoryRequirements(out.device_, out.image_, &image_reqs);
-    const auto image_mt = find_memory_type(dev.physical(), image_reqs.memoryTypeBits,
-                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    const auto image_mt = find_memory_type(dev, image_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     if (!image_mt) {
         vkDestroyImage(out.device_, out.image_, nullptr);
         return std::unexpected("no DEVICE_LOCAL memory type for color image");
@@ -99,8 +113,7 @@ std::expected<offscreen_presenter, std::string> offscreen_presenter::create(
     // HOST_COHERENT: readback is read right after QueueWaitIdle — coherent
     // removes cache-flush bookkeeping from the Tier-2 path entirely.
     const auto buf_mt = find_memory_type(
-        dev.physical(), buf_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        dev, buf_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     if (!buf_mt) {
         vkDestroyBuffer(out.device_, out.readback_, nullptr);
         vkDestroyImageView(out.device_, out.view_, nullptr);
@@ -168,8 +181,64 @@ offscreen_presenter::offscreen_presenter(offscreen_presenter&& other) noexcept
       width_(other.width_),
       height_(other.height_) {}
 
-// Command-buffer + submit helpers live in cmd_helpers.h (shared with the
-// WSI presenter — the 2.7 double-begin lesson, kept in ONE place).
+namespace {
+
+VkCommandBuffer alloc_cmd(VkDevice device, VkCommandPool pool) {
+    const VkCommandBufferAllocateInfo ai{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .commandPool = pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    vkAllocateCommandBuffers(device, &ai, &cmd);
+    return cmd;
+}
+
+VkResult begin_one_shot(VkCommandBuffer cmd) {
+    const VkCommandBufferBeginInfo bi{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .pNext = nullptr,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        .pInheritanceInfo = nullptr,
+    };
+    return vkBeginCommandBuffer(cmd, &bi);
+}
+
+// Allocate AND begin: for internal one-op uses (clear, capture) whose
+// caller never touches the buffer. The frame helper begin_command() must
+// NOT use this — it would begin twice (VUID-vkBeginCommandBuffer-...-00049).
+VkCommandBuffer alloc_one_shot(VkDevice device, VkCommandPool pool) {
+    VkCommandBuffer cmd = alloc_cmd(device, pool);
+    if (cmd != VK_NULL_HANDLE && begin_one_shot(cmd) != VK_SUCCESS) {
+        vkFreeCommandBuffers(device, pool, 1, &cmd);
+        return VK_NULL_HANDLE;
+    }
+    return cmd;
+}
+
+void submit_and_wait(VkQueue queue, VkCommandBuffer cmd) {
+    // End + submit + wait only: whoever allocated the buffer frees it
+    // (double-free is a validation failure, proven by the strict messenger).
+    // QueueWaitIdle covers this queue's work.
+    vkEndCommandBuffer(cmd);
+    const VkSubmitInfo si{
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext = nullptr,
+        .waitSemaphoreCount = 0,
+        .pWaitSemaphores = nullptr,
+        .pWaitDstStageMask = nullptr,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &cmd,
+        .signalSemaphoreCount = 0,
+        .pSignalSemaphores = nullptr,
+    };
+    vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE);
+    vkQueueWaitIdle(queue);
+}
+
+} // namespace
 
 bool offscreen_presenter::clear(const float rgba[4]) {
     const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};

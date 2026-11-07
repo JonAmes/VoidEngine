@@ -1,136 +1,134 @@
-// The ONLY file in the repo that includes GLFW (AGENTS boundary 2's twin for
-// windowing, per header notes in ve/platform/window.h). Everything above
-// this seam sees VkSurfaceKHR + VK_KHR_surface — #38's Windows port swaps
-// this file's guts for glfwWin32 equivalents (same GLFW API there anyway).
 #include <ve/platform/window.h>
 
+// Include order matters: GLFW declares glfwCreateWindowSurface / glfwInitVulkanLoader
+// only under '#if defined(VK_VERSION_1_0)', and it only pulls <vulkan/vulkan.h> in
+// itself when GLFW_INCLUDE_VULKAN is set. volk.h (via window.h) already put the
+// Vulkan headers up, so GLFW's Vulkan API is visible without that define — and we
+// never need GLFW_INCLUDE_VULKAN, which would demand an SDK header path here.
 #include <GLFW/glfw3.h>
 
-#include <string>
+#include <algorithm>
 #include <utility>
 
 namespace ve::platform {
 
 namespace {
 
-// glfwInit/glfwTerminate are process-wide; refcount so multiple windows
-// (or tools coexisting) don't trample each other's lifecycle. Global state
-// like this is banned in core/ — platform/ is its designated home.
-int glfw_live_count = 0;
+// GLFW reports init/window failures asynchronously through this callback; the
+// last message is the only actionable half of a failed create(). A file-local
+// sink inside platform/ — nothing in core/ or gfx/ reads it, so it is not
+// engine state (AGENTS: no global mutable state in core/).
+const char* last_glfw_error = "(no glfw error reported)";
 
-GLFWwindow* as_glfw(void* h) { return static_cast<GLFWwindow*>(h); }
+void on_glfw_error(int /*code*/, const char* description) {
+    last_glfw_error = description != nullptr ? description : "(no description)";
+}
 
-std::string glfw_error_text() {
-    const char* desc = nullptr;
-    const int code = glfwGetError(&desc);
-    return "glfw error code=" + std::to_string(code) + " " + (desc != nullptr ? desc : "(no description)");
+GLFWwindow* as_glfw(void* handle) {
+    return static_cast<GLFWwindow*>(handle);
 }
 
 } // namespace
 
-std::vector<std::string> window::required_instance_extensions() {
-    // GLFW answers this WITHOUT glfwInit and without a window system (its
-    // docs guarantee the call): the list is baked at GLFW build time
-    // (xlib here, win32 on Windows — #38). Empty on boxes where GLFW could
-    // not even talk to a Vulkan loader; callers must handle empty.
-    std::uint32_t count = 0;
-    const char** raw = glfwGetRequiredInstanceExtensions(&count);
-    std::vector<std::string> out;
-    if (raw != nullptr) {
-        out.assign(raw, raw + count);
+std::expected<window, std::string> window::create(int width, int height, const char* title) {
+    glfwSetErrorCallback(on_glfw_error);
+    if (glfwInit() == GLFW_FALSE) {
+        return std::unexpected(std::string("glfwInit failed: ") + last_glfw_error);
     }
-    return out;
-}
 
-std::expected<window, std::string> window::create(std::uint32_t width, std::uint32_t height,
-                                                  const char* title) {
-    if (glfw_live_count == 0 && glfwInit() != GLFW_TRUE) {
-        return std::unexpected("glfwInit failed: " + glfw_error_text());
-    }
-    ++glfw_live_count;
-
-    // No OpenGL context, ever: this engine speaks Vulkan; GLFW only makes
-    // the window + VkSurfaceKHR.
+    // No client GL context: this window exists for a Vulkan surface, and a GL
+    // context would silently make the driver promise things we never use.
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    // Resizable on purpose — the resize -> recreate path in the WSI presenter is
+    // only testable by hand if the window can actually change size.
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    GLFWwindow* handle = glfwCreateWindow(static_cast<int>(width), static_cast<int>(height),
-                                          title, nullptr, nullptr);
+
+    GLFWwindow* handle = glfwCreateWindow(width, height, title, nullptr, nullptr);
     if (handle == nullptr) {
-        const std::string err = "glfwCreateWindow failed: " + glfw_error_text();
-        if (--glfw_live_count == 0) {
-            glfwTerminate();
-        }
-        return std::unexpected(err);
+        const std::string why = last_glfw_error;
+        glfwTerminate(); // GLFW came up; the window did not. Put GLFW back down.
+        return std::unexpected(std::string("glfwCreateWindow failed: ") + why);
     }
 
     window out;
-    out.handle_ = handle;
+    out.glfw_ = handle;
     return out;
 }
 
 window::~window() {
-    if (handle_ == nullptr) {
-        return;
-    }
-    glfwDestroyWindow(as_glfw(handle_));
-    if (--glfw_live_count == 0) {
+    if (glfw_ != nullptr) {
+        glfwDestroyWindow(as_glfw(glfw_));
+        // One window per process for Phase 2: GLFW is a process-wide singleton,
+        // so teardown is paired here rather than at some later app-level exit.
         glfwTerminate();
+        glfw_ = nullptr;
     }
 }
 
-window::window(window&& other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+window::window(window&& other) noexcept : glfw_(std::exchange(other.glfw_, nullptr)) {}
 
 window& window::operator=(window&& other) noexcept {
     if (this != &other) {
-        if (handle_ != nullptr) {
-            glfwDestroyWindow(as_glfw(handle_));
-            if (--glfw_live_count == 0) {
-                glfwTerminate();
-            }
+        if (glfw_ != nullptr) {
+            glfwDestroyWindow(as_glfw(glfw_));
+            glfwTerminate();
         }
-        handle_ = std::exchange(other.handle_, nullptr);
+        glfw_ = std::exchange(other.glfw_, nullptr);
     }
     return *this;
 }
 
-bool window::should_close() const {
-    return handle_ != nullptr && glfwWindowShouldClose(as_glfw(handle_)) != 0;
-}
-
-void window::close() {
-    if (handle_ != nullptr) {
-        glfwSetWindowShouldClose(as_glfw(handle_), GLFW_TRUE);
+std::vector<std::string> window::required_instance_extensions() const {
+    std::vector<std::string> out;
+    if (glfw_ == nullptr) {
+        return out;
     }
-}
-
-void window::poll_events() const {
-    glfwPollEvents();
-}
-
-std::pair<std::uint32_t, std::uint32_t> window::framebuffer_size() const {
-    int w = 0;
-    int h = 0;
-    glfwGetFramebufferSize(as_glfw(handle_), &w, &h); // pixel size, not CSS-ish window size
-    return {static_cast<std::uint32_t>(w), static_cast<std::uint32_t>(h)};
+    std::uint32_t count = 0;
+    const char** names = glfwGetRequiredInstanceExtensions(&count);
+    if (names == nullptr) {
+        return out; // no WSI on this platform/backend — caller must not ask for a surface
+    }
+    out.reserve(count);
+    for (std::uint32_t i = 0; i < count; ++i) {
+        out.emplace_back(names[i]);
+    }
+    return out;
 }
 
 std::expected<VkSurfaceKHR, std::string> window::create_surface(VkInstance instance) const {
-    if (handle_ == nullptr) {
-        return std::unexpected("window is dead");
-    }
-    if (glfwVulkanSupported() != GLFW_TRUE) {
-        return std::unexpected("glfwVulkanSupported: no Vulkan loader or WSI support in GLFW");
+    if (glfw_ == nullptr) {
+        return std::unexpected("window is not live");
     }
     VkSurfaceKHR surface = VK_NULL_HANDLE;
-    // The one GLFW→Vulkan call in the codebase. Everything gfx does with
-    // the result is VK_KHR_surface via volk (OS-neutral, #38). Note the
-    // GLFW argument order (instance first — unlike the native-* functions).
-    const VkResult r = glfwCreateWindowSurface(instance, as_glfw(handle_), nullptr, &surface);
-    if (r != VK_SUCCESS) {
-        return std::unexpected("glfwCreateWindowSurface: VkResult(" +
-                               std::to_string(static_cast<int>(r)) + ")");
+    if (const VkResult r = glfwCreateWindowSurface(instance, as_glfw(glfw_), nullptr, &surface);
+        r != VK_SUCCESS) {
+        return std::unexpected("glfwCreateWindowSurface failed: VkResult(" +
+                               std::to_string(static_cast<int>(r)) +
+                               ") — is every required_instance_extensions() name on the VkInstance?");
     }
     return surface;
+}
+
+bool window::should_close() const {
+    return glfw_ != nullptr && glfwWindowShouldClose(as_glfw(glfw_)) == GLFW_TRUE;
+}
+
+void window::poll_events() {
+    if (glfw_ != nullptr) {
+        glfwPollEvents();
+    }
+}
+
+std::pair<std::uint32_t, std::uint32_t> window::frame_size() const {
+    int width = 0;
+    int height = 0;
+    if (glfw_ != nullptr) {
+        glfwGetFramebufferSize(as_glfw(glfw_), &width, &height);
+    }
+    // A minimized window reports 0; the swapchain extent is never allowed to go
+    // below 1x1, so the floor lands here rather than in the presenter.
+    const auto clamp = [](int v) { return static_cast<std::uint32_t>(std::max(v, 1)); };
+    return {clamp(width), clamp(height)};
 }
 
 } // namespace ve::platform

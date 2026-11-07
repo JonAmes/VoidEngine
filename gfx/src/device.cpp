@@ -21,9 +21,26 @@ bool name_contains(const VkPhysicalDeviceProperties& props, const std::string& n
     return to_lower(props.deviceName).find(needle_lower) != std::string::npos;
 }
 
+// Device-level extension probe (2.8): VK_KHR_swapchain must be offered before we
+// ask for it, so a driver that cannot swapchain fails with its own name in the
+// message instead of a bare VK_ERROR_EXTENSION_NOT_PRESENT from vkCreateDevice.
+bool device_extension_available(VkPhysicalDevice phys, const char* wanted) {
+    std::uint32_t count = 0;
+    if (vkEnumerateDeviceExtensionProperties(phys, nullptr, &count, nullptr) != VK_SUCCESS) {
+        return false;
+    }
+    std::vector<VkExtensionProperties> exts(count);
+    if (vkEnumerateDeviceExtensionProperties(phys, nullptr, &count, exts.data()) != VK_SUCCESS) {
+        return false;
+    }
+    return std::any_of(exts.begin(), exts.end(), [wanted](const VkExtensionProperties& e) {
+        return std::string(e.extensionName) == wanted;
+    });
+}
+
 } // namespace
 
-std::expected<device, std::string> device::create(const instance& inst) {
+std::expected<device, std::string> device::create(const instance& inst, VkSurfaceKHR surface) {
     const auto devices = inst.enumerate_physical_devices();
     if (devices.empty()) {
         return std::unexpected("no Vulkan physical devices visible");
@@ -84,6 +101,35 @@ std::expected<device, std::string> device::create(const instance& inst) {
         return std::unexpected("device '" + std::string(props.deviceName) + "' has no graphics queue");
     }
 
+    // 2.8: with a surface the graphics family must also be able to present.
+    // Phase 2 keeps ONE queue for both jobs (device.h): a family that presents
+    // but has no graphics bit — or a graphics family that cannot present — is a
+    // clean failure naming the split, never a silently added second queue. A
+    // split queue would change what 2.10's frame-sync machinery has to
+    // coordinate, so it is a decision, not an accident waiting to happen.
+    std::uint32_t present_family = VK_QUEUE_FAMILY_IGNORED;
+    std::vector<const char*> device_extensions;
+    if (surface != VK_NULL_HANDLE) {
+        if (!device_extension_available(chosen, VK_KHR_SWAPCHAIN_EXTENSION_NAME)) {
+            return std::unexpected("device '" + std::string(props.deviceName) + "' offers no " +
+                                   VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        }
+        VkBool32 presents = VK_FALSE;
+        if (const VkResult r = vkGetPhysicalDeviceSurfaceSupportKHR(chosen, graphics_family, surface, &presents);
+            r != VK_SUCCESS) {
+            return std::unexpected("vkGetPhysicalDeviceSurfaceSupportKHR failed: VkResult(" +
+                                   std::to_string(static_cast<int>(r)) + ")");
+        }
+        if (presents != VK_TRUE) {
+            return std::unexpected("device '" + std::string(props.deviceName) + "': graphics family " +
+                                   std::to_string(graphics_family) +
+                                   " cannot present to this surface — split graphics/present queues "
+                                   "are not supported yet (Phase 2 runs one queue for both)");
+        }
+        present_family = graphics_family;
+        device_extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    }
+
     const float priority = 1.0f;
     const VkDeviceQueueCreateInfo queue_ci{
         .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -108,8 +154,8 @@ std::expected<device, std::string> device::create(const instance& inst) {
         .pQueueCreateInfos = &queue_ci,
         .enabledLayerCount = 0,
         .ppEnabledLayerNames = nullptr,
-        .enabledExtensionCount = 0,
-        .ppEnabledExtensionNames = nullptr,
+        .enabledExtensionCount = static_cast<std::uint32_t>(device_extensions.size()),
+        .ppEnabledExtensionNames = device_extensions.empty() ? nullptr : device_extensions.data(),
         .pEnabledFeatures = nullptr, // 1.0 baseline stays default; 1.3 chain above
     };
 
@@ -122,13 +168,22 @@ std::expected<device, std::string> device::create(const instance& inst) {
     VkQueue queue = VK_NULL_HANDLE;
     vkGetDeviceQueue(dev, graphics_family, 0, &queue);
 
+    // Same family, same handle: the one-queue-for-both policy verified above.
+    // Kept as a distinct member so a future split-queue design changes one line
+    // here instead of hunting call sites that assumed they were equal.
+    VkQueue present_queue = queue;
+
     device out;
     out.physical_ = chosen;
     out.device_ = dev;
     out.graphics_queue_ = queue;
     out.graphics_family_ = graphics_family;
+    out.present_queue_ = present_queue;
+    out.present_family_ = present_family;
 
-    VE_LOG_INFO("gfx: logical device '%s' (family %u graphics queue)", props.deviceName, graphics_family);
+    VE_LOG_INFO("gfx: logical device '%s' (family %u graphics queue, present %s)", props.deviceName,
+                graphics_family,
+                present_family == VK_QUEUE_FAMILY_IGNORED ? "none (surfaceless)" : "same family");
     return out;
 }
 
@@ -143,7 +198,9 @@ device::device(device&& other) noexcept
     : physical_(std::exchange(other.physical_, VK_NULL_HANDLE)),
       device_(std::exchange(other.device_, VK_NULL_HANDLE)),
       graphics_queue_(std::exchange(other.graphics_queue_, VK_NULL_HANDLE)),
-      graphics_family_(std::exchange(other.graphics_family_, 0)) {}
+      present_queue_(std::exchange(other.present_queue_, VK_NULL_HANDLE)),
+      graphics_family_(std::exchange(other.graphics_family_, 0)),
+      present_family_(std::exchange(other.present_family_, VK_QUEUE_FAMILY_IGNORED)) {}
 
 device& device::operator=(device&& other) noexcept {
     if (this != &other) {
@@ -154,7 +211,9 @@ device& device::operator=(device&& other) noexcept {
         physical_ = std::exchange(other.physical_, VK_NULL_HANDLE);
         device_ = std::exchange(other.device_, VK_NULL_HANDLE);
         graphics_queue_ = std::exchange(other.graphics_queue_, VK_NULL_HANDLE);
+        present_queue_ = std::exchange(other.present_queue_, VK_NULL_HANDLE);
         graphics_family_ = std::exchange(other.graphics_family_, 0);
+        present_family_ = std::exchange(other.present_family_, VK_QUEUE_FAMILY_IGNORED);
     }
     return *this;
 }

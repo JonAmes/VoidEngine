@@ -83,8 +83,8 @@ std::string result_text(VkResult r) {
 
 } // namespace
 
-std::expected<instance, std::string> instance::create(
-    const char* app_name, const std::vector<std::string>& extra_extensions) {
+std::expected<instance, std::string> instance::create(const char* app_name,
+                                                     const std::vector<std::string>& extra_extensions) {
     // Loads instance-independent commands (layer/extension enumeration,
     // vkCreateInstance) through the platform loader. Idempotent by design.
     volkInitialize();
@@ -113,14 +113,23 @@ std::expected<instance, std::string> instance::create(
     // since the layer is required (2.2 policy), the extension is too.
     const VkDebugUtilsMessengerCreateInfoEXT messenger_ci =
         messenger_create_info(validation.get());
-    // debug_utils is unconditional (validation is policy); extras are the
-    // caller's WSI set (2.8: names from GLFW, never hardcoded in gfx/).
-    std::vector<const char*> extensions{
-        kDebugUtilsExt,
-    };
-    for (const auto& e : extra_extensions) {
-        extensions.push_back(e.c_str()); // ci must outlive vkCreateInstance: it does
+
+    // 2.8: WSI instance extensions ride in through extra_extensions (the names
+    // come from GLFW, via platform/). debug_utils is always first and always
+    // deduped, so a caller that hands back the whole GLFW list unchanged cannot
+    // ask for the same extension twice (that is a validation error, not a no-op).
+    std::vector<const char*> extension_names;
+    extension_names.reserve(extra_extensions.size() + 1);
+    extension_names.push_back(kDebugUtilsExt);
+    for (const auto& ext : extra_extensions) {
+        const std::string name(ext);
+        const bool dup = std::any_of(extension_names.begin(), extension_names.end(),
+                                     [&name](const char* existing) { return name == existing; });
+        if (!dup && !name.empty()) {
+            extension_names.push_back(ext.c_str());
+        }
     }
+
     const VkInstanceCreateInfo ci{
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         .pNext = &messenger_ci,
@@ -128,8 +137,8 @@ std::expected<instance, std::string> instance::create(
         .pApplicationInfo = &app,
         .enabledLayerCount = 1,
         .ppEnabledLayerNames = &kValidationLayer,
-        .enabledExtensionCount = static_cast<std::uint32_t>(extensions.size()),
-        .ppEnabledExtensionNames = extensions.data(),
+        .enabledExtensionCount = static_cast<std::uint32_t>(extension_names.size()),
+        .ppEnabledExtensionNames = extension_names.data(),
     };
 
     VkInstance handle = VK_NULL_HANDLE;
