@@ -98,6 +98,29 @@ template <typename T> inline mat4<T> rotation_z(T a) {
     return mat4<T>{std::array<T,16>{c,s,T(0),T(0),  -s,c,T(0),T(0),  T(0),T(0),T(1),T(0),  T(0),T(0),T(0),T(1)}};
 }
 
+// Right-handed view matrix (camera at eye looking at target; the camera's
+// forward is -Z of view space, decision #34). Up-parallel-to-forward is the
+// polar degenerate case: we fall back to the world axis least aligned with
+// forward instead of producing NaN (camera looking straight up/down must work).
+template <typename PosT>
+mat4<PosT> look_at_rh(vec3<PosT> eye, vec3<PosT> target, vec3<PosT> up) {
+    const vec3<PosT> f = normalize(target - eye);              // forward
+    vec3<PosT> up_try = up;
+    if (length(cross(f, up_try)) < PosT(1e-6)) {               // degenerate up
+        up_try = (std::abs(f.y) < PosT(0.9)) ? vec3<PosT>{0, PosT(1), 0}
+                                             : vec3<PosT>{PosT(1), 0, 0};
+    }
+    const vec3<PosT> s = normalize(cross(f, up_try));          // right (== #34 right_of sense)
+    const vec3<PosT> u = cross(-f, s);                         // camera up
+    mat4<PosT> r = mat4<PosT>::zero();
+    // rows: [s | -dot(s,e)], [u | -dot(u,e)], [-f | dot(f,e)] (column-major store)
+    r.m[0]=s.x;  r.m[4]=s.y;  r.m[8]=s.z;   r.m[12]=-dot(s, eye);
+    r.m[1]=u.x;  r.m[5]=u.y;  r.m[9]=u.z;   r.m[13]=-dot(u, eye);
+    r.m[2]=-f.x; r.m[6]=-f.y; r.m[10]=-f.z; r.m[14]= dot(f, eye);
+    r.m[15]=PosT(1);
+    return r;
+}
+
 template <typename T> constexpr mat4<T> transpose(const mat4<T>& a) {
     mat4<T> r = mat4<T>::zero();
     for (int c = 0; c < 4; ++c)

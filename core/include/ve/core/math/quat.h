@@ -176,10 +176,62 @@ template <typename T>
 quat<T> slerp(quat<T> a, quat<T> b, T t) {
     if (dot(a, b) < T(0)) { b = {-b.x, -b.y, -b.z, -b.w}; }   // shortest arc
     T d = dot(a, b);
-    if (d > T(0.9995)) return normalize(a + (b - a) * t);      // linear near-parallel
+    if (d > T(0.9995)) return nlerp(a, b, t);                 // linear near-parallel
     const T theta = std::acos(d > T(1) ? T(1) : d), sth = std::sin(theta);
     const T w1 = std::sin((T(1) - t) * theta) / sth, w2 = std::sin(t * theta) / sth;
     return {a.x*w1 + b.x*w2, a.y*w1 + b.y*w2, a.z*w1 + b.z*w2, a.w*w1 + b.w*w2};
+}
+
+// Normalized linear interpolation — cheap stand-in when angular deltas are
+// small (camera smoothing, attachment blending). Cheaper than slerp,
+// visually identical under ~10 deg.
+template <typename T>
+quat<T> nlerp(quat<T> a, quat<T> b, T t) {
+    if (dot(a, b) < T(0)) b = {-b.x, -b.y, -b.z, -b.w};   // shortest arc
+    return normalize(a + (b - a) * t);
+}
+
+// ---- TRS decompose / compose (authored node matrices from glTF cook) ----
+template <typename T>
+struct trs { vec3<T> position{}; quat<T> rotation{}; vec3<T> scale{T(1), T(1), T(1)}; };
+using trsf = trs<float>;
+using trsd = trs<double>;
+
+// M = T * R * S (same order as everything else). A negative-determinant
+// block (mirrored authoring, legal in glTF) is folded into scale.x < 0;
+// zero-scale columns are degenerate -> nullopt.
+template <typename T>
+std::optional<trs<T>> trs_decompose(const mat4<T>& m) {
+    vec3<T> sx = m.basis_x(), sy = m.basis_y(), sz = m.basis_z();
+    const T lx = length(sx), ly = length(sy), lz = length(sz);
+    if (lx == T(0) || ly == T(0) || lz == T(0)) return std::nullopt;
+    // rotation block = columns / scale; check it ORTHONORMALIZES (a shear
+    // cannot TRS-decompose and must be reported, not silently approximated)
+    sx = sx / lx; sy = sy / ly; sz = sz / lz;
+    constexpr T kOrthEps = T(1e-4);
+    if (!approximately_equal(dot(sx, sy), T(0), kOrthEps) ||
+        !approximately_equal(dot(sy, sz), T(0), kOrthEps) ||
+        !approximately_equal(dot(sz, sx), T(0), kOrthEps))
+        return std::nullopt;
+    trs<T> out;
+    out.position = m.basis_translation();
+    out.scale = {lx, ly, lz};
+    const T det3 = dot(sx, cross(sy, sz));
+    if (det3 < T(0)) { out.scale.x = -lx; sx = sx * T(-1); }  // mirror -> negative x scale
+    // build orthonormal mat to reuse Shepperd extraction
+    mat4<T> r;
+    r.m[0]=sx.x; r.m[1]=sx.y; r.m[2]=sx.z;
+    r.m[4]=sy.x; r.m[5]=sy.y; r.m[6]=sy.z;
+    r.m[8]=sz.x; r.m[9]=sz.y; r.m[10]=sz.z;
+    auto q = quat_from_mat4(r);
+    if (!q) return std::nullopt;
+    out.rotation = *q;
+    return out;
+}
+
+template <typename T>
+mat4<T> trs_compose(const trs<T>& t) {
+    return translation(t.position) * to_mat4(t.rotation) * scale(t.scale);
 }
 
 // Integrate body angular velocity (rad/s, BODY frame) over one step:

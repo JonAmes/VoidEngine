@@ -131,3 +131,50 @@ TEST_CASE("math_rig_frames") {
         qd = integrate_angular(qd, vec3f(0.1f, 0.2f, 0.05f), 0.016f);
     CHECK(approximately_equal(length2(qd), 1.f, 1e-5f));
 }
+
+TEST_CASE("math_frame_change") {
+    // look_at_rh: camera at (5,0,0) looking at origin, up +Y.
+    // view-space pins: eye -> origin; target -> straight ahead (0,0,-5);
+    // a point above the target is +y in view; +Z world is to the LEFT
+    // (camera faces -X world => right is -Z... hand-check: f=(-1,0,0),
+    // s=cross(f,up)=cross((-1,0,0),(0,1,0))=(0,0,-1) => view +x = world -Z).
+    const mat4f V = look_at_rh(vec3f(5, 0, 0), vec3f(0, 0, 0), vec3f(0, 1, 0));
+    CHECK(approximately_equal(transform_point(V, vec3f(5, 0, 0)), vec3f(0, 0, 0), 1e-5f));
+    CHECK(approximately_equal(transform_point(V, vec3f(0, 0, 0)), vec3f(0, 0, -5), 1e-5f));
+    // world (0,3,0): 5 in front, 3 up -> view (0, 3, -5)
+    CHECK(approximately_equal(transform_point(V, vec3f(0, 3, 0)), vec3f(0, 3, -5), 1e-5f));
+    // world (0,0,-1), rel eye (-5,0,-1): x=dot(s,.)=+1 (world -Z is camera right),
+    // z=dot(-f,.)=-5 (5 m ahead) -> (1, 0, -5)
+    CHECK(approximately_equal(transform_point(V, vec3f(0, 0, -1)), vec3f(1, 0, -5), 1e-5f));
+
+    // polar degenerate: looking straight up along +Y must not NaN
+    const mat4f Vp = look_at_rh(vec3f(0, 0, 0), vec3f(0, 10, 0), vec3f(0, 1, 0));
+    const vec3f ahead = transform_point(Vp, vec3f(0, 10, 0));
+    CHECK(std::isfinite(ahead.x)); CHECK(std::isfinite(ahead.y)); CHECK(std::isfinite(ahead.z));
+    CHECK(approximately_equal(ahead, vec3f(0, 0, -10), 1e-4f));
+
+    // TRS round-trip: compose -> decompose -> compose is identity
+    trsf t;
+    t.position = {4.f, -2.f, 9.f};
+    t.rotation = quat_from_euler(25.f, -60.f, 100.f);
+    t.scale = {2.f, 0.5f, 7.f};
+    const mat4f M = trs_compose(t);
+    auto back = trs_decompose(M);
+    REQUIRE(back.has_value());
+    CHECK(approximately_equal(back->position, t.position, 1e-4f));
+    CHECK(approximately_equal(back->scale, t.scale, 1e-4f));
+    for (vec3f v : {vec3f(1,0,0), vec3f(0,1,0), vec3f(0,0,1)})
+        CHECK(approximately_equal(rotate(back->rotation, v), rotate(t.rotation, v), 1e-4f));
+
+    // shear is NOT TRS-decomposable: report, never silently approximate
+    mat4f shear = mat4f{};          // identity
+    shear.m[4] = 2.f;               // col1 += 2*row0... shear block
+    CHECK_FALSE(trs_decompose(shear).has_value());
+
+    // nlerp agrees with slerp for small angles and stays unit
+    const quatf a = quat_yaw(0.01f), b = quat_yaw(0.02f);
+    const quatf n = nlerp(a, b, 0.5f), s = slerp(a, b, 0.5f);
+    for (vec3f v : {vec3f(1,0,0), vec3f(0,0,-1)})
+        CHECK(approximately_equal(rotate(n, v), rotate(s, v), 1e-5f));
+    CHECK(approximately_equal(length2(n), 1.f, 1e-6f));
+}
