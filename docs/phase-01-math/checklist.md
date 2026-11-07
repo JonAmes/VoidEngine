@@ -4,7 +4,7 @@ Status: in progress
 World frame pinned by **decision #34: right-handed, Y-up, −Z forward** (`+X` right, `+Y` up, `−Z` forward, cross(X,Y)=Z). Matches glTF and OpenXR natively — every test below asserts *that* convention; a convention drift later = these tests fail, which is the point. fp32 (`vec*`/`mat4`/`quat`) is for rendering math + stats; **fp64 (`dvec3`) is sim positions/velocities** (decision #3).
 
 ## Tasks — execute top to bottom, one commit each
-- [ ] 1.1 `core/math` base: constants (pi/tau/inf), deg↔rad, `wrap_angle` to [-π,π), approximate-equal with documented eps semantics (absolute for small, relative for large) — test: `math_scalars`, `math_angles` — commit: —
+- [x] 1.1 `core/math` base: constants (pi/tau/inf), deg↔rad, `wrap_angle` to [-π,π), approximate-equal with documented eps semantics (absolute for small, relative for large) — test: `math_scalars`, `math_angles` — commit: 1df32e5
 - [ ] 1.2 fp32 vectors `vec2f/vec3f/vec4f`: component ops, dot/cross/length²/length/normalize (zero-safe), lerp, projection/rejection; **decision-#34 convention pinned** — test: `math_vec3_ops`, `math_convention_handedness` (cross(X,Y)=Z, forward=-Z, right-handed rotation sense) — commit: —
 - [ ] 1.3 fp64 `dvec3` (+`dvec2` as needed): full op set mirroring vec3f; precision proof at system scale (decision #22 numbers: AU-scale separations resolving cm/mm steps) — test: `math_dvec3_ops`, `math_fp64_precision` — commit: —
 - [ ] 1.4 `mat4f`: multiply, transpose, point-vs-vector transform (w semantics), general inverse + fast rigid-body inverse (assert rigid precondition), trs constructors (column-major, right-handed) — test: `math_mat4_ops`, `math_mat4_inverse` — commit: —

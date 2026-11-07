@@ -17,6 +17,7 @@ add_executable(engine_tests
     core/test_crash.cpp
     core/test_profile.cpp
     core/test_math_base.cpp
+    core/test_math_vec.cpp
     tools/test_container.cpp
     tools/test_glb.cpp
     tools/test_incremental.cpp
