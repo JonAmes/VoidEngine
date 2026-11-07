@@ -2,8 +2,8 @@
 Status: in progress
 
 ## Tasks — execute top to bottom, one commit each
-- [ ] 0.1 Toolchain bootstrap, no sudo: user-local `cmake` + `ninja` (system pip or official tarballs into `~/.local/`), committed as `tools/bootstrap_toolchain.sh` so any machine reprovisions — test: both report versions from a fresh shell; script re-run is idempotent — commit: —
-- [ ] 0.2 CMake superstructure: root `CMakeLists.txt` + `VERSION` file (`00.00.00`, read by CMake, single source of truth) + stub static libs `core/ gfx/ platform/ game/` + `tools/` + warning wall `-Wall -Wextra -Wpedantic -Werror` on C++23 — test: `cmake -G Ninja` configure + build green headless — commit: —
+- [x] 0.1 Toolchain bootstrap, no sudo: user-local `cmake` + `ninja` (system pip or official tarballs into `~/.local/`), committed as `tools/bootstrap_toolchain.sh` so any machine reprovisions — test: both report versions from a fresh shell; script re-run is idempotent — commit: 5386e9e
+- [x] 0.2 CMake superstructure: root `CMakeLists.txt` + `VERSION` file (`00.00.00`, read by CMake, single source of truth) + stub static libs `core/ gfx/ platform/ game/` + `tools/` + warning wall `-Wall -Wextra -Wpedantic -Werror` on C++23 — test: `cmake -G Ninja` configure + build green headless — commit: fc8eee1
 - [ ] 0.3 doctest wired (FetchContent) + `engine_tests` target + ctest registration — test: `engine_tests` boots and passes first smoke test headless — commit: —
 - [ ] 0.4 `tools/ci_local.sh`: configure + build + `ctest` under `env -u DISPLAY -u WAYLAND_DISPLAY`, fails if anything needs a display — test: script exits 0 on the stub suite; exists before any later box can be checked — commit: —
 - [ ] 0.5 Logging (levels + file sink), assert macro (release-strippable, `core/`-safe — no exceptions), crash handler (signal → stack dump to log) — test: `log_levels` (filter + file sink), `assert_macro` — commit: —
