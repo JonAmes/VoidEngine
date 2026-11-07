@@ -16,7 +16,8 @@
 - stb is cooklet+test-side only; `ve_gfx`/`ve_core` never see it (`texture_roundtrip` proves the runtime loader is a byte-copy path). Scoped warning suppressions documented in `docs/CHEATS.md`.
 - MESH cook bakes node TRS and folds `KHR_materials_emissive_strength`; `hp_*` mesh-less nodes become named socket records with sorted-key extras; hull-level metadata rides root-node extras.
 - **World-axis convention is an open user decision** (asked twice at the 0.8 checkpoint; timed out). Cooklet currently passes glTF Y-up through unchanged; `glb_cook_poc` asserts baked magnitudes per axis so the assertion survives whichever convention lands. When decided: one transform matrix in `glb.cpp` + assertion update.
-- **Tracy: deferred**, not approved (would be the 7th dep). Day-one hook note in PLAN.md amended; adding the profiler is a one-word user decision whenever wanted.
+- **Tracy: user-approved 2026-11-07 as the 7th dep** and hooked day one (0.11, 882ba39). `tracy::Running()` no longer exists in v0.15 — the automated test asserts the *contract* (VE_HAVE_TRACY ⇒ TRACY_ENABLE + client links); capture-side stays manual (tracy-capture -o out.tracy -s N while an instrumented binary runs; the capture polls, so keep the client alive a few seconds).
+- **FetchContent targets are aliases for flags**: `target_compile_options` needs the real target (`TracyClient`), not `Tracy::TracyClient` (ALIAS rejects flags). Linking via the alias is fine.
 
 ## Exact commands (single source in README)
 `cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build`, or `./tools/ci_local.sh` (strips DISPLAY/WAYLAND_DISPLAY/XDG_SESSION_TYPE; ASan+UBSan default ON).
