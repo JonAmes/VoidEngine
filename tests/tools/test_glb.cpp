@@ -9,13 +9,18 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
+#include <system_error>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
 #include <unistd.h> // getpid
+#include <sys/wait.h> // WIFEXITED/WEXITSTATUS
 
 #include <ve/cook/cook.h>
+#include <sys/wait.h> // WIFEXITED/WEXITSTATUS
 
 #ifndef VE_SOURCE_DIR
 #error "VE_SOURCE_DIR must be defined by CMake"
@@ -147,7 +152,7 @@ TEST_CASE("glb_cook_poc") {
     std::filesystem::remove_all(out);
 }
 
-TEST_CASE("def_dep_edge_and_missing_ref") {
+TEST_CASE("def_dep_edge") {
     // existing-ref def: manifest carries the dependency (material/texture
     // dep wiring through defs, the path GLB texture deps will reuse later).
     const std::string src = tmp_root("deps");
@@ -178,14 +183,87 @@ TEST_CASE("def_dep_edge_and_missing_ref") {
     REQUIRE(it->second.deps.size() == 1);
     CHECK(it->second.deps[0] == "hue.png"); // normalized id, dep edge recorded
 
-    // missing-ref def: clean cook failure (no crash), error names the def + ref.
-    ve::core::cooked::write_file_bytes((std::filesystem::path(src) / "defs" / "bad.toml").string(),
-            ve::cook::Bytes{'k','i','n','d',' ','=',' ','"','t','"','\n','r','e','f','s',' ','=',' ','[','"','.', '.', '/', 'n','o','p','e','.','p','n','g','"',']','\n'}, nullptr);
-    auto res2 = ve::cook::cook_incremental(src, out);
-    CHECK_FALSE(res2.ok);
-    CHECK(res2.counts.failures >= 1);
-    CHECK(res2.error.find("nope.png") != std::string::npos);
+    std::filesystem::remove_all(src);
+    std::filesystem::remove_all(out);
+}
+
+namespace {
+const ve::cook::Bytes kBadDef{
+    'k','i','n','d',' ','=',' ','"','t','"','\n',
+    'r','e','f','s',' ','=',' ','[','"','.', '.', '/',
+    'n','o','p','e','.','p','n','g','"',']','\n'};
+} // namespace
+
+TEST_CASE("cook_missing_ref_fails") {
+    // API level: clean failure (no crash), actionable message naming def + ref.
+    const std::string src = tmp_root("missref");
+    const std::string out = tmp_root("missref_out");
+    std::filesystem::create_directories(std::filesystem::path(src) / "defs");
+    ve::core::cooked::write_file_bytes(
+        (std::filesystem::path(src) / "defs" / "bad.toml").string(), kBadDef, nullptr);
+
+    auto res = ve::cook::cook_incremental(src, out);
+    CHECK_FALSE(res.ok);
+    CHECK(res.counts.failures >= 1);
+    CHECK(res.error.find("nope.png") != std::string::npos);
+    CHECK(res.error.find("bad.toml") != std::string::npos);
+
+    // CLI level: exits nonzero by signal-freedom, message on stderr names ref.
+    // (ASan instrumentation: child leak checks off; parent still fully gated.)
+    const std::string cmd = "ASAN_OPTIONS=detect_leaks=0 \"" + std::string(VE_COOK_TOOL) +
+                            "\" \"" + src + "\" \"" + out + "\" 2> \"" + src + "/stderr.txt\"";
+    const int rc = std::system(cmd.c_str());
+    CHECK_MESSAGE(WIFEXITED(rc), "cook CLI died by signal, not clean exit");
+    CHECK(WEXITSTATUS(rc) != 0);
+    ve::cook::Bytes sb;
+    std::string read_err;
+    REQUIRE(ve::core::cooked::read_file_bytes((std::filesystem::path(src) / "stderr.txt").string(), sb, &read_err));
+    const std::string msg(sb.begin(), sb.end());
+    CHECK(msg.find("nope.png") != std::string::npos);
 
     std::filesystem::remove_all(src);
     std::filesystem::remove_all(out);
+}
+
+TEST_CASE("cook_determinism") {
+    // 0.9 golden: same sources, two full cook runs -> byte-identical outputs
+    // (manifest + every unit). Ordering comes from ordered std::map walking;
+    // any nondeterminism (hash maps, pointer-order iteration, timestamps)
+    // would surface as a byte diff here.
+    const std::string s1 = tmp_root("det_a");
+    const std::string s2 = tmp_root("det_b");
+    const std::string o1 = tmp_root("det_o1");
+    const std::string o2 = tmp_root("det_o2");
+    for (const auto& s : {s1, s2})
+        for (const auto& e : std::filesystem::directory_iterator(std::string(VE_SOURCE_DIR) + "/assets/samples"))
+            std::filesystem::copy(e.path(), std::filesystem::path(s) / e.path().filename());
+    auto r1 = ve::cook::cook_incremental(s1, o1);
+    auto r2 = ve::cook::cook_incremental(s2, o2);
+    REQUIRE(r1.ok);
+    REQUIRE(r2.ok);
+
+    auto slurp_dir = [](const std::string& dir) {
+        std::map<std::string, ve::cook::Bytes> files;
+        for (const auto& e : std::filesystem::recursive_directory_iterator(dir))
+            if (e.is_regular_file()) {
+                ve::cook::Bytes b;
+                std::string err;
+                REQUIRE(ve::core::cooked::read_file_bytes(e.path().string(), b, &err));
+                files[e.path().string().substr(dir.size())] = std::move(b);
+            }
+        return files;
+    };
+    const auto f1 = slurp_dir(o1);
+    const auto f2 = slurp_dir(o2);
+    REQUIRE(f1.size() == f2.size());
+    auto i1 = f1.begin();
+    auto i2 = f2.begin();
+    for (; i1 != f1.end(); ++i1, ++i2) {
+        REQUIRE(i1->first == i2->first);
+        REQUIRE_MESSAGE(i1->second == i2->second, "byte diff in " << i1->first);
+    }
+    // sanity: the golden actually contains the GLB unit (not an empty dir pair)
+    CHECK(f1.count("/units/test_ship.glb.ck") == 1);
+
+    for (const auto& d : {s1, s2, o1, o2}) std::filesystem::remove_all(d);
 }
