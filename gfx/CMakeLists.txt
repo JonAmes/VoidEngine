@@ -6,6 +6,7 @@ add_library(ve_gfx STATIC
     src/instance.cpp
     src/device.cpp
     src/presenter.cpp
+    src/shader.cpp
 )
 target_include_directories(ve_gfx PUBLIC include)
 target_link_libraries(ve_gfx PUBLIC ve_core volk)

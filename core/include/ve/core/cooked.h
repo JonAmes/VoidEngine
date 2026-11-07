@@ -31,8 +31,16 @@ inline constexpr std::uint32_t kUnitTex0 = fourcc("TEX0"); // decoded texture (0
 inline constexpr std::uint32_t kUnitMesh = fourcc("MESH"); // cooked mesh (0.8)
 inline constexpr std::uint32_t kUnitMat0 = fourcc("MAT0"); // cooked material (0.8)
 inline constexpr std::uint32_t kUnitDef0 = fourcc("DEF0"); // normalized def
+inline constexpr std::uint32_t kUnitShdr = fourcc("SHDR"); // cooked SPIR-V (2.5)
 
 inline constexpr std::uint32_t kCookFormat = 1;
+
+// SHDR payload: u32 stage (kShdrStage*) | SPIR-V binary as cooked by
+// glslangValidator at cook time. Runtime never compiles GLSL (decision #13)
+// and never parses source — vkCreateShaderModule gets these bytes verbatim.
+inline constexpr std::uint32_t kShdrStageVert = 0;
+inline constexpr std::uint32_t kShdrStageFrag = 1;
+inline constexpr std::uint32_t kShdrStageComp = 2;
 
 // TEX0 payload: u32 width | u32 height | u32 format | raw pixels (top-down).
 inline constexpr std::uint32_t kTexFmtRgba8 = 0;

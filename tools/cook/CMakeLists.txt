@@ -7,6 +7,7 @@ add_library(ve_cooklet STATIC
     src/glb.cpp
     src/json.cpp
     src/png.cpp
+    src/shader.cpp
 )
 target_include_directories(ve_cooklet PUBLIC include)
 target_link_libraries(ve_cooklet PUBLIC ve_core stb_headers)

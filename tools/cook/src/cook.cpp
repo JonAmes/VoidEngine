@@ -10,6 +10,7 @@
 #include "internal.h"
 #include "glb.h"
 #include "png.h"
+#include "shader.h"
 
 namespace ve::cook {
 namespace {
@@ -29,7 +30,17 @@ std::uint32_t unit_type_for(const std::string& id) {
     if (ext == ".toml") return kUnitDef0;
     if (ext == ".png") return kUnitTex0; // decoded to RGBA8 at cook time (0.7)
     if (ext == ".glb") return kUnitMesh; // parsed at cook time (0.8)
+    if (ext == ".vert" || ext == ".frag" || ext == ".comp") return kUnitShdr; // SPIR-V at cook time (2.5)
     return kUnitRawD;
+}
+
+std::uint32_t ext_stage(const std::string& id) {
+    auto ext = std::filesystem::path(id).extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (ext == ".frag") return kShdrStageFrag;
+    if (ext == ".comp") return kShdrStageComp;
+    return kShdrStageVert;
 }
 
 // Deterministic scan: every regular file under src_dir, relative ids, sorted.
@@ -183,6 +194,23 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
                 continue;
             }
             unit.payload = std::move(g.payload);
+        } else if (unit.type == kUnitShdr) {
+            // GLSL -> SPIR-V once at cook time (decision #13: runtime never
+            // compiles). Payload: u32 stage | SPIR-V bytes.
+            const std::uint32_t stage = ext_stage(id);
+            Bytes spirv;
+            if (!compile_glsl(src, spirv, &err)) {
+                result.error = "shader '" + id + "': " + err;
+                ++result.counts.failures;
+                continue;
+            }
+            Bytes payload;
+            payload.push_back(static_cast<std::uint8_t>(stage & 0xFF));
+            payload.push_back(static_cast<std::uint8_t>((stage >> 8) & 0xFF));
+            payload.push_back(static_cast<std::uint8_t>((stage >> 16) & 0xFF));
+            payload.push_back(static_cast<std::uint8_t>((stage >> 24) & 0xFF));
+            payload.insert(payload.end(), spirv.begin(), spirv.end());
+            unit.payload = std::move(payload);
         } else {
             unit.payload = std::move(source);
         }
