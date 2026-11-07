@@ -21,3 +21,27 @@
 - Queue family properties struct is **`VkQueueFamilyProperties`** (no `VkDeviceQueueFamilyProperties` — that's a D3D-ish name I reached for); v1 `VkPhysicalDeviceProperties` has no sType either. Vulkan v1 struct naming: check the header, don't guess.
 - VE_LOG_* is printf-style (format string first); string concatenation into it = `-Wformat-extra-args`.
 - doctest include in this repo is `<doctest/doctest.h>`, not `<doctest.h>`.
+
+## 2.5/2.6 gotchas (learned 2026-11-07)
+- `dynamicRendering` is an explicit **device feature** even at apiVersion 1.3 —
+  chain `VkPhysicalDeviceVulkan13Features{dynamicRendering=VK_TRUE}` into
+  `VkDeviceCreateInfo::pNext` or every `vkCmdBeginRendering` is a validation
+  error. The engine enables it at device creation; VkRenderPass objects never
+  exist here (decision #37 premise made concrete).
+- 1.4 SDK headers **add fields** to 1.3 structs (`resolveMode` landed in
+  `VkRenderingAttachmentInfo`). Designated initializers then break across SDK
+  revisions (#38: Windows SDK headers may differ in revision). Rule: for
+  structs that version across SDK releases, value-init `{}` + explicit field
+  assignment; keep designated init for frozen v1 structs.
+- `VkClearColorValue` is a union: `.color.float32[i]`, not `.color[i]` or
+  `.float32[i]`.
+- Presenter owns layout transitions: `begin_command/begin_pass/end_pass/submit`
+  on `offscreen_presenter`; a render pass that sees only `color_view()` must
+  never barrier the image. `submit()`'s wait-idle is the Tier-2 stand-in the
+  2.10 real sync replaces at the same call sites.
+- glslangValidator via cooklet popen/_popen shim (`shader.cpp`); success is
+  decided by reading back SPIR-V + magic check, never wait-status bits
+  (POSIX-only under #38). `VE_GLSLANG` overrides the tool path (Windows SDK).
+- Golden pixel-count pins need exact analytic geometry, not mental math:
+  triangle area (1/2·base·height)/NDC-area·pixels = 409.6 px; the first
+  guess band (>500) failed against the correct 416.
