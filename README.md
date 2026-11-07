@@ -1,6 +1,6 @@
 # Void Engine
 
-A from-scratch C++23 game engine whose first project is an **arcade space sim**: Newtonian flight with toggleable assist controllers, arcade gravity wells (Babylon 5 / Battlecruiser school — no orbital-mechanics homework), a hull + hardpoints ship designer, one RPG stats system shared by player pilots, NPCs, and ships, hybrid laser/ballistic combat with shields and per-component damage, a trading economy with live dynamic markets, faction reputation, and a seeded mission director, real-scale star systems bridged by continuous FTL warp, and huge-scale rendering — Linux-first, with first-class VR output via OpenXR.
+A from-scratch C++23 game engine whose first project is an **arcade space sim**: Newtonian flight with toggleable assist controllers, arcade gravity wells (Babylon 5 / Battlecruiser school — no orbital-mechanics homework), a hull + hardpoints ship designer, one RPG stats system shared by player pilots, NPCs, and ships, hybrid laser/ballistic combat with shields and per-component damage, a trading economy with live dynamic markets, faction reputation, and a seeded mission director, real-scale star systems bridged by continuous FTL warp, analytic procedural planetary terrain (generated from a seed, zero baked meshes), and huge-scale rendering — Linux-first, with first-class VR output via OpenXR.
 
 ## Design pillars
 
