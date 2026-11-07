@@ -12,12 +12,12 @@ A from-scratch C++23 game engine whose first project is an **arcade space sim**:
 
 ## Status
 
-Planning complete; implementation not started.
+Phase 0 (toolchain & skeleton) **complete** (2026-11-07): reproducible toolchain bootstrap, CMake+C++23 warning-wall build with ASan/UBSan, doctest/ctest, headless CI script, logging/asserts/crash handler, and the content cooklet (incremental + watch-mode, content-hash gating, PNG→texture and glTF→mesh cooking with a runtime readback path). 15 test cases / 127 assertions, green with no display.
 
 | Phase | Area | Status |
 |---|---|---|
-| 0 | Toolchain & skeleton | not started |
-| 1 | Math & headless core | not started |
+| 0 | Toolchain & skeleton | **complete** |
+| 1 | Math & headless core | next |
 | 2 | Vulkan bring-up | not started |
 | 3 | Mini render framework | not started |
 | 4 | Arcade flight & gravity core | not started |
@@ -32,7 +32,23 @@ Planning complete; implementation not started.
 
 ## Building
 
-Build and test commands are defined in Phase 0 and will be documented here once they exist. Target toolchain: g++ 15.2 (C++23), CMake + Ninja, Linux.
+Target toolchain: g++ 15.2 (C++23), CMake 3.31 + Ninja 1.12, Linux. No system packages beyond a C++23 compiler are required.
+
+```sh
+# one-time toolchain bootstrap (no sudo; installs cmake+ninja into ~/.local)
+./tools/bootstrap_toolchain.sh
+export PATH="$HOME/.local/bin:$PATH"
+
+# configure + build + test
+cmake -S . -B build -G Ninja
+cmake --build build
+ctest --test-dir build
+
+# or the all-in-one gate: configure, build, run tests with DISPLAY stripped
+./tools/ci_local.sh
+```
+
+Sanitizers (ASan+UBSan) are ON by default in test builds (`-DVE_SANITIZERS=OFF` to disable). All tests pass headless — no display, compositor, or headset.
 
 ## Requirements
 

@@ -86,7 +86,7 @@ The `core/` vs `game/` line is a hard boundary: anything that names a *game conc
 
 ## Phase 0 — Toolchain & skeleton (a weekend)
 - Install cmake, ninja, Vulkan SDK (`vulkan-loader`, `vulkan-tools`, `glslangValidator`), GLFW, **OpenXR-SDK loader**, **mesa vulkan-drivers (lavapipe)** for headless gfx tests.
-- CMake superstructure, warning wall (`-Wall -Wextra -Wpedantic -Werror`), clang-tidy, doctest wired, Tracy profiler hooked up day one (you'll want it forever).
+- CMake superstructure, warning wall (`-Wall -Wextra -Wpedantic -Werror`), clang-tidy, doctest wired, Tracy profiler hooked up day one (you'll want it forever) — (deferred at Phase 0 DONE: Tracy not in approved dep set; add the hook the day it's approved as the 7th dep).
 - `tools/ci_local.sh`: builds + runs `ctest` and fails if anything needs `$DISPLAY` — prove it over SSH.
 - **Cooklet skeleton + cooked container:** magic + version + payload; every cooked unit self-contained and independently loadable. Start `manifest.bin`: stable content IDs (relative paths per decision #13), dependency graph, incremental re-cook by content hash, **watch mode** (file change → instant re-cook).
 - Logging (levels + file), assert macro, crash handler.

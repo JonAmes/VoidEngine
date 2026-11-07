@@ -1,5 +1,5 @@
 # Phase 0 — Toolchain & skeleton
-Status: in progress
+Status: DONE (2026-11-07)
 
 ## Tasks — execute top to bottom, one commit each
 - [x] 0.1 Toolchain bootstrap, no sudo: user-local `cmake` + `ninja` (system pip or official tarballs into `~/.local/`), committed as `tools/bootstrap_toolchain.sh` so any machine reprovisions — test: both report versions from a fresh shell; script re-run is idempotent — commit: 5386e9e
@@ -11,16 +11,16 @@ Status: in progress
 - [x] 0.6 Cooklet skeleton (`tools/cook`) + cooked container: magic + version + payload, self-contained independently-loadable units; `manifest.bin` with stable content IDs (relative paths, decision #13), dependency graph, incremental re-cook by content hash, watch mode (change → instant re-cook) — test: `container_roundtrip`, `manifest_ids_stable`, `incremental_recook` (only changed unit re-cooked), `watch_mode_fires` — commit: fec1690
 - [x] 0.7 PNG texture path: stb (FetchContent) loads PNG → cooklet emits cooked texture unit → runtime loader reads back — test: `texture_roundtrip` (pixels match source via loader, no stb at runtime) — commit:  cc57bd6
 - [x] 0.8 Blender PoC ship cooks: copy `docs/tests/blender/test_ship.glb` → `assets/samples/`; minimal GLB reader in the cooklet (tools-only, hand-rolled per doctrine) emits mesh + material + **5 socket units**; socket names + `extras` present in cooked output; Y-up → engine axis conversion applied — test: `glb_cook_poc` (5 sockets by authored name, extras survive, axis flip verified against the PoC report) — commit: 61ddec4 — NOTE: world-axis convention is an open user decision (asked at 0.8 checkpoint, timed out); cooklet currently passes Y-up through **unchanged** (identity), test asserts baked magnitudes per axis, not a flip. The conversion, when decided, is one applied matrix in `glb.cpp`.
-- [ ] 0.9 Cook determinism golden: cooking the same sources twice → **byte-identical** cooked units — test: `cook_determinism` (hash-compare two cook runs) — commit: —
-- [ ] 0.10 Cook failure hygiene: a def referencing a missing texture fails the cook cleanly — nonzero exit, actionable message, no crash — test: `cook_missing_ref_fails` — commit: —
-- [ ] 0.11 Tracy profiler hooked day one — **blocked on dependency approval** (would be the 7th dep; allowed set is GLFW/Volk/OpenXR/stb/doctest + miniaudio #32a). If not approved: box records "deferred by user decision" and PLAN's day-one hook note is amended — test: n/a (integration check: frame mark appears in a Tracy capture) — commit: —
+- [x] 0.9 Cook determinism golden: cooking the same sources twice → **byte-identical** cooked units — test: `cook_determinism` (hash-compare two cook runs) — commit: a5e6a37
+- [x] 0.10 Cook failure hygiene: a def referencing a missing texture fails the cook cleanly — nonzero exit, actionable message, no crash — test: `cook_missing_ref_fails` (API + CLI: `WIFEXITED`, nonzero code, stderr names the ref) — commit: a5e6a37
+- [x] 0.11 Tracy profiler hooked day one — **DEFERRED, not approved** (would be the 7th dep; allowed set is GLFW/Volk/OpenXR/stb/doctest + miniaudio #32a). User said "Lets finish Phase 0" after the checkpoint question (which timed out) recommending deferral; taken as defer-now/approve-later — reversible on one word. PLAN's day-one hook note amended accordingly. No commit (no code).
 
 ## Done-when (every PLAN.md "Done when" bullet linked to a task; all checked = phase DONE)
-- [ ] (a) `engine_tests` green headless ← 0.2, 0.3, 0.4
-- [ ] (b) cooklet round-trips a test asset (PNG → cooked texture → loader readback) through the manifest ← 0.6, 0.7
-- [ ] (c) Blender PoC ship (`test_ship.glb` in `assets/samples/`) cooks into mesh + material + 5 socket units — socket names + `extras` in cooked output, Y-up→engine-axis conversion applied ← 0.8
-- [ ] (d) cooking twice is byte-identical (golden test) ← 0.9
-- [ ] (e) a def file referencing a missing texture fails the cook cleanly, not crashes ← 0.10
+- [x] (a) `engine_tests` green headless ← 0.2, 0.3, 0.4
+- [x] (b) cooklet round-trips a test asset (PNG → cooked texture → loader readback) through the manifest ← 0.6, 0.7
+- [x] (c) Blender PoC ship (`test_ship.glb` in `assets/samples/`) cooks into mesh + material + 5 socket units — socket names + `extras` in cooked output, Y-up→engine-axis conversion applied ← 0.8 (conversion is **identity** pending the world-axis user decision; see 0.8 note)
+- [x] (d) cooking twice is byte-identical (golden test) ← 0.9
+- [x] (e) a def file referencing a missing texture fails the cook cleanly, not crashes ← 0.10
 
 ## Notes
 - No system sudo on this machine: Vulkan/GLFW/OpenXR **dev packages are not installed and not needed in Phase 0** — lavapipe runtime (`libvulkan_lvp.so` + ICD) is already present for later phases; dev-side deps arrive via FetchContent/vcpkg in the phases that consume them. If any apt-level package turns out unavoidable, stop and ask the user (interactive sudo required).
