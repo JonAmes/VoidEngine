@@ -28,6 +28,7 @@ add_executable(engine_tests
     tools/test_incremental.cpp
     tools/test_watch.cpp
     gfx/test_texture.cpp
+    gfx/test_instance.cpp
 )
 target_compile_definitions(engine_tests PRIVATE
     VE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"

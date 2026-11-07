@@ -41,6 +41,20 @@ if(VE_TRACY)
   endif()
 endif()
 
+# Volk (user-approved dep): generated Vulkan loader wrapper. Pinned tag; the
+# generated loader code is vendored by the repo, so no new build-time network
+# fetch beyond this checkout. volk.h includes vulkan.h headers it ships itself.
+include(FetchContent)
+FetchContent_Declare(
+    volk
+    GIT_REPOSITORY https://github.com/zeux/volk.git
+    GIT_TAG vulkan-sdk-1.4.313.0 # volk tags follow Vulkan SDK releases; closest >= this box's 1.4.312 loader
+    GIT_SHALLOW TRUE
+)
+set(VOLK_STATIC_INLINE OFF)
+set(VOLK_BUILD_TESTS OFF)
+FetchContent_MakeAvailable(volk)
+
 add_subdirectory(core)
 add_subdirectory(gfx)
 add_subdirectory(platform)
