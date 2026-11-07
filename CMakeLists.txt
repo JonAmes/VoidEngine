@@ -24,6 +24,7 @@ add_subdirectory(core)
 add_subdirectory(gfx)
 add_subdirectory(platform)
 add_subdirectory(game)
+add_subdirectory(tools)
 
 enable_testing()
 add_subdirectory(tests)
