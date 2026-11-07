@@ -37,6 +37,21 @@ inline constexpr std::uint32_t kCookFormat = 1;
 // TEX0 payload: u32 width | u32 height | u32 format | raw pixels (top-down).
 inline constexpr std::uint32_t kTexFmtRgba8 = 0;
 
+// MESH payload (cooked hull .glb, decision #14; all little-endian):
+//   u32 mesh_count, then per mesh (node TRS baked in, triangles only):
+//     u32 name_len, name | u32 material_index (0xFFFFFFFF = none)
+//     u32 vertex_count | f32 pos[vc*3] | f32 nrm[vc*3] | f32 uv[vc*2]
+//     u32 tri_count | u32 idx[tc*3]
+//   u32 material_count, then per material:
+//     u32 name_len, name | f32 base_color[4] | f32 metallic | f32 roughness
+//     f32 emissive[3] (KHR emissive_strength folded in)
+//     u32 alpha_mode (0 opaque, 1 blend, 2 mask)  // doubleSided dropped:
+//                                                   the cooklet owns culling
+//   u32 socket_count, then per socket (mesh-less hp_* node, decision #14):
+//     u32 name_len, name | f32 translation[3] (world, TRS-baked)
+//     u32 extras_len, extras as stable JSON bytes (keys sorted)
+//   u32 root_extras_len, root-node extras JSON bytes (hull_class, mass_t...)
+
 // ---- cooked unit: self-contained, independently loadable ------------------
 // 'VECK' | u32 format | u32 type | u32 id_len | id bytes | u64 payload_len |
 // payload | u32 crc32(payload)

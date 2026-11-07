@@ -8,6 +8,7 @@
 #include <thread>
 
 #include "internal.h"
+#include "glb.h"
 #include "png.h"
 
 namespace ve::cook {
@@ -27,7 +28,8 @@ std::uint32_t unit_type_for(const std::string& id) {
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (ext == ".toml") return kUnitDef0;
     if (ext == ".png") return kUnitTex0; // decoded to RGBA8 at cook time (0.7)
-    return kUnitRawD; // .glb -> MESH in 0.8
+    if (ext == ".glb") return kUnitMesh; // parsed at cook time (0.8)
+    return kUnitRawD;
 }
 
 // Deterministic scan: every regular file under src_dir, relative ids, sorted.
@@ -171,6 +173,16 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
             put32(payload, kTexFmtRgba8);
             payload.insert(payload.end(), rgba.begin(), rgba.end());
             unit.payload = std::move(payload);
+        } else if (unit.type == kUnitMesh) {
+            // .glb -> MESH: hand-rolled GLB parse, TRS-baked meshes,
+            // materials, hp_* socket records (decision #14).
+            Unit g;
+            if (!cook_glb_unit(source, id, g, &err)) {
+                result.error = "glb '" + id + "': " + err;
+                ++result.counts.failures;
+                continue;
+            }
+            unit.payload = std::move(g.payload);
         } else {
             unit.payload = std::move(source);
         }

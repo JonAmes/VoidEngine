@@ -16,10 +16,12 @@ add_executable(engine_tests
     core/test_assert.cpp
     core/test_crash.cpp
     tools/test_container.cpp
+    tools/test_glb.cpp
     tools/test_incremental.cpp
     tools/test_watch.cpp
     gfx/test_texture.cpp
 )
+target_compile_definitions(engine_tests PRIVATE VE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(engine_tests PRIVATE
     ve_core ve_gfx ve_platform ve_game ve_cooklet
     doctest::doctest stb_headers
