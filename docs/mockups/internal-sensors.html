@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Void Engine — internal sensor mockup</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 14px; background: #070c11; color: #cfd9e4;
+         font: 13px/1.45 ui-monospace, "Cascadia Mono", Menlo, monospace; }
+  h1 { font-size: 15px; letter-spacing: .18em; color: #41c7e0; margin: 0 0 2px; }
+  .sub { color: #5f7285; margin: 0 0 12px; font-size: 12px; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .btn { background: #0d151d; color: #9fb4c7; border: 1px solid #1d2a36; padding: 5px 11px;
+         cursor: pointer; font: inherit; font-size: 12px; }
+  .btn:hover { border-color: #41c7e0; }
+  .btn.on { background: #e05a5a; color: #0a0f14; border-color: #e05a5a; }
+  .btn.good { color: #46c98b; }
+  .main { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 10px; width: 330px; }
+  .panel { background: #0d151d; border: 1px solid #1d2a36; padding: 8px 10px; }
+  .panel h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: .14em; color: #5f7285; }
+  .gauge { margin: 5px 0; }
+  .gauge .lab { display: flex; justify-content: space-between; font-size: 11.5px; }
+  .track { height: 8px; background: #12202c; border: 1px solid #1d2a36; margin-top: 2px; }
+  .fill { height: 100%; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td { padding: 3px 4px; border-bottom: 1px solid #12202c; }
+  .st { font-size: 10px; letter-spacing: .08em; text-align: right; }
+  .on-l { color: #46c98b; } .off-l { color: #e05a5a; } .sig-l { color: #41c7e0; } .dim { color: #5f7285; }
+  .log { font-size: 11.5px; white-space: pre-wrap; max-height: 150px; overflow: auto; color: #9fb4c7; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 0; }
+  .chip { border: 1px solid #1d2a36; background: #0d151d; padding: 3px 9px; font-size: 11px; color: #7c93a8; }
+  .chip b { color: #cfd9e4; font-weight: 600; }
+  .scope { background: #0a1118; border: 1px solid #1d2a36; }
+  @keyframes crack { 50% { opacity: .3; } }
+  .breach { animation: crack 1s steps(2) infinite; }
+  .hint { color: #5f7285; font-size: 11.5px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>INTERNAL SENSOR — SHIP STATUS</h1>
+<p class="sub">diegetic dash canvas (decision #15) · sections + doors + airlock (decision #19a) · reservoirs integrate supply − load − leak per tick (decision #19e) · dark-not-dead (decisions #15 / #26c)</p>
+
+<div class="bar">
+  <button class="btn" id="breach">✖ open small breach — cargo wall (hit roll, #19c)</button>
+  <button class="btn good" id="patch">⚒ engineer patches breach (on foot)</button>
+  <button class="btn" id="w11">⌁ cut W11 — guns power feed</button>
+  <button class="btn" id="w9">⌁ cut W9 — shield power feed</button>
+  <button class="btn" id="reset">reset</button>
+</div>
+
+<div class="main">
+  <svg id="hull" class="scope" width="640" height="330" viewBox="0 0 640 330"></svg>
+  <div class="col">
+    <div class="panel"><h3>Reservoirs — integrated at fixed tick</h3><div id="gauges"></div></div>
+    <div class="panel" style="max-height:210px;overflow:auto"><h3>Components — health · status</h3><table id="comps"></table></div>
+    <div class="panel"><h3>Alarm log — threshold-band tag flips</h3><div class="log" id="log"></div></div>
+  </div>
+</div>
+
+<div class="chips">
+  <span class="chip" id="tickchip"><b>TICK</b> 4120</span>
+  <span class="chip"><b>◻ doors</b> click to open/close — isolate sections</span>
+  <span class="chip"><b>two-tier breach</b> section vents, hull intact (#19c)</span>
+  <span class="chip"><b>OFFLINE</b> = function-zero modifier, not destroyed (#26c)</span>
+</div>
+<p class="hint">Section air is per-section reservoirs, not a survival clock: numbers are hand-computable — breach loses 0.50 %/tick, open doors bleed connected sections 0.15 %/tick, closing doors isolates, patching stops the leak. Band tags flip at 85 / 50 %.</p>
+
+<script>
+const SECS = [
+  {id:'eng',    nm:'ENGINEERING', x:60,  w:150, stations:['reactor']},
+  {id:'cargo',  nm:'CARGO',       x:210, w:140, stations:['airlock ctr']},
+  {id:'gun',    nm:'GUN DECK',    x:350, w:130, stations:['turret seat']},
+  {id:'cock',   nm:'COCKPIT',     x:480, w:120, stations:['pilot','FC']},
+];
+const DOORS = [
+  {id:'D1', a:'eng',   b:'cargo', x:210, y:180},
+  {id:'D2', a:'cargo', b:'gun',   x:350, y:180},
+  {id:'D3', a:'gun',   b:'cock',  x:480, y:180},
+];
+const LOADS = { ls:18, shield:22, guns:12, turret:8, sensors:3, thrusterIdle:4 };
+let S;
+function reset() {
+  S = { tick:4120, breach:false, patched:false, air:{eng:100,cargo:100,gun:100,cock:100},
+        doors:{D1:true,D2:true,D3:true}, cutW11:false, cutW9:false, prop:62, pool:78, log:[], bands:{} };
+  render();
+}
+function ventSet() {
+  // flood-fill from a venting section through open doors
+  if (!S.breach || S.patched) return new Set();
+  const vis = new Set(['cargo']), q = ['cargo'];
+  while (q.length) {
+    const a = q.shift();
+    for (const d of DOORS) {
+      if (!S.doors[d.id]) continue;
+      const o = d.a===a ? d.b : (d.b===a ? d.a : null);
+      if (o && !vis.has(o)) { vis.add(o); q.push(o); }
+    }
+  }
+  return vis;
+}
+function tick() {
+  S.tick++;
+  const vent = ventSet();
+  if (vent.size) {
+    for (const id of Object.keys(S.air)) {
+      if (id==='cargo') S.air.cargo = Math.max(0, S.air.cargo - 0.5);
+      else if (vent.has(id)) S.air[id] = Math.max(0, S.air[id] - 0.15);
+    }
+    S.pool = Math.max(0, S.pool - 0.05); // reserve bleed
+  }
+  const draw = drawNow();
+  S.pool = Math.min(100, S.pool + (LOADS.ls? (100 - draw) : 0) * 0.004 ); // reactor regen vs draw, illustrative
+  for (const s of SECS) {
+    const a = S.air[s.id];
+    const band = a >= 85 ? 'NOMINAL' : (a >= 50 ? 'atmo.LOW' : 'atmo.CRITICAL');
+    const key = s.id;
+    if (S.bands[key] !== band) {
+      S.bands[key] = band;
+      S.log.unshift(`t+${S.tick}  ${s.nm} band tag → ${band}`);
+    }
+    const venting = vent.has(s.id);
+    const vkey = 'v'+s.id;
+    if (!!S.bands[vkey] !== venting) {
+      S.bands[vkey] = venting;
+      S.log.unshift(`t+${S.tick}  ${s.nm} ${venting ? 'atmo.VENTING tag SET' : 'atmo.venting tag cleared'}`);
+    }
+  }
+  render();
+}
+function drawNow() {
+  return LOADS.ls + (S.cutW9?0:LOADS.shield) + (S.cutW11?0:LOADS.guns) + LOADS.turret + LOADS.sensors + LOADS.thrusterIdle;
+}
+function bandColor(a){ return a>=85 ? '#46c98b' : a>=50 ? '#e8a33d' : '#e05a5a'; }
+function render() {
+  const vent = ventSet();
+  let s = `<path d="M40 70 Q40 40 90 40 H570 Q600 40 600 70 V260 Q600 290 570 290 H90 Q40 290 40 260 Z" fill="#0c151e" stroke="#22394d"/>`;
+  s += `<text x="610" y="168" fill="#5f7285" font-size="10">◄fwd</text>`;
+  for (const sec of SECS) {
+    const a = S.air[sec.id], v = vent.has(sec.id);
+    s += `<rect x="${sec.x}" y="55" width="${sec.w}" height="220" rx="8" fill="${v?'#1a1013':'#0e1822'}" stroke="${bandColor(a)}" ${v?'stroke-dasharray="4 3"':''} opacity=".95"/>`;
+    s += `<text x="${sec.x+8}" y="74" font-size="10" fill="#5f7285" letter-spacing="1.5">${sec.nm}</text>`;
+    // air gauge
+    s += `<rect x="${sec.x+8}" y="82" width="${sec.w-16}" height="9" fill="#12202c" stroke="#1d2a36"/>
+          <rect x="${sec.x+9}" y="83" width="${(sec.w-18)*a/100}" height="7" fill="${bandColor(a)}"/>
+          <text x="${sec.x+8}" y="106" font-size="10" fill="${bandColor(a)}">${a.toFixed(1)} %  · ${S.bands[sec.id]||'NOMINAL'}</text>`;
+    if (v) s += `<text x="${sec.x+8}" y="120" font-size="9.5" fill="#e05a5a">atmo.VENTING</text>`;
+    // crew/kit markers
+    sec.stations.forEach((st,i)=> { s += `<circle cx="${sec.x+22}" cy="${150+i*26}" r="4" fill="#31465a"/><text x="${sec.x+32}" y="${154+i*26}" font-size="9.5" fill="#7c93a8">${st}</text>`; });
+  }
+  // breach crack in cargo
+  if (S.breach && !S.patched)
+    s += `<g class="breach"><path d="M265 258 l7 -14 l-4 -3 l9 -12 l-6 -3 l8 -10" stroke="#e05a5a" stroke-width="2.4" fill="none"/><path d="M312 55 l-6 13 l4 3 l-9 11" stroke="#e05a5a" stroke-width="2.4" fill="none"/><text x="288" y="285" font-size="9.5" fill="#e05a5a" text-anchor="middle">HULL BREACH · small</text></g>`;
+  if (S.patched) s += `<text x="288" y="285" font-size="9.5" fill="#46c98b" text-anchor="middle">breach patched ✓</text>`;
+  // doors
+  for (const d of DOORS) {
+    const open = S.doors[d.id];
+    s += `<g style="cursor:pointer" data-door="${d.id}"><title>door ${d.id} — ${open?'OPEN (click to close)':'CLOSED (click to open)'}</title>
+      <rect x="${d.x-7}" y="${d.y-16}" width="14" height="32" fill="${open?'#0c151e':'#41c7e0'}" stroke="${open?'#31465a':'#41c7e0'}"/>
+      <text x="${d.x}" y="${d.y+30}" font-size="9" fill="#5f7285" text-anchor="middle">${open?'open':'SHUT'}</text></g>`;
+  }
+  // EVA airlock on cargo outboard wall
+  s += `<circle cx="280" cy="275" r="9" fill="#0c151e" stroke="#41c7e0" stroke-dasharray="2 2"/><text x="280" y="299" font-size="9" fill="#5f7285" text-anchor="middle">airlock (#19a)</text>`;
+  document.getElementById('hull').innerHTML = s;
+
+  const draw = drawNow();
+  let g = '';
+  g += gauge('power pool — supply 100 vs draw ' + draw, S.pool, draw>100?'#e05a5a':'#41c7e0');
+  g += gauge('propellant (#21c)', S.prop, '#e8a33d');
+  for (const sec of SECS) g += gauge('air · ' + sec.nm, S.air[sec.id], bandColor(S.air[sec.id]));
+  document.getElementById('gauges').innerHTML = g;
+
+  const compRows = [
+    ['Reactor','OK','100%','—'],
+    ['J-ENG','OK','100%','on'],
+    ['J-TRUNK','OK','100%','on'],
+    ['J-FWD','OK','100%','on'],
+    ['J-FORE','OK','100%','on'],
+    ['W11 guns feed', S.cutW11?'SEVERED':'OK', S.cutW11?'0%':'100%', S.cutW11?'replace from spare (#26d)':'—'],
+    ['W9 shield feed', S.cutW9?'SEVERED':'OK', S.cutW9?'0%':'100%', S.cutW9?'replace from spare (#26d)':'—'],
+    ['Main guns','—', '100%', S.cutW11?'OFFLINE · no power':'online'],
+    ['Shield gen','—','100%', S.cutW9?'OFFLINE · no power':'online'],
+    ['Turret','—','100%','standby · seat empty'],
+    ['Life support','—','100%','online · 18 kW'],
+    ['Sensors','—','100%','online'],
+    ['FTL drive','—','100%','spool idle'],
+  ];
+  document.getElementById('comps').innerHTML = compRows.map(r =>
+    `<tr><td>${r[0]}</td><td class="${r[3].startsWith('OFFLINE')||r[1]==='SEVERED'?'off-l':(r[3]==='online'||r[3]==='on'?'on-l':'dim')}">${r[3]}</td></tr>`).join('');
+
+  document.getElementById('log').textContent = S.log.slice(0,14).join('\n') || '—';
+  document.getElementById('tickchip').innerHTML = `<b>TICK</b> ${S.tick} · draw ${draw}/100 kW${draw>100?' · OVERLOAD → shed by authored priority (#19e)':''}`;
+}
+function gauge(lab, val, col) {
+  return `<div class="gauge"><div class="lab"><span>${lab}</span><span style="color:${col}">${val.toFixed(1)}%</span></div>
+          <div class="track"><div class="fill" style="width:${val}%;background:${col}"></div></div></div>`;
+}
+document.getElementById('hull').addEventListener('click', e => {
+  const d = e.target.closest('[data-door]'); if (!d) return;
+  const id = d.dataset.door;
+  S.doors[id] = !S.doors[id];
+  S.tick++;
+  S.log.unshift(`t+${S.tick}  door ${id} ${S.doors[id]?'OPEN':'CLOSED'} — sections ${S.doors[id]?'couple':'isolated'}`);
+  render();
+});
+document.getElementById('breach').addEventListener('click', () => {
+  if (S.breach && !S.patched) return;
+  S.breach = true; S.patched = false; S.tick++;
+  S.log.unshift(`t+${S.tick}  hit → CARGO small breach: atmo.venting tag, reservoir vents (#19c)`);
+  render();
+});
+document.getElementById('patch').addEventListener('click', () => {
+  if (!S.breach || S.patched) return;
+  S.patched = true; S.tick += 40;
+  S.log.unshift(`t+${S.tick}  engineer patch complete — leak 0, air will re-supply`);
+  render();
+});
+for (const [id,w] of [['w11','W11'],['w9','W9']]) {
+  document.getElementById(id).addEventListener('click', e => {
+    const key = 'cut'+id.toUpperCase();
+    S[key] = !S[key]; S.tick++;
+    e.target.classList.toggle('on', S[key]);
+    S.log.unshift(`t+${S.tick}  ${w} ${S[key]?'SEVERED — consumer function-zeroed (#26b)':'replaced from spares — online'}`);
+    render();
+  });
+}
+document.getElementById('reset').addEventListener('click', () => {
+  document.getElementById('w11').classList.remove('on');
+  document.getElementById('w9').classList.remove('on');
+  reset();
+});
+reset();
+setInterval(tick, 200);
+</script>
+</body>
+</html>
