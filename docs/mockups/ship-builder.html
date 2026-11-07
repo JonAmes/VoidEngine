@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Void Engine — ship builder mockup</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 14px; background: #070c11; color: #cfd9e4;
+         font: 13px/1.45 ui-monospace, "Cascadia Mono", Menlo, monospace; }
+  h1 { font-size: 15px; letter-spacing: .18em; color: #46c98b; margin: 0 0 2px; }
+  .sub { color: #5f7285; margin: 0 0 12px; font-size: 12px; }
+  .main { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 10px; width: 350px; }
+  .panel { background: #0d151d; border: 1px solid #1d2a36; padding: 8px 10px; }
+  .panel h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: .14em; color: #5f7285; }
+  .scope { background: #0a1118; border: 1px solid #1d2a36; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .chip { border: 1px solid #1d2a36; background: #0d151d; padding: 3px 9px; font-size: 11px; color: #7c93a8; }
+  .chip b { color: #cfd9e4; font-weight: 600; }
+  .cat-main { color: #e8a33d; } .cat-rcs { color: #41c7e0; } .cat-gun { color: #e05a5a; } .cat-utility { color: #8fa7bd; }
+  .prow { display: flex; justify-content: space-between; padding: 3px 4px; border-bottom: 1px solid #12202c; font-size: 12px; }
+  .prow .num { color: #9fb4c7; }
+  .item { padding: 5px 6px; border: 1px solid #1d2a36; margin: 4px 0; cursor: pointer; font-size: 12px; }
+  .item:hover { border-color: #46c98b; }
+  .item .pr { float: right; color: #e8a33d; }
+  .item .st { color: #5f7285; font-size: 11px; display: block; }
+  .warn { color: #e8a33d; font-size: 12px; margin: 2px 0; }
+  .track { height: 8px; background: #12202c; border: 1px solid #1d2a36; margin-top: 2px; }
+  .fill { height: 100%; background: #41c7e0; }
+  .hint { color: #5f7285; font-size: 11.5px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>DIEGETIC HANGAR — SHIP BUILDER</h1>
+<p class="sub">walked-and-touched assembly while docked (decisions #24c / #28d) · categorized sockets main / rcs / gun / utility (#21c) · one loadout data model for ships AND stations (#24a) · parts arrive from market purchases into the cargo manifest (#20b) · wiring for every socket already exists in the hull net (#26a) — mounting is bolt + connect, no rewiring in slice</p>
+
+<div class="chips">
+  <span class="chip"><b>CREDITS</b> <span id="credits">12,400</span></span>
+  <span class="chip"><b>HULL</b> Meridian "Merchant Cutter" — 45 t dry, 24 sockets</span>
+  <span class="chip"><span class="cat-main">●main</span> <span class="cat-rcs">●rcs</span> <span class="cat-gun">●gun</span> <span class="cat-utility">●utility</span> click a socket</span>
+  <span class="chip" id="hullchip"><b>MODE</b> hangar while clamped at port (#23d)</span>
+</div>
+
+<div class="main">
+  <svg id="board" class="scope" width="640" height="330" viewBox="0 0 640 330"></svg>
+  <div class="col">
+    <div class="panel"><h3 id="selhead">Socket</h3><div id="sel">Click a socket on the hull to inspect or mount.</div></div>
+    <div class="panel"><h3>Manifest — owned spares (in cargo hold)</h3><div id="manifest"></div></div>
+    <div class="panel"><h3>Ship readout — computed live</h3><div id="stats"></div></div>
+    <div class="panel"><h3>Integrity / readiness warnings</h3><div id="warns"></div></div>
+  </div>
+</div>
+<p class="hint">In-game this board is a world-space canvas that appears when you touch a free socket in the hangar (#28 mount.socket) — you walk parts over from the cargo crates yourself. Buying here goes through the trade counter first; the market offer list is what the counter shows. The same editor front-end builds stations: a station is just a big inert hull with the same socket schema (#24a).</p>
+
+<script>
+const CATCOL = { main:'#e8a33d', rcs:'#41c7e0', gun:'#e05a5a', utility:'#8fa7bd' };
+const CATLET = { main:'M', rcs:'R', gun:'G', utility:'U' };
+// part catalog: cat, label, short stats for display, draw kW, mass t, market price (null = not sold here)
+const CATALOG = {
+  main40:  { nm:'MT-40 Main Thruster',    cat:'main',    st:'90 kN · Isp 320s · 2.0 t',        draw:4,  mass:2.0, price:2600, key:'thrust:90' },
+  rcs:     { nm:'VT-6 RCS Pod',           cat:'rcs',     st:'6 kN · 0.4 t',                    draw:2,  mass:0.4, price:900 },
+  laser1:  { nm:'LD-1 Laser Cannon',      cat:'gun',     st:'14 DPS · 10 kW · 0.6 t',          draw:10, mass:0.6, price:1800 },
+  laser2:  { nm:'KI-7 Pulse Laser',       cat:'gun',     st:'26 DPS · 14 kW · 0.8 t  (better gun!)', draw:14, mass:0.8, price:3800 },
+  slug:    { nm:'IG-2 Slug Launcher',     cat:'gun',     st:'20 DPS · 6 kW · 1.4 t',           draw:6,  mass:1.4, price:2200 },
+  shield:  { nm:'SG-2 Shield Generator',  cat:'utility', st:'120 cap · 16 kW · 1.2 t',         draw:16, mass:1.2, price:3000 },
+  reactor: { nm:'RX-100 Reactor',         cat:'utility', st:'+100 kW · 3.0 t',                 draw:0,  mass:3.0, price:4200, supply:100 },
+  tank:    { nm:'FT-180 Fuel Tank',       cat:'utility', st:'+180 propellant · 1.5 t',         draw:0,  mass:1.5, price:1400, prop:180 },
+  ftl:     { nm:'WD-40 Warp Drive',       cat:'utility', st:'40× mult · 3 s spool · 30 kW',    draw:4,  mass:2.2, price:5200 },
+  cargo:   { nm:'CH-14 Cargo Hold',       cat:'utility', st:'14 m³ · 1.8 t',                   draw:0,  mass:1.8, price:1200, vol:14 },
+  dock:    { nm:'MC-1 Magnetic Clamp',    cat:'utility', st:'dock.port capture · 0.8 t',       draw:1,  mass:0.8, price:1600, clamp:true },
+  seat:    { nm:'Crew Seat (role-tagged)',cat:'utility', st:'station.* · dead-until-manned',   draw:0.5,mass:0.15,price:400, seat:true },
+  ls:      { nm:'LS-2 Life Support',      cat:'utility', st:'section air supply · 18 kW',      draw:18, mass:1.0, price:2000 },
+  sensor:  { nm:'SA-3 Sensor Array',      cat:'utility', st:'signal feed · 3 kW',              draw:3,  mass:0.3, price:1500 },
+};
+const SOCKETS = [
+  {id:'M1', cat:'main', x:85,  y:120, part:'main40'}, {id:'M2', cat:'main', x:85,  y:210, part:'main40'},
+  {id:'R1', cat:'rcs',  x:150, y:68,  part:'rcs'},    {id:'R2', cat:'rcs',  x:150, y:262, part:'rcs'},
+  {id:'R3', cat:'rcs',  x:470, y:78,  part:'rcs'},    {id:'R4', cat:'rcs',  x:470, y:252, part:null},
+  {id:'G1', cat:'gun',  x:330, y:52,  part:'laser1'},{id:'G2', cat:'gun',  x:440, y:100, part:'slug'}, {id:'G3', cat:'gun', x:440, y:230, part:null},
+  {id:'U1', cat:'utility', x:120, y:165, part:'reactor'},{id:'U2', cat:'utility', x:190, y:130, part:'tank'},
+  {id:'U3', cat:'utility', x:190, y:200, part:'ls'},   {id:'U4', cat:'utility', x:255, y:165, part:'ftl'},
+  {id:'U5', cat:'utility', x:320, y:165, part:'cargo'},{id:'U6', cat:'utility', x:530, y:165, part:'dock'},
+  {id:'U7', cat:'utility', x:370, y:245, part:null},   {id:'U8', cat:'utility', x:370, y:90, part:'sensor'},
+  {id:'S1', cat:'utility', x:505, y:110, part:'seat', role:'pilot'},    {id:'S2', cat:'utility', x:505, y:220, part:null, role:'gunner'},
+  {id:'S3', cat:'utility', x:245, y:95,  part:'seat', role:'engineer'},{id:'S4', cat:'utility', x:245, y:235, part:null, role:'navigator'},
+  {id:'S5', cat:'utility', x:310, y:245, part:null, role:'trader'},    {id:'U9', cat:'utility', x:600, y:165, part:null},
+];
+let S = { sel:null, credits:12400,
+  owned:{ main40:0, rcs:1, laser2:0, slug:0, shield:1, tank:1, ftl:0, cargo:0, dock:0, seat:2, laser1:0, reactor:0, ls:0, sensor:0 } };
+const SEATROLES = { S1:'pilot', S2:'gunner', S3:'engineer', S4:'navigator', S5:'trader' };
+
+function stats() {
+  let mass=45, draw=0, supply=0, thrust=0, rcs=0, dps=0, shield=0, prop=0, vol=0, seats=[], clamp=false;
+  for (const s of SOCKETS) { if (!s.part) continue; const p=CATALOG[s.part];
+    mass+=p.mass; draw+=p.draw; supply+=p.supply||0; thrust+=p.key&&p.key.startsWith('thrust')?90:0;
+    if (s.cat==='rcs') rcs+=6; if (s.cat==='gun') dps+= s.part==='laser1'?14: s.part==='laser2'?26:20;
+    shield+=s.part==='shield'?120:0; prop+=p.prop||0; vol+=p.vol||0; clamp=clamp||!!p.clamp;
+    if (p.seat) seats.push(SEATROLES[s.id]||'crew');
+  }
+  return { mass, draw, supply, thrust, rcs, dps, shield, prop, vol, seats, clamp };
+}
+function render() {
+  let s = `<path d="M40 70 Q40 40 90 40 H570 Q600 40 600 70 V260 Q600 290 570 290 H90 Q40 290 40 260 Z" fill="#0c151e" stroke="#22394d"/>
+           <path d="M560 95 Q620 165 560 235" fill="none" stroke="#22394d"/>
+           <text x="612" y="168" fill="#5f7285" font-size="10">fwd ►</text>`;
+  for (const k of SOCKETS) {
+    const col = CATCOL[k.cat], sel = S.sel===k.id;
+    const mounted = !!k.part;
+    s += `<g style="cursor:pointer" data-s="${k.id}">
+      <circle cx="${k.x}" cy="${k.y}" r="12" fill="${mounted?'#12202c':'#0a1118'}" stroke="${col}" stroke-dasharray="${mounted?'':'3 3'}" stroke-width="${sel?3:1.5}"/>
+      ${mounted?`<circle cx="${k.x}" cy="${k.y}" r="5" fill="${col}"/>`:`<text x="${k.x}" y="${k.y+4}" text-anchor="middle" font-size="11" fill="${col}">+</text>`}
+      <text x="${k.x}" y="${k.y-17}" text-anchor="middle" font-size="8.5" fill="#5f7285">${k.id}${k.role?'·'+k.role[0]:''}</text></g>`;
+  }
+  document.getElementById('board').innerHTML = s;
+
+  const st = stats();
+  // selection panel
+  const sk = SOCKETS.find(x => x.id === S.sel);
+  let sel = '';
+  if (sk) {
+    if (sk.part) {
+      const p = CATALOG[sk.part];
+      sel = `<b>${sk.id}</b> <span class="cat-${sk.cat}">[${sk.cat}]</span> → <b>${p.nm}</b><span class="st" style="color:#5f7285">${p.st}</span>
+             <div class="item" data-un="1">⚒ unbolt to manifest</div>`;
+    } else {
+      const compat = Object.entries(CATALOG).filter(([k,p]) => p.cat===sk.cat);
+      sel = `<b>${sk.id}</b> <span class="cat-${sk.cat}">[${sk.cat}]</span> — empty${sk.role?` · wants <b>${sk.role}</b> seat (#18)`:''}<br>`;
+      let any=false;
+      for (const [k,p] of compat) {
+        const own = (S.owned[k]||0) > 0, afford = S.credits >= p.price;
+        if (!own && !afford) continue;
+        any=true;
+        sel += `<div class="item" data-mk="${k}">${p.nm}
+          ${own?`<span class="pr">in manifest ×${S.owned[k]}</span>`:`<span class="pr">${p.price.toLocaleString()} cr</span>`}
+          <span class="st">${p.st}</span></div>`;
+      }
+      if (!any) sel += `<span class="st" style="color:#5f7285">nothing compatible owned or affordable — buy at the trade counter first (#20b)</span>`;
+    }
+  } else sel = 'Click a socket on the hull to inspect or mount.';
+  document.getElementById('sel').innerHTML = sel;
+  document.getElementById('selhead').textContent = sk ? `Socket ${sk.id} — ${sk.part?CATALOG[sk.part].nm:'EMPTY'}` : 'Socket';
+
+  document.getElementById('manifest').innerHTML = Object.entries(S.owned).filter(([k,n])=>n>0)
+    .map(([k,n])=>`<div class="prow"><span>${CATALOG[k].nm}</span><span class="num">×${n}</span></div>`).join('')
+    || '<span style="color:#5f7285">manifest empty</span>';
+
+  const pw = st.supply ? Math.min(100, st.draw/st.supply*100) : 100;
+  document.getElementById('stats').innerHTML = [
+    ['mass (loaded)', st.mass.toFixed(2)+' t'],
+    ['main thrust', st.thrust+' kN'],
+    ['accel @ full thrust', (st.thrust*1000/st.mass/1000).toFixed(3)+' m/s²'],
+    ['rcs thrust', st.rcs+' kN'],
+    ['firepower', st.dps+' DPS'],
+    ['shield capacity', st.shield||'—'],
+    ['propellant capacity', st.prop||'—'],
+    ['cargo volume', st.vol+' m³'],
+    ['crew seats', st.seats.length+' manned ('+st.seats.join(', ')+') / 5 role sockets'],
+    ['dock clamp', st.clamp?'MC-1 online':'NONE — pads only, no port capture (#23a)'],
+  ].map(r=>`<div class="prow"><span>${r[0]}</span><span class="num">${r[1]}</span></div>`).join('')
+   + `<div class="prow"><span>power draw / supply</span><span class="num" style="color:${st.draw>st.supply?'#e05a5a':'#41c7e0'}">${st.draw} / ${st.supply} kW</span></div>
+      <div class="track"><div class="fill" style="width:${pw}%;background:${st.draw>st.supply?'#e05a5a':'#41c7e0'}"></div></div>`;
+
+  const w = [];
+  if (st.draw > st.supply) w.push(`OVERLOAD ${st.draw}/${st.supply} kW — lowest authored priority goes dark first (#19e shed)`);
+  const gunnerSeat = SOCKETS.find(x=>x.id==='S2');
+  if (!gunnerSeat.part && st.dps>0) w.push('turrets dead-until-manned — gunner seat empty, guns will not fire unmanned (#18)');
+  if (SOCKETS.some(x=>!x.part && x.role) ) w.push('free role sockets: navigator/trader seats still unbolted (crew walks in from berth, #27c)');
+  document.getElementById('warns').innerHTML = w.length ? w.map(x=>`<div class="warn">⚠ ${x}</div>`).join('') : '<span style="color:#46c98b">✓ ready — no outstanding warnings</span>';
+  document.getElementById('credits').textContent = S.credits.toLocaleString();
+}
+document.getElementById('board').addEventListener('click', e => {
+  const g = e.target.closest('[data-s]'); if (!g) return;
+  S.sel = S.sel === g.dataset.s ? null : g.dataset.s; render();
+});
+document.getElementById('sel').addEventListener('click', e => {
+  const mk = e.target.closest('[data-mk]'), un = e.target.closest('[data-un]');
+  const sk = SOCKETS.find(x => x.id === S.sel); if (!sk) return;
+  if (mk) {
+    const k = mk.dataset.mk, p = CATALOG[k];
+    if ((S.owned[k]||0) > 0) S.owned[k]--;
+    else if (S.credits >= p.price) S.credits -= p.price;
+    else return;
+    sk.part = k;
+  } else if (un) { S.owned[sk.part] = (S.owned[sk.part]||0)+1; sk.part = null; }
+  render();
+});
+render();
+</script>
+</body>
+</html>
