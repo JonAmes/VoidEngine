@@ -33,23 +33,23 @@ TEST_CASE("incremental_recook — hash-gated re-cook + dep graph in manifest") {
     auto src = tmp_root("inc_src");
     auto out = tmp_root("inc_out");
 
-    write_file(std::filesystem::path(src) / "a.png", "PNGFAKE-bytes-v1");
+    write_file(std::filesystem::path(src) / "a.bin", "PNGFAKE-bytes-v1");
     write_file(std::filesystem::path(src) / "defs/x.toml",
-               "# ship def\nkind = \"test\"\nrefs = [\"../a.png\"] # the texture\n");
+               "# ship def\nkind = \"test\"\nrefs = [\"../a.bin\"] # the texture\n");
 
     auto r1 = ve::cook::cook_incremental(src, out);
     REQUIRE(r1.ok);
     CHECK(r1.counts.cooked == 2);
     CHECK(r1.counts.skipped == 0);
 
-    // dep graph recorded: x.toml -> a.png
+    // dep graph recorded: x.toml -> a.bin
     ve::cook::Manifest man;
     std::string err;
     REQUIRE(ve::cook::read_manifest(out + "/manifest.bin", man, &err));
-    CHECK(man["defs/x.toml"].deps == std::vector<std::string>({"a.png"}));
+    CHECK(man["defs/x.toml"].deps == std::vector<std::string>({"a.bin"}));
 
     // unit files exist by content ID
-    CHECK(std::filesystem::exists(std::filesystem::path(out) / "units/a.png.ck"));
+    CHECK(std::filesystem::exists(std::filesystem::path(out) / "units/a.bin.ck"));
     CHECK(std::filesystem::exists(std::filesystem::path(out) / "units/defs/x.toml.ck"));
 
     // second cook: everything hash-identical -> zero re-cook
@@ -59,7 +59,7 @@ TEST_CASE("incremental_recook — hash-gated re-cook + dep graph in manifest") {
     CHECK(r2.counts.skipped == 2);
 
     // change one source -> exactly that unit re-cooks
-    write_file(std::filesystem::path(src) / "a.png", "PNGFAKE-bytes-v2-CHANGED");
+    write_file(std::filesystem::path(src) / "a.bin", "PNGFAKE-bytes-v2-CHANGED");
     auto r3 = ve::cook::cook_incremental(src, out);
     REQUIRE(r3.ok);
     CHECK(r3.counts.cooked == 1);
@@ -67,7 +67,7 @@ TEST_CASE("incremental_recook — hash-gated re-cook + dep graph in manifest") {
 
     // the cooked unit carries the NEW bytes
     ve::cook::Unit u;
-    REQUIRE(ve::cook::read_unit_file(out + "/units/a.png.ck", u, &err));
+    REQUIRE(ve::cook::read_unit_file(out + "/units/a.bin.ck", u, &err));
     std::string payload(u.payload.begin(), u.payload.end());
     CHECK(payload == "PNGFAKE-bytes-v2-CHANGED");
 

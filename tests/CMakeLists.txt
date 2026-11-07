@@ -18,11 +18,15 @@ add_executable(engine_tests
     tools/test_container.cpp
     tools/test_incremental.cpp
     tools/test_watch.cpp
+    gfx/test_texture.cpp
 )
 target_link_libraries(engine_tests PRIVATE
     ve_core ve_gfx ve_platform ve_game ve_cooklet
-    doctest::doctest
+    doctest::doctest stb_headers
 )
+# stb implementation macro in this TU: same scoped suppressions as png.cpp
+set_source_files_properties(gfx/test_texture.cpp PROPERTIES COMPILE_OPTIONS
+    "-Wno-pedantic;-Wno-unused-function;-Wno-unused-variable;-Wno-unused-but-set-variable;-Wno-implicit-fallthrough;-Wno-shift-negative-value;-Wno-maybe-uninitialized;-Wno-class-memaccess;-Wno-stringop-overflow;-Wno-missing-field-initializers")
 # backtrace_symbols needs dynamic symbols for readable frames
 target_link_options(engine_tests PRIVATE -rdynamic)
 

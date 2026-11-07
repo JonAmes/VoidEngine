@@ -8,6 +8,7 @@
 #include <thread>
 
 #include "internal.h"
+#include "png.h"
 
 namespace ve::cook {
 namespace {
@@ -25,7 +26,8 @@ std::uint32_t unit_type_for(const std::string& id) {
     std::transform(ext.begin(), ext.end(), ext.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (ext == ".toml") return kUnitDef0;
-    return kUnitRawD; // .png -> TEX0 in 0.7; .glb -> MESH in 0.8
+    if (ext == ".png") return kUnitTex0; // decoded to RGBA8 at cook time (0.7)
+    return kUnitRawD; // .glb -> MESH in 0.8
 }
 
 // Deterministic scan: every regular file under src_dir, relative ids, sorted.
@@ -145,7 +147,33 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         Unit unit;
         unit.id = id;
         unit.type = unit_type_for(id);
-        unit.payload = std::move(source);
+
+        if (unit.type == kUnitTex0) {
+            // PNG -> TEX0: one-time decode to RGBA8 at cook time. Payload:
+            // u32 width | u32 height | u32 format | raw w*h*4 top-down.
+            // Runtime loaders copy pixels; no decoder in the engine.
+            int w = 0, h = 0;
+            Bytes rgba;
+            if (!decode_png_file(src, w, h, rgba, &err)) {
+                result.error = "texture '" + id + "': " + err;
+                ++result.counts.failures;
+                continue;
+            }
+            auto put32 = [](Bytes& o, std::uint32_t v) {
+                o.push_back(static_cast<std::uint8_t>(v & 0xFF));
+                o.push_back(static_cast<std::uint8_t>((v >> 8) & 0xFF));
+                o.push_back(static_cast<std::uint8_t>((v >> 16) & 0xFF));
+                o.push_back(static_cast<std::uint8_t>((v >> 24) & 0xFF));
+            };
+            Bytes payload;
+            put32(payload, static_cast<std::uint32_t>(w));
+            put32(payload, static_cast<std::uint32_t>(h));
+            put32(payload, kTexFmtRgba8);
+            payload.insert(payload.end(), rgba.begin(), rgba.end());
+            unit.payload = std::move(payload);
+        } else {
+            unit.payload = std::move(source);
+        }
 
         ManifestEntry entry;
         entry.id = id;

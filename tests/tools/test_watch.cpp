@@ -29,7 +29,7 @@ TEST_CASE("watch_mode_fires — new file picked up while watching") {
         std::ofstream f(p, std::ios::binary | std::ios::trunc);
         f << body;
     };
-    write("a.png", "seed");
+    write("a.bin", "seed");
 
     // initial cook so the manifest exists
     REQUIRE(ve::cook::cook_incremental(src, out).ok);
@@ -39,9 +39,9 @@ TEST_CASE("watch_mode_fires — new file picked up while watching") {
     std::thread watcher([&] { ve::cook::watch_loop(src, out, 30, stop, &totals); });
 
     // mutate sources while the watcher runs
-    write("b.png", "added-while-watching");
+    write("b.bin", "added-while-watching");
     const std::string new_body = "changed-while-watching";
-    write("a.png", new_body);
+    write("a.bin", new_body);
     ve::cook::Bytes new_bytes(new_body.begin(), new_body.end());
     const auto new_sha = ve::cook::sha256(new_bytes);
 
@@ -51,8 +51,8 @@ TEST_CASE("watch_mode_fires — new file picked up while watching") {
         ve::cook::Manifest man;
         std::string err;
         if (ve::cook::read_manifest(out + "/manifest.bin", man, &err)) {
-            seen = man.count("b.png") == 1 && man.count("a.png") == 1 &&
-                   man["a.png"].source_sha == new_sha;
+            seen = man.count("b.bin") == 1 && man.count("a.bin") == 1 &&
+                   man["a.bin"].source_sha == new_sha;
         }
         if (!seen) std::this_thread::sleep_for(std::chrono::milliseconds(30));
     }

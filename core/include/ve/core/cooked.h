@@ -34,6 +34,9 @@ inline constexpr std::uint32_t kUnitDef0 = fourcc("DEF0"); // normalized def
 
 inline constexpr std::uint32_t kCookFormat = 1;
 
+// TEX0 payload: u32 width | u32 height | u32 format | raw pixels (top-down).
+inline constexpr std::uint32_t kTexFmtRgba8 = 0;
+
 // ---- cooked unit: self-contained, independently loadable ------------------
 // 'VECK' | u32 format | u32 type | u32 id_len | id bytes | u64 payload_len |
 // payload | u32 crc32(payload)
