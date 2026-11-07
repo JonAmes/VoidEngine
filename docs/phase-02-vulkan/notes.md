@@ -45,3 +45,20 @@
 - Golden pixel-count pins need exact analytic geometry, not mental math:
   triangle area (1/2·base·height)/NDC-area·pixels = 409.6 px; the first
   guess band (>500) failed against the correct 416.
+
+## 2.7 gotchas (learned 2026-11-07)
+- The strict messenger caught a latent bug the old stderr-only policy let
+  slide: begin_command() called vkBeginCommandBuffer on a buffer alloc_one_shot
+  had already begun (VUID-vkBeginCommandBuffer-commandBuffer-00049). Rule:
+  allocate+begin helpers (alloc_one_shot) are internal one-op use; caller-facing
+  begin_command() = alloc_cmd + exactly one begin.
+- vkFreeCommandBuffers on an already-freed handle is itself a validation error
+  (00048) — the gate caught the double-free during that fix. Rule: whoever
+  allocates frees; submit_and_wait is end+submit+wait only.
+- VK_EXT_debug_utils_name macro absent in some header revisions — use the
+  string literal. Messenger by design exists twice: pNext chain catches
+  vkCreateInstance's own errors, then vkCreateDebugUtilsMessengerEXT persists.
+  Messenger must die before the instance.
+- With a messenger installed, layer output does NOT also go to stdout —
+  messages only reach validation_problems(); tests print them via
+  CHECK_MESSAGE so failures self-document.
