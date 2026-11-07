@@ -55,6 +55,15 @@ public:
     bool clear(const float rgba[4]);
     std::vector<std::uint8_t> capture_rgba8() override;
 
+    // Tier-2 frame helpers. The presenter owns the image, therefore it owns
+    // its layout transitions — a pass may NEVER barrier the target itself.
+    // Single frame in flight for now; 2.10 replaces submit()'s wait with
+    // presenter-independent sync, same call sites.
+    VkCommandBuffer begin_command();               // from the internal pool
+    bool begin_pass(VkCommandBuffer cmd);          // current -> COLOR_ATTACHMENT_OPTIMAL
+    bool end_pass(VkCommandBuffer cmd);            // COLOR_ATTACHMENT -> TRANSFER_SRC (readback-ready)
+    bool submit(VkCommandBuffer cmd);              // end + submit + wait (Tier-2 simplification)
+
 private:
     offscreen_presenter() = default;
 

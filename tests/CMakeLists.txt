@@ -33,6 +33,7 @@ add_executable(engine_tests
     gfx/test_offscreen_target.cpp
     tools/test_shader_cook.cpp
     gfx/test_shader_module.cpp
+    gfx/test_triangle_golden.cpp
 )
 target_compile_definitions(engine_tests PRIVATE
     VE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"

@@ -93,19 +93,24 @@ std::expected<device, std::string> device::create(const instance& inst) {
         .queueCount = 1,
         .pQueuePriorities = &priority,
     };
+    // Vulkan 1.3 *feature*, not just core version: dynamicRendering must be
+    // explicitly enabled even with apiVersion 1.3 (decision #37's premise —
+    // every pipeline uses dynamic rendering, so the engine enables it at
+    // device creation and never falls back to VkRenderPass).
+    VkPhysicalDeviceVulkan13Features feats13{}; // value-init: the struct
+    feats13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES; // has ~24
+    feats13.dynamicRendering = VK_TRUE; // members; don't fight the warning wall
     const VkDeviceCreateInfo dev_ci{
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = nullptr,
+        .pNext = &feats13,
         .flags = 0,
         .queueCreateInfoCount = 1,
         .pQueueCreateInfos = &queue_ci,
-        // No extension features requested yet: everything needed so far is
-        // Vulkan 1.3 core with default-off features we do not touch yet.
         .enabledLayerCount = 0,
         .ppEnabledLayerNames = nullptr,
         .enabledExtensionCount = 0,
         .ppEnabledExtensionNames = nullptr,
-        .pEnabledFeatures = nullptr,
+        .pEnabledFeatures = nullptr, // 1.0 baseline stays default; 1.3 chain above
     };
 
     VkDevice dev = VK_NULL_HANDLE;

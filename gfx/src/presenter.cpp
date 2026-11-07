@@ -273,6 +273,93 @@ bool offscreen_presenter::clear(const float rgba[4]) {
     return true;
 }
 
+// --- Tier-2 frame helpers: presenter-owned layout transitions -------------
+
+VkCommandBuffer offscreen_presenter::begin_command() {
+    VkCommandBuffer cmd = alloc_one_shot(device_, pool_);
+    if (cmd == VK_NULL_HANDLE) {
+        return cmd;
+    }
+    const VkCommandBufferBeginInfo bi{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .pInheritanceInfo = nullptr,
+    };
+    if (vkBeginCommandBuffer(cmd, &bi) != VK_SUCCESS) {
+        vkFreeCommandBuffers(device_, pool_, 1, &cmd);
+        return VK_NULL_HANDLE;
+    }
+    return cmd;
+}
+
+bool offscreen_presenter::begin_pass(VkCommandBuffer cmd) {
+    // Bookkept old layout (never guessed). From UNDEFINED the contents are
+    // discarded — a pass using LOAD_OP_CLEAR makes that legal and cheap.
+    const VkImageMemoryBarrier to_att{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = 0,
+        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .oldLayout = layout_,
+        .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image_,
+        .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
+                         0, nullptr, 0, nullptr, 1, &to_att);
+    layout_ = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    return true;
+}
+
+bool offscreen_presenter::end_pass(VkCommandBuffer cmd) {
+    const VkImageMemoryBarrier to_src{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+        .oldLayout = layout_,
+        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image_,
+        .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                         0, nullptr, 0, nullptr, 1, &to_src);
+    layout_ = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    return true;
+}
+
+bool offscreen_presenter::submit(VkCommandBuffer cmd) {
+    if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
+        return false;
+    }
+    // Queue submit needs the handle on its own storage (pointer-to-pointer).
+    VkCommandBuffer handles[1] = {cmd};
+    const VkSubmitInfo si{
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext = nullptr,
+        .waitSemaphoreCount = 0,
+        .pWaitSemaphores = nullptr,
+        .pWaitDstStageMask = nullptr,
+        .commandBufferCount = 1,
+        .pCommandBuffers = handles,
+        .signalSemaphoreCount = 0,
+        .pSignalSemaphores = nullptr,
+    };
+    if (vkQueueSubmit(queue_, 1, &si, VK_NULL_HANDLE) != VK_SUCCESS) {
+        return false;
+    }
+    const bool ok = (vkQueueWaitIdle(queue_) == VK_SUCCESS);
+    vkFreeCommandBuffers(device_, pool_, 1, &cmd);
+    return ok;
+}
+
 std::vector<std::uint8_t> offscreen_presenter::capture_rgba8() {
     const std::size_t byte_size = static_cast<std::size_t>(width_) * height_ * 4u;
     std::vector<std::uint8_t> out;
