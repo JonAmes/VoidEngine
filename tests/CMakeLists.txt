@@ -30,6 +30,7 @@ add_executable(engine_tests
     gfx/test_texture.cpp
     gfx/test_instance.cpp
     gfx/test_device.cpp
+    gfx/test_offscreen_target.cpp
 )
 target_compile_definitions(engine_tests PRIVATE
     VE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
