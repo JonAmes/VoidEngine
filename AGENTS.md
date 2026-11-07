@@ -13,7 +13,7 @@ A from-scratch C++23 game engine + arcade space sim, Linux-only, headless-test-f
 3. Nothing renders to "the backbuffer." Passes write **render targets**; a Presenter presents. No code may assume one camera, fixed aspect, or a window existing.
 4. Sim positions/velocities are **fp64** (`dvec3` etc.). fp32 is for rendering math and stats values only.
 5. Sim is **deterministic**: fixed timestep, ordered containers in sim logic (never iterate an unordered map for sim effects), no wall-clock/time-of-day reads in `core/`, no thread-order assumptions. Replay-hash tests are the enforcement.
-6. New external dependencies: **never without explicit user approval.** Allowed set (PLAN.md): GLFW, Volk, OpenXR-SDK loader, stb, doctest. Any cheat-dependency gets a line in `docs/CHEATS.md` with why.
+6. New external dependencies: **never without explicit user approval.** Allowed set (PLAN.md): GLFW, Volk, OpenXR-SDK loader, stb, doctest, miniaudio (#32a), Tracy (approved 2026-11-07). Any cheat-dependency gets a line in `docs/CHEATS.md` with why.
 
 ## Build & test contract
 - `ctest` must be green with **no `$DISPLAY`, no compositor, no headset**. Never add a test that needs a display; gfx tests use the surfaceless/lavapipe path (Tier 2) and XR logic uses `xr_mock` (Tier 3).

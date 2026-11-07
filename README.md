@@ -50,6 +50,8 @@ ctest --test-dir build
 
 Sanitizers (ASan+UBSan) are ON by default in test builds (`-DVE_SANITIZERS=OFF` to disable). All tests pass headless — no display, compositor, or headset.
 
+Profiling: the Tracy client (pinned v0.15.0) is linked into every engine target by default (`-DVE_TRACY=OFF` to drop it). Attach a Tracy GUI (same version) on port 8086 while any engine binary runs to capture frame marks and zones.
+
 ## Requirements
 
 - Linux (x86_64), Vulkan-capable GPU (tests additionally run on software Vulkan)

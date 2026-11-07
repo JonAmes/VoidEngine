@@ -11,7 +11,7 @@
 
 ## Architecture decisions up front (these shape everything)
 
-1. **C++23, CMake + Ninja, per-module static libs.** vcpkg/FetchContent only for: GLFW (window/input), Volk (Vulkan loader), OpenXR-SDK (loader only), stb, doctest, miniaudio (audio device+mixer, user-approved decision #32a). Everything else hand-rolled — that's the learning.
+1. **C++23, CMake + Ninja, per-module static libs.** vcpkg/FetchContent only for: GLFW (window/input), Volk (Vulkan loader), OpenXR-SDK (loader only), stb, doctest, miniaudio (audio device+mixer, user-approved decision #32a), Tracy (profiler, user-approved 2026-11-07 as 7th dep). Everything else hand-rolled — that's the learning.
 2. **Hand-rolled math library first.** `vec3f/mat4f/quatf` (fp32 for rendering) **plus fp64 position types** (`dvec3`). You cannot retrofit double precision later. The projection math must support **off-axis asymmetric frustums from day one** — VR eye projections are asymmetric; that's a Phase 1 feature, not a Phase 10 retrofit.
 3. **Floating-origin world.** The camera rig is always at the origin; all world positions are offsets from it. This + fp64 sim positions is the single most important space-game decision (see Valve's moving-origin paper). Arcade physics removes the orbital math, not the scale problem — planet-to-planet distances still demand this.
 4. **Simulation is headless and deterministic.** `core/` has zero rendering/windowing/XR dependencies. Unit-testable against known flight-model numbers, runs on a server someday (multiplayer later), and lets you build the flight/gravity core before the renderer is finished.
@@ -86,7 +86,7 @@ The `core/` vs `game/` line is a hard boundary: anything that names a *game conc
 
 ## Phase 0 — Toolchain & skeleton (a weekend)
 - Install cmake, ninja, Vulkan SDK (`vulkan-loader`, `vulkan-tools`, `glslangValidator`), GLFW, **OpenXR-SDK loader**, **mesa vulkan-drivers (lavapipe)** for headless gfx tests.
-- CMake superstructure, warning wall (`-Wall -Wextra -Wpedantic -Werror`), clang-tidy, doctest wired, Tracy profiler hooked up day one (you'll want it forever) — (deferred at Phase 0 DONE: Tracy not in approved dep set; add the hook the day it's approved as the 7th dep).
+- CMake superstructure, warning wall (`-Wall -Wextra -Wpedantic -Werror`), clang-tidy, doctest wired, Tracy profiler hooked up day one (you'll want it forever) — approved by the user 2026-11-07 as the 7th dep and hooked (checklist 0.11: VE_TRACY option, pinned v0.15.0, FrameMark/zone macros via ve/core/prof.h).
 - `tools/ci_local.sh`: builds + runs `ctest` and fails if anything needs `$DISPLAY` — prove it over SSH.
 - **Cooklet skeleton + cooked container:** magic + version + payload; every cooked unit self-contained and independently loadable. Start `manifest.bin`: stable content IDs (relative paths per decision #13), dependency graph, incremental re-cook by content hash, **watch mode** (file change → instant re-cook).
 - Logging (levels + file), assert macro, crash handler.

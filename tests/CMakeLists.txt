@@ -15,6 +15,7 @@ add_executable(engine_tests
     core/test_log.cpp
     core/test_assert.cpp
     core/test_crash.cpp
+    core/test_profile.cpp
     tools/test_container.cpp
     tools/test_glb.cpp
     tools/test_incremental.cpp

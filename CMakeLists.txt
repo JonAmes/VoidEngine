@@ -20,6 +20,27 @@ if(VE_SANITIZERS)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
+# Tracy day-one profiler hook (user approved 2026-11-07 as 7th dependency).
+# VE_TRACY=ON: TRACY_ENABLE propagates to every engine TU; FrameMark/zones are
+# one macro away wherever the frame loop lands. OFF keeps zero-cost no-op macros.
+option(VE_TRACY "Wire the Tracy profiler client into engine targets" ON)
+if(VE_TRACY)
+  include(FetchContent)
+  FetchContent_Declare(tracy
+    GIT_REPOSITORY https://github.com/wolfpld/tracy
+    GIT_TAG        v0.15.0
+    GIT_SHALLOW    TRUE)
+  set(TRACY_STATIC ON CACHE BOOL "" FORCE)
+  set(TRACY_ENABLE ON CACHE BOOL "" FORCE)          # instrument: this IS the hook
+  set(TRACY-manual-lifetime OFF CACHE BOOL "" FORCE) # profiler lives with the process
+  FetchContent_MakeAvailable(tracy)
+  if(TARGET TracyClient)  # Tracy::TracyClient is an alias; flags need the real target
+    # Third-party TUs never govern our wall (docs/CHEATS.md lists the scope):
+    # our flags stay in the line; -w last means tracy emits nothing.
+    target_compile_options(TracyClient PRIVATE -w)
+  endif()
+endif()
+
 add_subdirectory(core)
 add_subdirectory(gfx)
 add_subdirectory(platform)
