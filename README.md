@@ -57,4 +57,5 @@ Profiling: the Tracy client (pinned v0.15.0) is linked into every engine target 
 ## Requirements
 
 - Linux (x86_64), Vulkan-capable GPU (tests additionally run on software Vulkan)
+- Windows x86_64 is a supported target (decision #38); Windows tests run on real hardware
 - Optional: OpenXR runtime (SteamVR or Monado) for VR mode

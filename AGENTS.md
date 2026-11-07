@@ -3,7 +3,7 @@
 Rules for any AI agent working in this repo. **PLAN.md is the source of truth for WHAT to build and in what order; this file is the source of truth for HOW work is done.** When they conflict, PLAN.md wins on scope, this file wins on process.
 
 ## What this repo is
-A from-scratch C++23 game engine + arcade space sim, Linux-only, headless-test-first, VR-capable via OpenXR. Work on the **current phase** in PLAN.md unless the user directs otherwise.
+A from-scratch C++23 game engine + arcade space sim, Linux-first dev with **Windows as a supported target** (decision #38), headless-test-first, VR-capable via OpenXR. Work on the **current phase** in PLAN.md unless the user directs otherwise.
 
 - **Standalone, absolutely.** Do not read, copy, reference, or "draw inspiration from" any other project on this machine or elsewhere — especially anything named "Void Empire" (a Unity project) or OpenKSP. The name collision is meaningless. Only this repo.
 

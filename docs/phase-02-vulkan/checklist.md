@@ -24,4 +24,5 @@ Decisions that shape this phase: **#35** (ctest gfx on lavapipe via forced ICD; 
 ## Notes
 - Every gfx test fixture forces `VK_ICD_FILENAMES` to lvp **before** `volkInitialize` (loader reads env at ICD-load time) per #35; never assume a display; never touch the 3090 in CI.
 - Cross-vendor rasterization is not bit-identical: golden pins live deep inside/outside primitives; harness tolerance covers the rest (2.6, 2.11).
+- **OS-neutrality binds every Phase 2 task (decision #38):** `gfx/` and `core/` compile clean on MSVC/Windows — no POSIX headers (`unistd.h` etc.), no unguarded `/proc`, lowercase the same warnings on both toolchains. GLFW/window code lives behind the platform seam; the WSI presenter stays the only swapchain toucher.
 - Presenter rule (AGENTS #3) is testable from 2.4 onward: the ONLY thing that ever reads a swapchain image is the WSI presenter itself.
