@@ -17,6 +17,7 @@
 - **volk tags follow Vulkan SDK releases** (`vulkan-sdk-1.4.313.0`), not semver — `v1.4.0` does not exist. Pinned at/above the box's loader (1.4.312); volk compiles clean under our full wall, no `-w` cheat needed.
 - `VkPhysicalDeviceProperties` (v1) has **no sType member** — designated-init `.sType=` fails to compile; plain `{}` value-init is correct.
 - volk's `volkInitialize()` covers instance-independent commands only (layer/ext enum, `vkCreateInstance`); instance+physical commands need `volkLoadInstance(handle)` immediately after create.
+- Vulkan enum suffixes bite under -Werror: `VK_SHARING_MODE_EXCLUSIVE` (not `VK_IMAGE_SHARING_MODE_*`), pipeline stages carry `_BIT` (`VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT`). Same lesson as struct names: check the header.
 - Queue family properties struct is **`VkQueueFamilyProperties`** (no `VkDeviceQueueFamilyProperties` — that's a D3D-ish name I reached for); v1 `VkPhysicalDeviceProperties` has no sType either. Vulkan v1 struct naming: check the header, don't guess.
 - VE_LOG_* is printf-style (format string first); string concatenation into it = `-Wformat-extra-args`.
 - doctest include in this repo is `<doctest/doctest.h>`, not `<doctest.h>`.
