@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include <unistd.h> // getpid
+#include "../ve_test_portability.h" // getpid
 
 #include <ve/cook/cook.h>
 #include <ve/gfx/texture.h>
@@ -19,7 +19,7 @@
 namespace {
 std::string tmp_root(const char* name) {
     auto p = std::filesystem::temp_directory_path() /
-             (std::string("ve_tex_") + name + "_" + std::to_string(::getpid()));
+             (std::string("ve_tex_") + name + "_" + std::to_string(ve_test::pid()));
     std::filesystem::remove_all(p);
     std::filesystem::create_directories(p);
     return p.string();

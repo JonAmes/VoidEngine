@@ -11,14 +11,35 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Warning wall (AGENTS.md): never weakened to pass a build — fix the code.
-add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+# Compiler-gated, not softened (decision #38): the GCC/Clang wall is exactly what
+# it always was; MSVC has no -Wextra/-Wpedantic spelling, so it gets the closest
+# real wall (/W4 + conformance mode) and /WX keeps "warnings are errors" true on
+# both. Nothing here lowers the bar for code that is also built on Linux.
+if(MSVC)
+  add_compile_options(/W4 /utf-8 /permissive- /Zc:preprocessor /WX)
+  # C4996 is the CRT's "consider the _s variant" nudge, not a correctness
+  # diagnostic: fopen/getenv are the portable spellings, and the _s variants do
+  # not exist on the Linux toolchain this code primarily targets. Same call GLFW
+  # makes for its own MSVC build. /W4 + /WX stay in force — the wall itself is
+  # untouched.
+  add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+else()
+  add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+endif()
 
 # Sanitizers on by default for everything that runs tests (AGENTS.md contract).
+# UBSan has no MSVC equivalent, so ASan-only is the Windows story — and ASan
+# needs /Zi (CMake's DEBUG/RELWITHDEBINFO), which the default ctest build here is
+# not. Off is stated out loud rather than silently skipped.
 option(VE_SANITIZERS "Build ASan+UBSan instrumentation into test builds" ON)
-if(VE_SANITIZERS)
+if(VE_SANITIZERS AND NOT MSVC)
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
+elseif(VE_SANITIZERS AND MSVC)
+  message(STATUS "VE_SANITIZERS: no UBSan on MSVC and ASan needs a debug build — "
+                 "instrumentation OFF for this configuration (decision #38 open item)")
 endif()
+
 
 # Tracy day-one profiler hook (user approved 2026-11-07 as 7th dependency).
 # VE_TRACY=ON: TRACY_ENABLE propagates to every engine TU; FrameMark/zones are
@@ -37,7 +58,11 @@ if(VE_TRACY)
   if(TARGET TracyClient)  # Tracy::TracyClient is an alias; flags need the real target
     # Third-party TUs never govern our wall (docs/CHEATS.md lists the scope):
     # our flags stay in the line; -w last means tracy emits nothing.
-    target_compile_options(TracyClient PRIVATE -w)
+    if(MSVC)
+      target_compile_options(TracyClient PRIVATE /w) # same intent, MSVC spelling
+    else()
+      target_compile_options(TracyClient PRIVATE -w)
+    endif()
   endif()
 endif()
 

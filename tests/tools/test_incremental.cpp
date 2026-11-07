@@ -1,7 +1,7 @@
 // test: incremental_recook — only content-hash-changed sources re-cook.
 #include <doctest/doctest.h>
 
-#include <unistd.h> // getpid
+#include "../ve_test_portability.h" // getpid
 
 #include <atomic>
 #include <chrono>
@@ -16,7 +16,7 @@ namespace {
 std::string tmp_root(const char* name) {
     static std::atomic<int> n{0};
     auto p = std::filesystem::temp_directory_path() /
-             ("ve_cook_" + std::string(name) + "_" + std::to_string(::getpid()) + "_" +
+             ("ve_cook_" + std::string(name) + "_" + std::to_string(ve_test::pid()) + "_" +
               std::to_string(n++));
     std::filesystem::remove_all(p);
     std::filesystem::create_directories(p);

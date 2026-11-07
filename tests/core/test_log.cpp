@@ -20,8 +20,11 @@ std::string read_file(const std::filesystem::path& p) {
 TEST_CASE("log filter drops below-min levels and file sink captures the rest") {
     auto path = std::filesystem::temp_directory_path() / "ve_test_log_levels.log";
     std::filesystem::remove(path);
+    // log_init takes a narrow path; path.c_str() is wchar_t* on Windows (#38),
+    // so the narrow form is taken once and lives as long as the calls below.
+    const std::string log_path = path.string();
 
-    REQUIRE(ve::core::log_init(ve::core::LogLevel::info, path.c_str()));
+    REQUIRE(ve::core::log_init(ve::core::LogLevel::info, log_path.c_str()));
     CHECK(ve::core::log_level() == ve::core::LogLevel::info);
 
     VE_LOG_TRACE("trace-line %d", 1);
@@ -38,7 +41,7 @@ TEST_CASE("log filter drops below-min levels and file sink captures the rest") {
 
     // trace/debug pass when the floor is lowered
     std::filesystem::remove(path);
-    REQUIRE(ve::core::log_init(ve::core::LogLevel::trace, path.c_str()));
+    REQUIRE(ve::core::log_init(ve::core::LogLevel::trace, log_path.c_str()));
     VE_LOG_TRACE("low-floor-trace");
     ve::core::log_close();
     CHECK(read_file(path).find("low-floor-trace") != std::string::npos);

@@ -2,6 +2,7 @@
 #include <ve/gfx/device.h>
 
 #include "gfx_test_env.h"
+#include "../ve_test_portability.h" // set_env/clear_env (POSIX setenv vs MSVC _putenv_s)
 
 #include <cstdlib>
 #include <cstdint>
@@ -49,16 +50,16 @@ TEST_CASE("gfx_device_vegpu_override") {
 
     // Missing match must be a CLEAN failure naming the needle (never a
     // silent fallback to some other GPU — that would poison goldens).
-    setenv("VE_GPU", "definitely-not-a-gpu", 1);
+    ve_test::set_env("VE_GPU", "definitely-not-a-gpu");
     auto miss = ve::gfx::device::create(*inst);
     REQUIRE_FALSE(miss.has_value());
     CHECK(miss.error().find("definitely-not-a-gpu") != std::string::npos);
 
     // Matching needle (substring, case-insensitive) must succeed.
-    setenv("VE_GPU", "LLVMpipe", 1);
+    ve_test::set_env("VE_GPU", "LLVMpipe");
     auto hit = ve::gfx::device::create(*inst);
     REQUIRE(hit.has_value());
-    unsetenv("VE_GPU");
+    ve_test::clear_env("VE_GPU");
 
     gfx_test::check_clean_validation(*inst);
 }

@@ -2,7 +2,7 @@
 // without being restarted (decision #16 hot-swap loop).
 #include <doctest/doctest.h>
 
-#include <unistd.h> // getpid
+#include "../ve_test_portability.h" // getpid
 
 #include <atomic>
 #include <chrono>
@@ -17,7 +17,7 @@
 TEST_CASE("watch_mode_fires — new file picked up while watching") {
     static std::atomic<int> n{0};
     auto base = std::filesystem::temp_directory_path() /
-                ("ve_watch_" + std::to_string(::getpid()) + "_" + std::to_string(n++));
+                ("ve_watch_" + std::to_string(ve_test::pid()) + "_" + std::to_string(n++));
     std::filesystem::remove_all(base);
     auto src = (base / "assets").string();
     auto out = (base / "cooked").string();

@@ -14,9 +14,13 @@ target_link_libraries(ve_cooklet PUBLIC ve_core stb_headers)
 
 # stb is third-party single-header code compiled as C++: the warning wall
 # (-Wall -Wextra -Wpedantic -Werror) governs OUR code. Scoped suppressions
-# for the stb implementation TU only (docs/CHEATS.md).
+# for the stb implementation TU only (docs/CHEATS.md). GCC/Clang spellings are
+# unknown options to cl.exe (D9002) and /WX would make them fatal, so the block
+# is scoped to the compilers that have them; MSVC builds this TU unfiltered.
+if(NOT MSVC)
 set_source_files_properties(src/png.cpp PROPERTIES COMPILE_OPTIONS
     "-Wno-pedantic;-Wno-unused-function;-Wno-unused-variable;-Wno-unused-but-set-variable;-Wno-implicit-fallthrough;-Wno-shift-negative-value;-Wno-maybe-uninitialized;-Wno-class-memaccess;-Wno-stringop-overflow")
+endif()
 
 add_executable(ve_cook src/main.cpp)
 target_link_libraries(ve_cook PRIVATE ve_cooklet)

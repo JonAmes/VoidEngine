@@ -24,8 +24,18 @@ void log_close();
 LogLevel log_level();
 const char* log_level_name(LogLevel level);
 
+// printf-format checking: the attribute is GCC/Clang-only, and decision #38
+// requires core/ to compile clean on MSVC too. Gated, not dropped — GCC/Clang
+// keep the compile-time check, MSVC compiles the same declaration without it
+// (MSVC's SAL `_Printf_format_string_` is not a drop-in for this position).
+#if defined(__GNUC__) || defined(__clang__)
+#define VE_PRINTF_FORMAT(fmt, args) __attribute__((format(printf, fmt, args)))
+#else
+#define VE_PRINTF_FORMAT(fmt, args)
+#endif
+
 void log_msg(LogLevel level, const char* fmt, ...)
-    __attribute__((format(printf, 2, 3)));
+    VE_PRINTF_FORMAT(2, 3);
 
 } // namespace ve::core
 

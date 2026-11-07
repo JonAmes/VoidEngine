@@ -1,7 +1,7 @@
 // test: container_roundtrip + manifest_ids_stable.
 #include <doctest/doctest.h>
 
-#include <unistd.h> // getpid
+#include "../ve_test_portability.h" // getpid
 
 #include <algorithm>
 #include <filesystem>
@@ -13,7 +13,7 @@
 namespace {
 std::string tmp_root(const char* name) {
     auto p = std::filesystem::temp_directory_path() /
-             ("ve_cook_" + std::string(name) + "_" + std::to_string(::getpid()));
+             ("ve_cook_" + std::string(name) + "_" + std::to_string(ve_test::pid()));
     std::filesystem::remove_all(p);
     std::filesystem::create_directories(p);
     return p.string();

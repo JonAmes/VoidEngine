@@ -10,6 +10,7 @@
 #include <string>
 
 #include <ve/cook/cook.h>
+#include "../ve_test_portability.h" // set_env/clear_env
 
 namespace {
 std::string tmp_root(const char* name) {
@@ -41,7 +42,24 @@ void main() { color = vec4(uv, 0.5, 1.0); }
 } // namespace
 
 TEST_CASE("cook_shader_golden") {
+    // The GLSL compiler is an external tool, so its absence is an environment
+    // gap rather than a cooklet fault — same tiering as the gfx suites' ICD
+    // probe (#36). The missing-tool PATH is still asserted unconditionally at the
+    // bottom of this case, with VE_GLSLANG pointed at a nonexistent file, so
+    // gating the golden on tool presence loses no coverage of the failure path.
+    const std::string env_tool = [] {
+        const char* v = std::getenv("VE_GLSLANG");
+        return (v != nullptr && *v != '\0') ? std::string(v) : std::string("glslangValidator");
+    }();
+    if (!ve_test::tool_on_path(env_tool)) {
+        MESSAGE("no GLSL compiler reachable ('" << env_tool
+                << "') — golden skipped; install glslang-tools or point VE_GLSLANG at one");
+
+        return;
+    }
+
     auto src = tmp_root("src");
+
     write_file(std::filesystem::path(src) / "triangle.vert", kVert);
     write_file(std::filesystem::path(src) / "triangle.frag", kFrag);
 
@@ -77,10 +95,10 @@ TEST_CASE("cook_shader_golden") {
     CHECK(u1.payload == u2.payload);
 
     // Missing tool: clean failure naming the shader, no crash, cook not ok.
-    setenv("VE_GLSLANG", "/nonexistent/glslangValidator-ve-test", 1);
+    ve_test::set_env("VE_GLSLANG", "/nonexistent/glslangValidator-ve-test");
     auto out3 = tmp_root("out3");
     auto r3 = ve::cook::cook_incremental(src, out3);
-    unsetenv("VE_GLSLANG");
+    ve_test::clear_env("VE_GLSLANG");
     CHECK_FALSE(r3.ok);
     CHECK(r3.counts.failures == 2);
     CHECK(r3.error.find("triangle.vert") != std::string::npos);

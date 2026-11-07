@@ -16,11 +16,9 @@
 #include <string>
 #include <vector>
 
-#include <unistd.h> // getpid
-#include <sys/wait.h> // WIFEXITED/WEXITSTATUS
+#include "../ve_test_portability.h" // getpid + the WIFEXITED/WEXITSTATUS spellings
 
 #include <ve/cook/cook.h>
-#include <sys/wait.h> // WIFEXITED/WEXITSTATUS
 
 #ifndef VE_SOURCE_DIR
 #error "VE_SOURCE_DIR must be defined by CMake"
@@ -54,7 +52,7 @@ struct Reader {
 
 std::string tmp_root(const char* name) {
     auto p = std::filesystem::temp_directory_path() /
-             (std::string("ve_glbt_") + name + "_" + std::to_string(::getpid()));
+             (std::string("ve_glbt_") + name + "_" + std::to_string(ve_test::pid()));
     std::filesystem::remove_all(p);
     std::filesystem::create_directories(p);
     return p.string();
@@ -209,12 +207,16 @@ TEST_CASE("cook_missing_ref_fails") {
     CHECK(res.error.find("bad.toml") != std::string::npos);
 
     // CLI level: exits nonzero by signal-freedom, message on stderr names ref.
-    // (ASan instrumentation: child leak checks off; parent still fully gated.)
-    const std::string cmd = "ASAN_OPTIONS=detect_leaks=0 \"" + std::string(VE_COOK_TOOL) +
-                            "\" \"" + src + "\" \"" + out + "\" 2> \"" + src + "/stderr.txt\"";
+    // (ASan instrumentation: child leak checks off; parent still fully gated.
+    // shell_cmd is what keeps the quoting intact through cmd.exe on Windows —
+    // see ve_test_portability.h.)
+    const std::string cmd = ve_test::shell_cmd(std::string(ve_test::asan_off_prefix()) +
+                                               "\"" + std::string(VE_COOK_TOOL) +
+                                               "\" \"" + src + "\" \"" + out + "\" 2> \"" + src +
+                                               "/stderr.txt\"");
     const int rc = std::system(cmd.c_str());
-    CHECK_MESSAGE(WIFEXITED(rc), "cook CLI died by signal, not clean exit");
-    CHECK(WEXITSTATUS(rc) != 0);
+    CHECK_MESSAGE(ve_test::exited_normally(rc), "cook CLI died by signal, not clean exit");
+    CHECK(ve_test::exit_status(rc) != 0);
     ve::cook::Bytes sb;
     std::string read_err;
     REQUIRE(ve::core::cooked::read_file_bytes((std::filesystem::path(src) / "stderr.txt").string(), sb, &read_err));
@@ -262,8 +264,20 @@ TEST_CASE("cook_determinism") {
         REQUIRE(i1->first == i2->first);
         REQUIRE_MESSAGE(i1->second == i2->second, "byte diff in " << i1->first);
     }
-    // sanity: the golden actually contains the GLB unit (not an empty dir pair)
-    CHECK(f1.count("/units/test_ship.glb.ck") == 1);
+    // sanity: the golden actually contains the GLB unit (not an empty dir pair).
+    // Keys are e.path() minus the dir prefix — NATIVE separators, and nothing to
+    // reconstruct: the portable claim is that a key ENDS WITH units<sep>name. A
+    // hardcoded "/units/..." spelling only exists on POSIX, and even
+    // path("/units") / name is wrong here — MSVC keeps a literal leading '/'
+    // verbatim and appends with '\', producing "/units\name", which matches
+    // neither separator set (measured). Suffix matching is the only form that is
+    // true on both platforms (#38).
+    const std::string want = (std::filesystem::path("units") / "test_ship.glb.ck").string();
+    const bool has_unit = std::any_of(f1.begin(), f1.end(), [&want](const auto& kv) {
+        return kv.first.size() >= want.size() &&
+               kv.first.compare(kv.first.size() - want.size(), want.size(), want) == 0;
+    });
+    CHECK_MESSAGE(has_unit, "no key ending in " << want);
 
     for (const auto& d : {s1, s2, o1, o2}) std::filesystem::remove_all(d);
 }
