@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Void Engine — decision #26 wiring mockup</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { color: var(--foreground); font: 13px/1.45 var(--font-sans, system-ui); margin: 0; }
+  h2 { margin: 4px 0 2px; font-size: 16px; }
+  .sub { color: var(--muted-foreground); margin: 0 0 10px; }
+  svg { display: block; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; color: var(--muted-foreground); margin: 6px 0 14px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 26px; height: 0; border-top: 3px solid; display: inline-block; }
+  .cards { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .card h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted-foreground); }
+  .online { color: var(--foreground); }
+  .dark { color: var(--muted-foreground); }
+  .reason { color: #d07070; }
+  .log { font-family: var(--font-mono, monospace); font-size: 11.5px; white-space: pre-wrap; }
+  code { font-family: var(--font-mono, monospace); font-size: 11.5px; }
+  pre { margin: 0; color: var(--foreground); }
+  button { background: var(--card); color: var(--foreground); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--accent); }
+  .hint { color: var(--muted-foreground); font-size: 12px; margin: 8px 0 10px; }
+  .k { color: var(--accent); }
+</style>
+</head>
+<body>
+<h2>Ship wiring net — slice-scale hull (decision #26)</h2>
+<p class="sub">Every line is a real authored component; power + signal are reachability facts from the reactor. Click a wire to sever it, a ◆ junction to blow it; click the red cut to repair from spares.</p>
+<svg id="net" width="1010" height="430" viewBox="0 0 1010 430"></svg>
+<div class="legend">
+  <span><i class="sw" style="border-color:#e8a33d"></i> power wire</span>
+  <span><i class="sw" style="border-color:#41c7e0;border-top-style:dashed"></i> signal wire</span>
+  <span><i class="sw" style="border-color:#46c98b"></i> power+signal (trunk)</span>
+  <span><i class="sw" style="border-color:#d07070;border-top-style:dashed"></i> severed</span>
+  <span>◆ junction / panel</span>
+  <span>◉ power source</span>
+</div>
+<p class="hint">Suggested demo: sever <span class="k">W8</span> (the trunk into the gun bay) — the forward dark set cascades through existing function-zero modifiers, engineering stays lit. Or blow <span class="k">J-TRUNK</span>. Sever <span class="k">S2</span> (FC → guns) for a signal-only outage: guns keep power, lose the fire-control solution.</p>
+<div class="cards">
+  <div class="card" style="min-width:270px"><h3>Systems</h3><div id="systems"></div></div>
+  <div class="card" style="min-width:330px"><h3>State</h3><div id="status"></div></div>
+  <div class="card" style="min-width:330px"><h3>Hull def — the authored surface (source TOML)</h3><pre>[[wire]]  id = "W8"  type = "power+signal"
+  from = "j_trunk"  to = "j_fwd"   health = 60
+
+[[wire]]  id = "S2"  type = "signal"
+  from = "j_fwd"    to = "gun_main" health = 25
+
+[[component]] id = "j_fwd" kind = "bus.junction"
+  socket = "utility.3"  health = 50</pre></div>
+</div>
+<div style="margin-top:12px"><button id="reset">Reset (git is undo)</button></div>
+
+<script>
+const NODES = [
+  {id:'reactor', label:'Reactor', x:185, y:215, kind:'src'},
+  {id:'j_eng',   label:'J-ENG',   x:310, y:215, kind:'j'},
+  {id:'thruster',label:'Main Thrusters', x:150, y:115, kind:'c', req:'power'},
+  {id:'rcs',     label:'RCS Pods', x:150, y:315, kind:'c', req:'power'},
+  {id:'ftl',     label:'FTL Drive', x:300, y:100, kind:'c', req:'power'},
+  {id:'j_trunk', label:'J-TRUNK', x:450, y:215, kind:'j'},
+  {id:'ls',      label:'Life Support', x:420, y:115, kind:'c', req:'power'},
+  {id:'airlock', label:'Airlock Ctrl', x:420, y:315, kind:'c', req:'power'},
+  {id:'shield',  label:'Shield Gen', x:545, y:340, kind:'c', req:'power'},
+  {id:'j_fwd',   label:'J-FWD',   x:625, y:215, kind:'j'},
+  {id:'turret',  label:'Turret (authority+feed)', x:665, y:95, kind:'c', req:'signal'},
+  {id:'gun_main',label:'Main Guns (FC)', x:712, y:340, kind:'c', req:'signal'},
+  {id:'j_fore',  label:'J-FORE',  x:830, y:215, kind:'j'},
+  {id:'fc',      label:'FC Computer', x:810, y:110, kind:'c', req:'power', emit:true},
+  {id:'sensor',  label:'Sensor Array', x:945, y:215, kind:'c', req:'power', emit:true},
+  {id:'seat',    label:'Pilot Seat', x:875, y:315, kind:'c', req:'power', emit:true},
+];
+const WIRES = [
+  {id:'W1', from:'reactor', to:'j_eng',   type:'power+signal', health:80},
+  {id:'W2', from:'j_eng',   to:'ftl',     type:'power', health:50},
+  {id:'W3', from:'j_eng',   to:'thruster',type:'power', health:50},
+  {id:'W4', from:'j_eng',   to:'rcs',     type:'power', health:30},
+  {id:'W5', from:'j_eng',   to:'j_trunk', type:'power+signal', health:80},
+  {id:'W6', from:'j_trunk', to:'ls',      type:'power', health:40},
+  {id:'W7', from:'j_trunk', to:'airlock', type:'power', health:30},
+  {id:'W8', from:'j_trunk', to:'j_fwd',   type:'power+signal', health:60},
+  {id:'W9', from:'j_fwd',   to:'shield',  type:'power', health:50},
+  {id:'W10',from:'j_fwd',   to:'turret',  type:'power', health:40},
+  {id:'W11',from:'j_fwd',   to:'gun_main',type:'power', health:50},
+  {id:'W12',from:'j_fwd',   to:'j_fore',  type:'power+signal', health:60},
+  {id:'W13',from:'j_fore',  to:'fc',      type:'power', health:30},
+  {id:'W14',from:'j_fore',  to:'seat',    type:'power', health:30},
+  {id:'W15',from:'j_fore',  to:'sensor',  type:'power', health:30},
+  {id:'S1', from:'seat',    to:'j_fore',  type:'signal', health:20},
+  {id:'S2', from:'j_fwd',   to:'gun_main',type:'signal', health:25},
+  {id:'S3', from:'sensor',  to:'j_fore',  type:'signal', health:20},
+  {id:'S4', from:'j_fwd',   to:'turret',  type:'signal', health:25},
+];
+const SECTIONS = [
+  {label:'ENGINEERING', x:110, w:270},{label:'CARGO', x:380, w:170},
+  {label:'GUN BAY', x:550, w:225},{label:'COCKPIT', x:775, w:215},
+];
+let state;
+function reset() {
+  state = { cutWires:{}, cutJunctions:{}, spares:{wire:2, junction:1}, tick:4120, log:[] };
+  render();
+}
+function wireUsable(w) {
+  if (state.cutWires[w.id]) return false;
+  if (NODES.find(n=>n.id===w.from).kind==='j' && state.cutJunctions[w.from]) return false;
+  if (NODES.find(n=>n.id===w.to).kind==='j' && state.cutJunctions[w.to]) return false;
+  return true;
+}
+function compute() {
+  const powered = new Set(['reactor']);
+  const q = ['reactor'];
+  while (q.length) {
+    const a = q.shift();
+    for (const w of WIRES) {
+      if (!wireUsable(w) || !(w.type==='power'||w.type==='power+signal')) continue;
+      const other = w.from===a ? w.to : (w.to===a ? w.from : null);
+      if (other && !powered.has(other)) { powered.add(other); q.push(other); }
+    }
+  }
+  const sig = new Set();
+  const qs = [];
+  for (const n of NODES) if (n.emit && (powered.has(n.id) || n.id==='seat')) { sig.add(n.id); qs.push(n.id); }
+  while (qs.length) {
+    const a = qs.shift();
+    for (const w of WIRES) {
+      if (!wireUsable(w) || !(w.type==='signal'||w.type==='power+signal')) continue;
+      const other = w.from===a ? w.to : (w.to===a ? w.from : null);
+      if (other && !sig.has(other)) { sig.add(other); qs.push(other); }
+    }
+  }
+  const sys = {};
+  for (const n of NODES) {
+    if (n.kind!=='c') continue;
+    const p = powered.has(n.id), s = sig.has(n.id);
+    let ok = p && (n.req!=='signal' || s);
+    let why = '';
+    if (!p) why = 'no power';
+    else if (n.req==='signal' && !s) why = 'no signal';
+    sys[n.id] = { ok, why, sigOnly: p && n.req==='signal' && !s };
+  }
+  return { powered, sys };
+}
+function fmtWire(w) { return w.type==='power+signal' ? '#46c98b' : w.type==='signal' ? '#41c7e0' : '#e8a33d'; }
+function render() {
+  const { powered, sys } = compute();
+  const jOf = id => NODES.find(n=>n.id===id);
+  let s = `<rect x="100" y="55" width="890" height="330" rx="70" fill="var(--card)" stroke="var(--border)"/>
+  <path d="M990 220 L1005 215 L990 210 Z" fill="var(--muted-foreground)"/>`;
+  for (const sec of SECTIONS)
+    s += `<rect x="${sec.x}" y="60" width="${sec.w}" height="320" rx="14" fill="transparent" stroke="var(--border)" stroke-dasharray="3 5"/><text x="${sec.x+8}" y="78" font-size="10" fill="var(--muted-foreground)" letter-spacing="2">${sec.label}</text>`;
+  for (const w of WIRES) {
+    const a=jOf(w.from), b=jOf(w.to), cut=state.cutWires[w.id];
+    const col = cut ? '#d07070' : fmtWire(w);
+    const dash = cut ? 'stroke-dasharray="4 5"' : (w.type==='signal' ? 'stroke-dasharray="6 4"' : '');
+    s += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${col}" stroke-width="${cut?2:2.5}" ${dash} opacity="${cut?.95:(w.type==='power+signal'?1:.9)}"/>`;
+    s += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="transparent" stroke-width="14" style="cursor:pointer" data-wire="${w.id}"><title>${w.id} — ${w.type} · health ${w.health}${cut?' · SEVERED (click to repair)':''}</title></line>`;
+    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    if (cut) s += `<text x="${mx}" y="${my-6}" font-size="10" fill="#d07070" text-anchor="middle">✕ ${w.id}</text>`;
+  }
+  for (const n of NODES) {
+    const cutJ = n.kind==='j' && state.cutJunctions[n.id];
+    if (n.kind==='src') {
+      s += `<circle cx="${n.x}" cy="${n.y}" r="22" fill="var(--accent)" opacity=".85"/><text x="${n.x}" y="${n.y+4}" font-size="10" text-anchor="middle" fill="var(--background, #fff)">⚡</text><text x="${n.x}" y="${n.y+40}" font-size="11" text-anchor="middle" fill="var(--foreground)">${n.label}</text>`;
+    } else if (n.kind==='j') {
+      s += `<g style="cursor:pointer" data-junction="${n.id}"><title>${n.id} — bus.junction component${cutJ?' · BLOWN (click to repair)':' · click to blow'}</title><rect x="${n.x-11}" y="${n.y-11}" width="22" height="22" transform="rotate(45 ${n.x} ${n.y})" fill="${cutJ?'#d07070':'var(--card)'}" stroke="${cutJ?'#d07070':'var(--foreground)'}" stroke-width="1.5" opacity="${cutJ?1:.9}"/>${cutJ?`<text x="${n.x}" y="${n.y+4}" font-size="11" text-anchor="middle" fill="var(--background, #fff)">✕</text>`:''}</g><text x="${n.x}" y="${n.y-20}" font-size="10" text-anchor="middle" fill="var(--muted-foreground)">${n.label}</text>`;
+    } else {
+      const st = sys[n.id], on = st.ok;
+      s += `<g opacity="${on?1:.32}"><rect x="${n.x-62}" y="${n.y-15}" width="124" height="30" rx="7" fill="var(--card)" stroke="${on?'var(--border)':'#d07070'}" ${on?'':'stroke-dasharray="4 4"'}/><text x="${n.x}" y="${n.y+4}" font-size="10.5" text-anchor="middle" fill="var(--foreground)">${n.label}</text></g>`;
+      if (!on) s += `<text x="${n.x}" y="${n.y+28}" font-size="9.5" text-anchor="middle" fill="#d07070">OFF · ${st.why}</text>`;
+      else if (st.sigOnly) s += '';
+      if (st.sigOnly) s += `<text x="${n.x}" y="${n.y-20}" font-size="9.5" text-anchor="middle" fill="#41c7e0">powered · no solution</text>`;
+    }
+  }
+  document.getElementById('net').innerHTML = s;
+  const comps = NODES.filter(n=>n.kind==='c');
+  const darkIds = comps.filter(n=>!sys[n.id].ok);
+  let html = comps.map(n=>{
+    const st = sys[n.id];
+    return `<div class="${st.ok?'online':'dark'}">${st.ok?'●':'○'} ${n.label}${!st.ok?` <span class="reason">— ${st.why}</span>`:''}</div>`;
+  }).join('');
+  document.getElementById('systems').innerHTML = html;
+  let st2 = `<div class="log">tick ${state.tick} · powered nodes: ${powered.size-1} · dark set: {${darkIds.map(n=>n.id).join(', ')||'∅'}}</div>`;
+  st2 += `<div class="log">spares: wire ×${state.spares.wire} · junction ×${state.spares.junction}</div>`;
+  st2 += `<div class="log" style="margin-top:6px">${state.log.join('\n')}</div>`;
+  document.getElementById('status').innerHTML = st2;
+}
+document.getElementById('net').addEventListener('click', e => {
+  const w = e.target.closest('[data-wire]'), j = e.target.closest('[data-junction]');
+  if (w) {
+    const id = w.dataset.wire;
+    if (state.cutWires[id]) {
+      if (state.spares.wire <= 0) { flash('no wire spare left'); return; }
+      state.spares.wire--; delete state.cutWires[id]; state.tick += 140;
+      state.log.unshift(`t+${state.tick}  repair ${id} from spare → reachability recomputed (BFS)`);
+    } else {
+      state.cutWires[id] = true; state.tick += 7;
+      state.log.unshift(`t+${state.tick}  sever ${id} — dark set cascades via function-zero modifiers`);
+    }
+  } else if (j) {
+    const id = j.dataset.junction;
+    if (state.cutJunctions[id]) {
+      if (state.spares.junction <= 0) { flash('no junction spare left'); return; }
+      state.spares.junction--; delete state.cutJunctions[id]; state.tick += 260;
+      state.log.unshift(`t+${state.tick}  replace junction ${id} from spare`);
+    } else {
+      state.cutJunctions[id] = true; state.tick += 5;
+      state.log.unshift(`t+${state.tick}  junction ${id} destroyed — downstream branches dark`);
+    }
+  } else return;
+  render();
+});
+function flash(msg){ state.log.unshift(`        ${msg}`); render(); }
+document.getElementById('reset').addEventListener('click', reset);
+reset();
+</script>
+</body>
+</html>

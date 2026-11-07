@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Void Engine — sensor screen mockup</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 14px; background: #070c11; color: #cfd9e4;
+         font: 13px/1.45 ui-monospace, "Cascadia Mono", Menlo, monospace; }
+  h1 { font-size: 15px; letter-spacing: .18em; color: #e8a33d; margin: 0 0 2px; }
+  .sub { color: #5f7285; margin: 0 0 12px; font-size: 12px; }
+  .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .rangebtn { background: #0d151d; color: #9fb4c7; border: 1px solid #1d2a36; padding: 5px 12px;
+              cursor: pointer; font: inherit; letter-spacing: .08em; }
+  .rangebtn.on { color: #0a0f14; background: #e8a33d; border-color: #e8a33d; }
+  .ghostbtn { margin-left: auto; background: #14100d; color: #e05a5a; border: 1px solid #3a2222;
+              padding: 5px 12px; cursor: pointer; font: inherit; }
+  .ghostbtn.on { background: #e05a5a; color: #0a0f14; }
+  .main { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+  .scope { background: #0a1118; border: 1px solid #1d2a36; }
+  .side { width: 330px; display: flex; flex-direction: column; gap: 10px; }
+  .panel { background: #0d151d; border: 1px solid #1d2a36; padding: 8px 10px; }
+  .panel h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: .14em; color: #5f7285; }
+  .crow { display: grid; grid-template-columns: 26px 1fr auto auto; gap: 8px; align-items: center;
+          padding: 4px 4px; cursor: pointer; border-left: 2px solid transparent; }
+  .crow:hover { background: #12202c; }
+  .crow.sel { border-left-color: #e8a33d; background: #14202c; }
+  .crow svg { width: 20px; height: 20px; }
+  .nm { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .rg { color: #9fb4c7; font-size: 12px; }
+  .iff { font-size: 10px; letter-spacing: .1em; }
+  .friend  { color: #46c98b; } .neutral { color: #9fb4c7; }
+  .hostile { color: #e05a5a; } .unknown { color: #e8a33d; }
+  .detail { font-size: 12px; color: #cfd9e4; }
+  .detail .k { color: #5f7285; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+  .chip { border: 1px solid #1d2a36; background: #0d151d; padding: 3px 9px; font-size: 11px; color: #7c93a8; }
+  .chip b { color: #cfd9e4; font-weight: 600; }
+  .legend { margin-top: 6px; }
+  .lg { display: inline-flex; flex-direction: column; align-items: center; width: 96px; padding: 8px 2px; }
+  .lg svg { width: 30px; height: 30px; color: #cfd9e4; }
+  .lg .t { font-size: 11px; margin-top: 4px; text-align: center; }
+  .lg .s { font-size: 10px; color: #5f7285; }
+  .note { color: #5f7285; font-size: 11.5px; margin-top: 6px; }
+  @keyframes sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .sweep { animation: sweep 5s linear infinite; transform-origin: 320px 280px; }
+  @keyframes blink { 50% { opacity: .35; } }
+  .wake { animation: blink 1.6s steps(2) infinite; }
+</style>
+</head>
+<body>
+<h1>LONG-RANGE SENSOR</h1>
+<p class="sub">diegetic cockpit canvas (decision #15) · feed routed over the sensor signal wire to J-FORE (decision #26b) · IFF = owner × stance tags (decision #25a/b) · lane nodes = nav graph (decision #27a)</p>
+
+<svg width="0" height="0" style="position:absolute">
+ <defs>
+  <symbol id="g-shuttle" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.5C13.9 5.2 14.6 8 14.6 11.5v5L12 21.5 9.4 16.5v-5C9.4 8 10.1 5.2 12 2.5Z"/><rect fill="currentColor" x="6.6" y="13" width="2.1" height="5.4" rx=".8"/><rect fill="currentColor" x="15.3" y="13" width="2.1" height="5.4" rx=".8"/></symbol>
+  <symbol id="g-fighter" viewBox="0 0 24 24"><path fill="currentColor" d="M12 1.5 14 9l7 11-7-4-2 2.6L10 16l-7 4 7-11Z"/></symbol>
+  <symbol id="g-lfreighter" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.2 14.6 9v9L12 21.8 9.4 18V9Z"/><rect fill="currentColor" x="4.6" y="9.6" width="2.7" height="7.4" rx="1"/><rect fill="currentColor" x="16.7" y="9.6" width="2.7" height="7.4" rx="1"/></symbol>
+  <symbol id="g-freighter" viewBox="0 0 24 24"><path fill="currentColor" d="M12 1.2 15.1 7.4v3.4H8.9V7.4Z"/><rect fill="currentColor" x="9.6" y="11.2" width="4.8" height="11"/><rect fill="currentColor" x="4.9" y="7.8" width="2.7" height="11.6" rx="1"/><rect fill="currentColor" x="16.4" y="7.8" width="2.7" height="11.6" rx="1"/></symbol>
+  <symbol id="g-tanker" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M9 1.6h6a1 1 0 0 1 1 1v19a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-19a1 1 0 0 1 1-1Zm.8 6.2h4.4v1.1H9.8Zm0 5.2h4.4v1.1H9.8Z"/></symbol>
+  <symbol id="g-tender" viewBox="0 0 24 24"><rect fill="currentColor" x="3.6" y="4" width="4" height="16.4" rx="1"/><rect fill="currentColor" x="16.4" y="4" width="4" height="16.4" rx="1"/><rect fill="currentColor" x="7" y="9.6" width="10" height="5.2"/><rect fill="currentColor" x="10.4" y="1.6" width="3.2" height="3.4"/></symbol>
+  <symbol id="g-station" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M12 2.6 20.2 7.3v9.4L12 21.4 3.8 16.7V7.3Zm0 5.6a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"/><rect fill="currentColor" x="11" y="0" width="2" height="3"/><rect fill="currentColor" x="11" y="21" width="2" height="3"/><rect fill="currentColor" x="0" y="11" width="3" height="2"/><rect fill="currentColor" x="21" y="11" width="3" height="2"/></symbol>
+  <symbol id="g-outpost" viewBox="0 0 24 24"><path fill="currentColor" d="M3.6 19a8.4 8.4 0 0 1 16.8 0Z"/><rect fill="currentColor" x="11.2" y="4" width="1.6" height="9"/><circle fill="currentColor" cx="12" cy="2.6" r="1.7"/></symbol>
+  <symbol id="g-player" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M12 2 20 12 12 22 4 12Zm0 6.4L9.4 12 12 15.6 14.6 12Z"/></symbol>
+  <symbol id="g-unknown" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M12 2.4a9.6 9.6 0 1 1 0 19.2 9.6 9.6 0 0 1 0-19.2Zm0 3.4a6.2 6.2 0 1 0 0 12.4 6.2 6.2 0 0 0 0-12.4Z"/><text x="12" y="16.4" text-anchor="middle" font-size="10" fill="currentColor" font-family="inherit">?</text></symbol>
+ </defs>
+</svg>
+
+<div class="bar">
+  <button class="rangebtn" data-r="short">SHORT · 5 km</button>
+  <button class="rangebtn on" data-r="mid">MID · 900 km</button>
+  <button class="rangebtn" data-r="system">SYSTEM · 1 AU</button>
+  <button class="ghostbtn" id="cut">⌁ sever sensor signal</button>
+</div>
+
+<div class="main">
+  <svg id="scope" class="scope" width="640" height="560" viewBox="0 0 640 560"></svg>
+  <div class="side">
+    <div class="panel" style="max-height:250px;overflow:auto"><h3 id="listhead">Contacts</h3><div id="list"></div></div>
+    <div class="panel detail" id="detail">Click a contact to inspect.</div>
+  </div>
+</div>
+
+<div class="chips">
+  <span class="chip" id="feedchip"><b>SENSOR FEED</b> OK · S3→J-FORE→J-FWD signal path</span>
+  <span class="chip"><b>IFF</b> owner.× stance.× reputation tags</span>
+  <span class="chip"><b>◌ rings</b> safe-speed bubbles (#22b)</span>
+  <span class="chip"><b>─</b> authored nav graph (#27a)</span>
+</div>
+
+<div class="panel legend">
+  <h3>Icons — ship sizes &amp; stations</h3>
+  <span class="lg"><svg><use href="#g-shuttle"/></svg><span class="t">Shuttle</span><span class="s">4 sockets</span></span>
+  <span class="lg"><svg style="color:#e05a5a"><use href="#g-fighter"/></svg><span class="t">Fighter / Interdictor</span><span class="s">8 sockets</span></span>
+  <span class="lg"><svg><use href="#g-lfreighter"/></svg><span class="t">Light Freighter</span><span class="s">12 sockets</span></span>
+  <span class="lg"><svg><use href="#g-freighter"/></svg><span class="t">Freighter</span><span class="s">18 sockets</span></span>
+  <span class="lg"><svg><use href="#g-tanker"/></svg><span class="t">Bulk Tanker</span><span class="s">20 sockets</span></span>
+  <span class="lg"><svg><use href="#g-tender"/></svg><span class="t">Construction Tender</span><span class="s">24 sockets</span></span>
+  <span class="lg"><svg style="color:#46c98b"><use href="#g-station"/></svg><span class="t">Station</span><span class="s">inert loadout hull</span></span>
+  <span class="lg"><svg style="color:#46c98b"><use href="#g-outpost"/></svg><span class="t">Planetary Outpost</span><span class="s">ground node</span></span>
+  <span class="lg"><svg style="color:#e8a33d"><use href="#g-unknown"/></svg><span class="t">Unknown contact</span><span class="s">no class match</span></span>
+  <span class="lg"><svg style="color:#cfd9e4"><use href="#g-player"/></svg><span class="t">You</span><span class="s">scope centre</span></span>
+  <p class="note">Socket-budget ladder is a <b>proposal, not yet a pinned decision</b> — the plan fixed categorized sockets (#21c) but never sized hulls. Say the word and it becomes decision #28 (plus sensor-contact display rules).</p>
+</div>
+
+<script>
+const G = {
+  shuttle:'g-shuttle', fighter:'g-fighter', lfreighter:'g-lfreighter', freighter:'g-freighter',
+  tanker:'g-tanker', tender:'g-tender', station:'g-station', outpost:'g-outpost', unknown:'g-unknown', player:'g-player'
+};
+// r = range km, b = bearing deg (0=N, clockwise)
+const DATA = {
+  short: { max: 5,
+    bodies: [], lanes: [], wakes: [],
+    contacts: [
+      {id:'docked1', g:'freighter', iff:'friend',  nm:'Kestrel (docked)',   r:0.9, b:305, rv:0,   note:'clamped at port A (#23)'},
+      {id:'docked2', g:'tanker',    iff:'friend',  nm:'Wellspring (docked)',r:1.2, b:228, rv:0,   note:'clamped at port C · refuelling'},
+      {id:'shut1',   g:'shuttle',   iff:'friend',  nm:'Ferry 2',            r:1.8, b:64,  rv:0.4, note:'departing, lane anchor next'},
+      {id:'tender1', g:'tender',    iff:'neutral', nm:'MTU Bricklayer',     r:2.6, b:338, rv:-0.2,note:'tender run — module #3 to spine socket (#24b)'},
+      {id:'int1',    g:'fighter',   iff:'hostile', nm:'UNKNOWN-441',        r:3.9, b:142, rv:-1.1,note:'closing fast · no transponder'},
+    ]},
+  mid: { max: 900,
+    bodies: [{x:120,y:430,rad:34,label:'Terminus',moon:{x:186,y:452,r:9}}],
+    lanes: [[{x:320,y:280},{x:430,y:368},{x:520,y:430}]],
+    wakes: [{x:478,y:398,label:'warp wake'}],
+    contacts: [
+      {id:'conv1', g:'freighter', iff:'friend',  nm:'Kestrel',        r:210, b:128, rv:-6.2, note:'convoy · lane station→outpost'},
+      {id:'conv2', g:'lfreighter',iff:'friend',  nm:'Marrow Line',    r:232, b:133, rv:-6.2, note:'convoy · escorted'},
+      {id:'esc1',  g:'fighter',   iff:'friend',  nm:'Escort Vega',    r:244, b:121, rv:-6.4, note:'escort (spawned on pressure band flip, #25c)'},
+      {id:'tank1', g:'tanker',    iff:'neutral', nm:'Wellspring',     r:410, b:96,  rv:-4.0, note:'fuel bulk run (#21f)'},
+      {id:'shut1', g:'shuttle',   iff:'friend',  nm:'Ferry 2',        r:9,   b:64,  rv:0.4,  note:'outbound'},
+      {id:'int1',  g:'fighter',   iff:'unknown', nm:'UNKNOWN-441',    r:520, b:150, rv:-3.1, note:'shadowing convoy bearing'},
+    ]},
+  system: { max: 1_000_000_000/1000, // 1 AU in km
+    bodies: [
+      {x:170,y:410,rad:52,label:'Terminus',moon:{x:262,y:448,r:13}},
+      {x:520,y:120,rad:30,label:'Cinder'}
+    ],
+    lanes: [[{x:320,y:280},{x:410,y:340},{x:505,y:155}]],
+    wakes: [{x:392,y:322,label:'warp wake'},{x:497,y:170,label:'spool bloom'}],
+    contacts: [
+      {id:'stn',   g:'station',   iff:'friend',  nm:'Meridian Station', r:0,    b:0,   rv:0,  note:'you are docked here area · owner.merchant'},
+      {id:'out1',  g:'outpost',   iff:'friend',  nm:'Cinder Outpost',   r:8.2e8/1000, b:28, rv:0, note:'market node · owner.merchant'},
+      {id:'conv1', g:'freighter', iff:'friend',  nm:'Kestrel convoy',   r:4.1e8/1000, b:133, rv:-6.2, note:'3 hulls + escort, lane edge'},
+      {id:'tender1',g:'tender',   iff:'neutral', nm:'MTU Bricklayer',   r:2.6e7/1000, b:338, rv:-0.2,note:'build plan #3 inbound'},
+      {id:'unk1',  g:'unknown',   iff:'unknown', nm:'UNIDENTIFIED',     r:6.0e8/1000, b:208, rv:0,   note:'scatter-region return · class unresolved'},
+    ]},
+};
+const COL = { friend:'#46c98b', neutral:'#9fb4c7', hostile:'#e05a5a', unknown:'#e8a33d' };
+const state = { r:'mid', sel:null, cut:false };
+const CX=320, CY=280, RMAX=250;
+
+function pos(r, b, max) {
+  const rad = Math.min(r/max, 1) * RMAX;
+  const a = (b - 90) * Math.PI/180;
+  return [CX + rad*Math.cos(a), CY + rad*Math.sin(a)];
+}
+function fmt(r){ return r < 1 ? (r*1000).toFixed(0)+' m' : r < 1e3 ? r.toFixed(1)+' km' : (r/1e3).toFixed(2)+' Mm'; }
+
+function render() {
+  const d = DATA[state.r];
+  let s = `<circle cx="${CX}" cy="${CY}" r="${RMAX}" fill="#0c151e" stroke="#1d2a36"/>`;
+  for (let i=1;i<=4;i++) s += `<circle cx="${CX}" cy="${CY}" r="${RMAX*i/4}" fill="none" stroke="#16222e"/>`;
+  for (const deg of [0,90,180,270]) {
+    const [x1,y1]=pos(d.max*1.02, deg, d.max), [x2,y2]=pos(d.max*0.96, deg, d.max);
+    s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#31465a" stroke-width="2"/>`;
+  }
+  s += `<text x="${CX}" y="26" text-anchor="middle" fill="#5f7285" font-size="10">N</text><text x="${CX+RMAX+14}" y="${CY+4}" fill="#5f7285" font-size="10">E</text><text x="${CX}" y="${CY+RMAX+18}" text-anchor="middle" fill="#5f7285" font-size="10">S</text><text x="${CX-RMAX-22}" y="${CY+4}" fill="#5f7285" font-size="10">W</text>`;
+  if (!state.cut) s += `<g class="sweep"><line x1="${CX}" y1="${CY}" x2="${CX}" y2="${CY-RMAX}" stroke="#46c98b" stroke-opacity=".28" stroke-width="2"/><path d="M${CX} ${CY-RMAX} A${RMAX} ${RMAX} 0 0 0 ${CX+RMAX*0.25} ${CY-RMAX*0.97}" fill="none" stroke="#46c98b" stroke-opacity=".18" stroke-width="6"/></g>`;
+  // lanes + nav anchors (#27a)
+  for (const lane of d.lanes) {
+    s += `<polyline points="${lane.map(p=>p.x+','+p.y).join(' ')}" fill="none" stroke="#2e4a63" stroke-dasharray="2 5"/>`;
+    for (const p of lane) s += `<circle cx="${p.x}" cy="${p.y}" r="2.6" fill="#2e4a63"/>`;
+  }
+  // bodies + safe bubbles (#22b)
+  for (const bd of d.bodies) {
+    s += `<circle cx="${bd.x}" cy="${bd.y}" r="${bd.rad*2.4}" fill="none" stroke="#31465a" stroke-dasharray="3 5"/>`;
+    s += `<text x="${bd.x}" y="${bd.y+bd.rad*2.4+12}" text-anchor="middle" fill="#5f7285" font-size="9.5">safe bubble · ${bd.label}</text>`;
+    s += `<circle cx="${bd.x}" cy="${bd.y}" r="${bd.rad}" fill="#132330" stroke="#3a556e"/>`;
+    if (bd.moon) s += `<circle cx="${bd.moon.x}" cy="${bd.moon.y}" r="${bd.moon.r}" fill="#132330" stroke="#3a556e"/>`;
+  }
+  for (const w of d.wakes) s += `<g class="wake"><circle cx="${w.x}" cy="${w.y}" r="9" fill="none" stroke="#41c7e0" stroke-dasharray="2 3"/><text x="${w.x}" y="${w.y-13}" text-anchor="middle" fill="#41c7e0" font-size="9">${w.label}</text></g>`;
+  // player
+  s += `<g color="#cfd9e4"><use href="#g-player" x="${CX-11}" y="${CY-11}" width="22" height="22"/></g>`;
+  // contacts
+  for (const c of d.contacts) {
+    const [x,y] = pos(c.r, c.b, d.max);
+    const sel = state.sel === c.id;
+    const op = state.cut ? .22 : 1;
+    s += `<g color="${COL[c.iff]}" opacity="${op}" style="cursor:pointer" data-c="${c.id}">
+      <use href="#${G[c.g]}" x="${x-11}" y="${y-11}" width="22" height="22"/>
+      ${c.g==='station'||c.g==='outpost'?'':`<circle cx="${x}" cy="${y}" r="15" fill="none" stroke="${COL[c.iff]}" stroke-opacity=".35"/>`}
+      ${sel?`<path d="M${x-18} ${y-18} h7 M${x-18} ${y-18} v7 M${x+18} ${y-18} h-7 M${x+18} ${y-18} v7 M${x-18} ${y+18} h7 M${x-18} ${y+18} v-7 M${x+18} ${y+18} h-7 M${x+18} ${y+18} v-7" stroke="#e8a33d" stroke-width="2"/>`:''}
+      <circle cx="${x}" cy="${y}" r="16" fill="transparent"/>
+      ${state.r!=='short'&&c.g!=='station'?`<line x1="${x}" y1="${y}" x2="${x+Math.cos(((c.b+180-90)*Math.PI/180))*14}" y2="${y+Math.sin(((c.b+180-90)*Math.PI/180))*14}" stroke="${COL[c.iff]}" stroke-width="1.4" stroke-opacity=".8"/>`:''}
+    </g>`;
+  }
+  document.getElementById('scope').innerHTML = s;
+
+  // list
+  let l = '';
+  for (const c of d.contacts) {
+    l += `<div class="crow ${state.sel===c.id?'sel':''}" data-c="${c.id}">
+      <svg style="color:${COL[c.iff]}"><use href="#${G[c.g]}"/></svg>
+      <span class="nm">${c.nm}${state.cut?' <span style="color:#5f7285">(last known)</span>':''}</span>
+      <span class="rg">${fmt(c.r)}</span><span class="iff ${c.iff}">${c.iff.toUpperCase()}</span></div>`;
+  }
+  document.getElementById('list').innerHTML = l;
+  document.getElementById('listhead').textContent = state.cut ? 'Contacts — LAST KNOWN · sensor dark' : `Contacts — ${d.contacts.length}`;
+
+  // detail
+  const c = d.contacts.find(x => x.id === state.sel);
+  document.getElementById('detail').innerHTML = c
+    ? `<span class="k">CLASS</span> ${c.g==='lfreighter'?'light freighter':c.g} · <span class="k">BEARING</span> ${c.b}° · <span class="k">RANGE</span> ${fmt(c.r)} · <span class="k">RADIAL</span> ${c.rv>0?'+':''}${c.rv} km/s<br><span class="k">IFF</span> <span class="${c.iff}">${c.iff.toUpperCase()}</span>${c.iff==='hostile'?' · stance.hostile.merchant (#25b)':''}<br><span class="k">NOTE</span> ${c.note}`
+    : (state.cut ? 'Sensor wire cut — no signal path to the array. Contacts hold last-known ghosts; the scope stays dark until the engineer replaces the run (#26d).' : 'Click a contact to inspect.');
+
+  const fc = document.getElementById('feedchip');
+  fc.innerHTML = state.cut ? '<b style="color:#e05a5a">SENSOR OFFLINE</b> · S3→J-FORE signal path broken' : '<b>SENSOR FEED</b> OK · S3→J-FORE→J-FWD signal path';
+}
+document.querySelectorAll('.rangebtn').forEach(b => b.addEventListener('click', () => {
+  state.r = b.dataset.r; state.sel = null;
+  document.querySelectorAll('.rangebtn').forEach(x => x.classList.toggle('on', x===b));
+  render();
+}));
+document.getElementById('cut').addEventListener('click', e => {
+  state.cut = !state.cut;
+  e.target.classList.toggle('on', state.cut);
+  e.target.textContent = state.cut ? '⌁ replace sensor wire (spare −1)' : '⌁ sever sensor signal';
+  render();
+});
+document.getElementById('scope').addEventListener('click', e => {
+  const g = e.target.closest('[data-c]'); if (!g) return;
+  state.sel = state.sel === g.dataset.c ? null : g.dataset.c; render();
+});
+document.getElementById('list').addEventListener('click', e => {
+  const g = e.target.closest('[data-c]'); if (!g) return;
+  state.sel = state.sel === g.dataset.c ? null : g.dataset.c; render();
+});
+render();
+</script>
+</body>
+</html>
