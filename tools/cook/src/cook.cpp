@@ -128,7 +128,7 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
     for (const auto& id : ids) {
         std::string src = (std::filesystem::path(src_dir) / id).string();
         Bytes source;
-        if (!detail::read_bytes(src, source, &err)) {
+        if (!read_file_bytes(src, source, &err)) {
             result.error = err;
             ++result.counts.failures;
             continue;

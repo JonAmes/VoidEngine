@@ -1,12 +1,10 @@
-#include "ve/cook/cook.h"
+#include "ve/core/cooked.h"
 
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 
-#include "internal.h"
-
-namespace ve::cook {
+namespace ve::core::cooked {
 namespace detail {
 
 void put_u32(Bytes& out, std::uint32_t v) {
@@ -104,6 +102,14 @@ bool read_bytes(const std::string& path, Bytes& out, std::string* err) {
 
 // container IO helpers visible to the rest of this TU
 using namespace detail;
+
+// Public whole-file IO (header-declared; cooklet + runtime loaders use these).
+bool write_file_bytes(const std::string& path, const Bytes& data, std::string* err) {
+    return write_bytes(path, data, err);
+}
+bool read_file_bytes(const std::string& path, Bytes& out, std::string* err) {
+    return read_bytes(path, out, err);
+}
 
 // ---- crc32 (IEEE 802.3, reflected) -----------------------------------------
 std::uint32_t crc32(const Bytes& data) {
@@ -248,4 +254,4 @@ bool read_manifest(const std::string& path, Manifest& out, std::string* err) {
     return true;
 }
 
-} // namespace ve::cook
+} // namespace ve::core::cooked

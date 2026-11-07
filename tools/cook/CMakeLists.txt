@@ -3,7 +3,6 @@
 # parsing at runtime. Everything here is deterministic: same sources in,
 # byte-identical cooked bytes out (golden test 0.9 enforces this).
 add_library(ve_cooklet STATIC
-    src/container.cpp
     src/cook.cpp
 )
 target_include_directories(ve_cooklet PUBLIC include)

@@ -5,6 +5,7 @@ add_library(ve_core STATIC
     src/log.cpp
     src/assert.cpp
     src/crash.cpp
+    src/cooked.cpp
 )
 target_include_directories(ve_core PUBLIC include)
 target_compile_definitions(ve_core PUBLIC VE_VERSION_STRING="${VE_VERSION}")
