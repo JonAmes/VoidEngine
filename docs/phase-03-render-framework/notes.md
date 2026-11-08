@@ -50,3 +50,55 @@ Running design record for the mini render framework. Process rules live in AGENT
 - `vkUpdateDescriptorSets(dev, writeCount, writes, copyCount, copies)` — passing `0, nullptr, &w, 0` puts the write in the *copy* slot (silent, then descriptor garbage).
 - glslang needs **explicit `layout(location=…)` on vertex outputs / fragment inputs** that cross the stage boundary — "SPIR-V requires location" fails the shader compile; don't rely on auto-assignment.
 - doctest also rejects **`&&` inside `CHECK_MESSAGE`** (same "Expression Too Complex" as `||`): compute a `bool ok = …;` then `CHECK_MESSAGE(ok, …)`.
+
+## Windows run-through at 3.7 (2026-11-08 — MSVC 14.51 / VS 18 BuildTools, VS-bundled CMake 4.3)
+Configure, build, `ctest`, and the windowed demo all green on this box. Facts that changed the
+run-sheet (README's Windows paragraph said "same three commands" — it no longer is):
+- **CMake 4 vs the pinned deps.** VS 18 bundles CMake 4.3, which hard-refuses doctest 2.4.11's
+  `cmake_minimum_required(VERSION 3.0)`. Fixed at configure time, not by bumping a pinned dep
+  (bumping doctest is its own decision): `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`. The Linux gate's
+  CMake 3.31 never sees this, so the divergence lives in the Windows invocation only.
+- **volk needs Vulkan headers.** This box has VulkanRT (runtime) and no SDK, so volk's include
+  dir came up empty → `C1083: vulkan/vk_platform.h`. Fix:
+  `-DVULKAN_HEADERS_INSTALL_DIR=C:\Users\AmesL\Projects\.ve-deps\Vulkan-Headers` — a clone at tag
+  **v1.4.313**, exactly volk's pinned `vulkan-sdk-1.4.313.0`, so the generated loader and the
+  headers agree. No new dependency: headers the box already had, just named to CMake.
+- **The default generator under a dev shell is Visual Studio, not Ninja** (Ninja on PATH doesn't
+  change it) → multi-config → `ctest --test-dir build -C Debug`. Without `-C`:
+  `Test #1: engine_tests ***Not Run` — a configuration error wearing a test-failure costume.
+- **PowerShell argument mangling:** unquoted `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` reaches cmake as
+  `-DCMAKE_POLICY_VERSION_MINIMUM=3` + `.5`; the bad value lands in `CMakeCache.txt` and the
+  `CMAKE_POLICY_VERSION_MINIMUM` env var does *not* override the cache, so the failure outlives
+  the typo. Quote `-D…=x.y` args.
+- Tally as measured: `engine_tests` **52 cases / 2568 assertions, 0 failed** with `VE_GLSLANG` set
+  (2548 assertions when no GLSL compiler is reachable — `cook_shader_golden` prints its skip and
+  returns), vs the Linux gate's 54/3091 — the 2-case gap is the crash suite, not compiled on MSVC
+  (CHEATS line). Tier-2
+  gfx halves print "no lavapipe ICD on this box" and return, so the case count stays green with
+  the GPU coverage absent; same #36 caution as before.
+- **Validation-layer reachability moved since Phase 2.** The Phase 2 note said the HKCU
+  `ExplicitLayers` registration made the layer reachable. Measured now: the loader (instance
+  1.4.341) never surfaces that manifest — `vkEnumerateInstanceLayerProperties` lacks it, and the
+  engine's required-layer gate stops `ve_demo` at exit 2 with "Vulkan validation layer not
+  installed". `VK_LAYER_PATH=C:\Users\AmesL\Projects\.ve-deps\vvlbin` makes it enumerable; the
+  demo then logs `validation ON` and `active tool layers: Khronos Validation Layer`.
+- `VE_GLSLANG` with an absolute `glslangValidator.exe` path: without it `cook_shader_golden`
+  prints its skip and `ve_demo` fails the cook at exit 2 (its message names the env var).
+
+### Gotcha (found by MSVC's debug STL, invisible to the Linux gate)
+- `std::search(t.begin(), t.end(), std::string_view("Mat").begin(), std::string_view("Mat").end())`
+  **is UB**: the needle range spans two different temporary views. MSVC aborts the whole binary —
+  `Assertion failed: string_view iterators in range are from different views`, exit `0xc0000409`,
+  with the STL header as the only location printed (doctest's own stdout is lost: a pipe is fully
+  buffered and the abort never flushes it, so the crashing test case looks like whatever ran last).
+  It "passed" on GCC/libstdc++ and in Release only because both temporaries happen to point into
+  the same string literal and libstdc++ ships no such check. Name the view once.
+  Site: `tests/gfx/test_mesh_upload.cpp:153` (3.5's corrupt-material fixture).
+- ve_demo on this box's real GPU (`RTX 4060 Laptop GPU`, api 1.4.351, VK_KHR_win32_surface):
+  120/120 presented, **0 validation problems**, 2 swapchain rebuilds with the extent trail
+  `640x360 → 512x288@f80 → 640x360@f110`, avg 60.21 fps at FIFO — but only 70% of frames held
+  ≥55 fps (min/median/max 0.15/9.94/96.35 ms). The box auto-loads implicit overlay layers into
+  every instance (Steam ×2, RTSS, OBS, EOS per `VK_LOADER_DEBUG=all`), which is the plausible
+  source of the 96 ms spikes; the demo logs loader notes without gating on them. Timing, not
+  correctness — no action taken.
+

@@ -54,7 +54,19 @@ ctest --test-dir build
 
 Sanitizers (ASan+UBSan) are ON by default in test builds (`-DVE_SANITIZERS=OFF` to disable). All tests pass headless — no display, compositor, or headset.
 
-On Windows (decision #38, a supported build/test target, not a port): build inside a Visual Studio developer shell (vcvars) with the VS-bundled CMake + Ninja — the same three commands, no generator flag. The warning wall is compiler-gated rather than softened (MSVC gets `/W4 /utf-8 /permissive- /Zc:preprocessor /WX`), and every deviation is compiler-honest rather than silent — each has a line in `docs/CHEATS.md`. Measured on the Phase 2 tree with MSVC 14.51 (VS18 BuildTools): `engine_tests` **40 cases / 427 assertions green**, `ctest` 1/1, exit 0. The gap to the Linux tally is structural: the two POSIX crash-handler cases are not compiled on MSVC (Windows crash handler is a tracked #38 item). The strict byte-exact golden gate stays Linux/lavapipe by design — on a Windows box without a lavapipe ICD the Tier-2 gfx fixtures print their skip reason and pass, and Windows real-GPU runs use the fuzzy golden tiers instead (#35/#36).
+On Windows (decision #38, supported build/test target, not a port): build under a Visual Studio developer shell with the bundled CMake+Ninja — measured on VS 18 BuildTools (MSVC 14.51, CMake 4.3). No generator flag is needed, but the default generator there is Visual Studio (multi-config), so `ctest` needs `-C Debug`, and a box without a Vulkan SDK needs two configure flags:
+
+```bat
+cmake -S . -B build -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DVULKAN_HEADERS_INSTALL_DIR=C:\path\to\Vulkan-Headers
+cmake --build build
+ctest --test-dir build -C Debug
+```
+
+`CMAKE_POLICY_VERSION_MINIMUM=3.5` is there because CMake 4 refuses doctest 2.4.11's `cmake_minimum_required(VERSION 3.0)` (the Linux gate stays on CMake 3.31 and never sees this); `VULKAN_HEADERS_INSTALL_DIR` points volk at a Vulkan-Headers checkout when no SDK is installed — the VulkanRT runtime ships headers in none. Quote those two flags if a shell splits `=3.5`.
+
+The warning wall is compiler-gated rather than softened (MSVC gets `/W4 /permissive- /Zc:preprocessor /WX`), the POSIX crash handler and its suite are excluded there, and sanitizers report as unavailable instead of quietly vanishing (every one of those deviations has a line in `docs/CHEATS.md`). Measured on MSVC 14.51: `engine_tests` 52 cases / 2568 assertions green with `VE_GLSLANG` pointing at a `glslangValidator` (2548 assertions when none is reachable — the shader-golden case prints its skip and returns), `ctest` 1/1 — the Tier-2 gfx GPU halves skip for want of a lavapipe ICD, which is exactly what they print. That gap to Linux's tally is structural, not a porting defect: the two POSIX crash-handler cases are not compiled on MSVC (a Windows crash handler is a tracked #38 item). The strict byte-exact golden gate stays Linux/lavapipe by design; Windows real-GPU runs use the fuzzy golden tiers instead (#35/#36).
+
+Running the windowed demo (`ve_demo`) there additionally needs the two dev tools this box keeps outside any SDK: `VE_GLSLANG` pointed at a `glslangValidator` (otherwise the shader cook fails at exit 2) and `VK_LAYER_PATH` pointed at the Khronos validation layer (engine policy requires the layer, so every instance refuses to start without it). Measured: 120/120 frames presented on an RTX 4060 Laptop GPU, 0 validation problems, 2 resize-triggered swapchain rebuilds.
 
 Profiling: the Tracy client (pinned v0.15.0) is linked into every engine target by default (`-DVE_TRACY=OFF` to drop it). Attach a Tracy GUI (same version) on port 8086 while any engine binary runs to capture frame marks and zones.
 
@@ -71,5 +83,7 @@ Profiling: the Tracy client (pinned v0.15.0) is linked into every engine target 
 - Visual Studio C++ toolchain — measured on VS18 BuildTools (MSVC 14.51). Build inside a developer shell; VS's bundled CMake + Ninja are used, nothing else to install for a build
 - A Vulkan-capable GPU with an installed driver (the Vulkan loader ships with the driver). The Khronos validation layer (Vulkan SDK) is used when present — the Windows dev box runs with it active — but is not required, because the strict golden gate lives on Linux/lavapipe
 - No GLFW package needed: CMake fetches GLFW 3.4 and builds it statically, so no DLL next to the binaries
+- With no Vulkan SDK installed, configure needs two flags — `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` (CMake 4 refuses doctest 2.4.11's `cmake_minimum_required(VERSION 3.0)`) and `-DVULKAN_HEADERS_INSTALL_DIR` pointing at a Vulkan-Headers checkout (the driver-shipped VulkanRT runtime provides the loader but no headers) — and since the default generator there is Visual Studio, `ctest` needs `-C Debug`
+- The validation layer must be *reachable* to run `ve_demo`: engine policy requires it, so every instance refuses to start without it (exit 2). A layer registered by an older SDK outside the loader's default search paths needs `VK_LAYER_PATH` pointed at its manifest
 - Known compiler deviations, each documented in `docs/CHEATS.md`: MSVC gets the equivalent `/W4 /…/ /WX` wall (never lowered); no UBSan on MSVC and ASan only in debug builds, so sanitizers report as unavailable rather than vanishing; the POSIX crash handler (`core/src/crash.cpp`) and its two tests are excluded on MSVC
 - Optional: OpenXR runtime (SteamVR or Monado) for VR mode
