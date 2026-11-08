@@ -136,6 +136,129 @@ std::expected<offscreen_presenter, std::string> offscreen_presenter::create(
     }
     vkBindBufferMemory(out.device_, out.readback_, out.readback_memory_, 0);
 
+    // 3.3 — the depth attachment: always present on an offscreen target.
+    // teardown_prefix frees everything created before the depth stage; the
+    // depth stage's own partials are added to each failure branch.
+    auto teardown_prefix = [&]() {
+        vkFreeMemory(out.device_, out.readback_memory_, nullptr);
+        vkDestroyBuffer(out.device_, out.readback_, nullptr);
+        vkDestroyImageView(out.device_, out.view_, nullptr);
+        vkFreeMemory(out.device_, out.image_memory_, nullptr);
+        vkDestroyImage(out.device_, out.image_, nullptr);
+    };
+
+    const VkImageCreateInfo depth_ci{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = kDepthFormat,
+        .extent = {width, height, 1},
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        // DEPTH_STENCIL_ATTACHMENT: mandatory usage for depth images.
+        // TRANSFER_SRC: only capture_depth_f32 (reversed-Z texel pins) reads
+        // it back; consumer paths never touch the depth aspect.
+        .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = nullptr,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    if (const VkResult r = vkCreateImage(out.device_, &depth_ci, nullptr, &out.depth_image_); r != VK_SUCCESS) {
+        teardown_prefix();
+        return std::unexpected("vkCreateImage(depth) failed: VkResult(" + std::to_string(static_cast<int>(r)) + ")");
+    }
+    VkMemoryRequirements depth_reqs{};
+    vkGetImageMemoryRequirements(out.device_, out.depth_image_, &depth_reqs);
+    const auto depth_mt = find_memory_type(dev, depth_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (!depth_mt) {
+        vkDestroyImage(out.device_, out.depth_image_, nullptr);
+        teardown_prefix();
+        return std::unexpected("no DEVICE_LOCAL memory type for depth image");
+    }
+    {
+        const VkMemoryAllocateInfo alloc{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .pNext = nullptr,
+            .allocationSize = depth_reqs.size,
+            .memoryTypeIndex = *depth_mt,
+        };
+        if (const VkResult r = vkAllocateMemory(out.device_, &alloc, nullptr, &out.depth_memory_); r != VK_SUCCESS) {
+            vkDestroyImage(out.device_, out.depth_image_, nullptr);
+            teardown_prefix();
+            return std::unexpected("depth image memory alloc failed");
+        }
+    }
+    vkBindImageMemory(out.device_, out.depth_image_, out.depth_memory_, 0);
+
+    const VkImageViewCreateInfo depth_view_ci{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .image = out.depth_image_,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = kDepthFormat,
+        .components = {},
+        // DEPTH aspect only: stencil does not exist for D32_SFLOAT.
+        .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+    };
+    if (const VkResult r = vkCreateImageView(out.device_, &depth_view_ci, nullptr, &out.depth_view_); r != VK_SUCCESS) {
+        vkFreeMemory(out.device_, out.depth_memory_, nullptr);
+        vkDestroyImage(out.device_, out.depth_image_, nullptr);
+        teardown_prefix();
+        return std::unexpected("vkCreateImageView(depth) failed");
+    }
+
+    const VkBufferCreateInfo depth_readback_ci{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .size = byte_size, // D32_SFLOAT texel = 4 bytes, packed rows
+        .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = nullptr,
+    };
+    if (const VkResult r = vkCreateBuffer(out.device_, &depth_readback_ci, nullptr, &out.depth_readback_); r != VK_SUCCESS) {
+        vkDestroyImageView(out.device_, out.depth_view_, nullptr);
+        vkFreeMemory(out.device_, out.depth_memory_, nullptr);
+        vkDestroyImage(out.device_, out.depth_image_, nullptr);
+        teardown_prefix();
+        return std::unexpected("vkCreateBuffer(depth readback) failed");
+    }
+    VkMemoryRequirements depth_buf_reqs{};
+    vkGetBufferMemoryRequirements(out.device_, out.depth_readback_, &depth_buf_reqs);
+    const auto depth_buf_mt = find_memory_type(dev, depth_buf_reqs.memoryTypeBits,
+                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (!depth_buf_mt) {
+        vkDestroyBuffer(out.device_, out.depth_readback_, nullptr);
+        vkDestroyImageView(out.device_, out.depth_view_, nullptr);
+        vkFreeMemory(out.device_, out.depth_memory_, nullptr);
+        vkDestroyImage(out.device_, out.depth_image_, nullptr);
+        teardown_prefix();
+        return std::unexpected("no HOST_VISIBLE|HOST_COHERENT memory type for depth readback");
+    }
+    {
+        const VkMemoryAllocateInfo alloc{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .pNext = nullptr,
+            .allocationSize = depth_buf_reqs.size,
+            .memoryTypeIndex = *depth_buf_mt,
+        };
+        if (const VkResult r = vkAllocateMemory(out.device_, &alloc, nullptr, &out.depth_readback_memory_); r != VK_SUCCESS) {
+            vkDestroyBuffer(out.device_, out.depth_readback_, nullptr);
+            vkDestroyImageView(out.device_, out.depth_view_, nullptr);
+            vkFreeMemory(out.device_, out.depth_memory_, nullptr);
+            vkDestroyImage(out.device_, out.depth_image_, nullptr);
+            teardown_prefix();
+            return std::unexpected("depth readback memory alloc failed");
+        }
+    }
+    vkBindBufferMemory(out.device_, out.depth_readback_, out.depth_readback_memory_, 0);
+
     const VkCommandPoolCreateInfo pool_ci{
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         .pNext = nullptr,
@@ -143,11 +266,12 @@ std::expected<offscreen_presenter, std::string> offscreen_presenter::create(
         .queueFamilyIndex = dev.graphics_queue_family(),
     };
     if (const VkResult r = vkCreateCommandPool(out.device_, &pool_ci, nullptr, &out.pool_); r != VK_SUCCESS) {
-        vkFreeMemory(out.device_, out.readback_memory_, nullptr);
-        vkDestroyBuffer(out.device_, out.readback_, nullptr);
-        vkDestroyImageView(out.device_, out.view_, nullptr);
-        vkFreeMemory(out.device_, out.image_memory_, nullptr);
-        vkDestroyImage(out.device_, out.image_, nullptr);
+        vkFreeMemory(out.device_, out.depth_readback_memory_, nullptr);
+        vkDestroyBuffer(out.device_, out.depth_readback_, nullptr);
+        vkDestroyImageView(out.device_, out.depth_view_, nullptr);
+        vkFreeMemory(out.device_, out.depth_memory_, nullptr);
+        vkDestroyImage(out.device_, out.depth_image_, nullptr);
+        teardown_prefix();
         return std::unexpected("vkCreateCommandPool failed");
     }
 
@@ -156,11 +280,12 @@ std::expected<offscreen_presenter, std::string> offscreen_presenter::create(
     auto fs = frame_sync::create(out.device_, kFramesInFlight);
     if (!fs) {
         vkDestroyCommandPool(out.device_, out.pool_, nullptr);
-        vkFreeMemory(out.device_, out.readback_memory_, nullptr);
-        vkDestroyBuffer(out.device_, out.readback_, nullptr);
-        vkDestroyImageView(out.device_, out.view_, nullptr);
-        vkFreeMemory(out.device_, out.image_memory_, nullptr);
-        vkDestroyImage(out.device_, out.image_, nullptr);
+        vkFreeMemory(out.device_, out.depth_readback_memory_, nullptr);
+        vkDestroyBuffer(out.device_, out.depth_readback_, nullptr);
+        vkDestroyImageView(out.device_, out.depth_view_, nullptr);
+        vkFreeMemory(out.device_, out.depth_memory_, nullptr);
+        vkDestroyImage(out.device_, out.depth_image_, nullptr);
+        teardown_prefix();
         return std::unexpected(fs.error());
     }
     out.sync_ = std::move(*fs);
@@ -175,8 +300,13 @@ offscreen_presenter::~offscreen_presenter() {
     }
     vkDeviceWaitIdle(device_);
     vkDestroyCommandPool(device_, pool_, nullptr);
+    vkFreeMemory(device_, depth_readback_memory_, nullptr);
+    vkDestroyBuffer(device_, depth_readback_, nullptr);
     vkFreeMemory(device_, readback_memory_, nullptr);
     vkDestroyBuffer(device_, readback_, nullptr);
+    vkDestroyImageView(device_, depth_view_, nullptr);
+    vkFreeMemory(device_, depth_memory_, nullptr);
+    vkDestroyImage(device_, depth_image_, nullptr);
     vkDestroyImageView(device_, view_, nullptr);
     vkFreeMemory(device_, image_memory_, nullptr);
     vkDestroyImage(device_, image_, nullptr);
@@ -188,12 +318,18 @@ offscreen_presenter::offscreen_presenter(offscreen_presenter&& other) noexcept
       image_(std::exchange(other.image_, VK_NULL_HANDLE)),
       image_memory_(std::exchange(other.image_memory_, VK_NULL_HANDLE)),
       view_(std::exchange(other.view_, VK_NULL_HANDLE)),
+      depth_image_(std::exchange(other.depth_image_, VK_NULL_HANDLE)),
+      depth_memory_(std::exchange(other.depth_memory_, VK_NULL_HANDLE)),
+      depth_view_(std::exchange(other.depth_view_, VK_NULL_HANDLE)),
       readback_(std::exchange(other.readback_, VK_NULL_HANDLE)),
       readback_memory_(std::exchange(other.readback_memory_, VK_NULL_HANDLE)),
+      depth_readback_(std::exchange(other.depth_readback_, VK_NULL_HANDLE)),
+      depth_readback_memory_(std::exchange(other.depth_readback_memory_, VK_NULL_HANDLE)),
       pool_(std::exchange(other.pool_, VK_NULL_HANDLE)),
       sync_(std::move(other.sync_)),
       slot_cmd_(std::move(other.slot_cmd_)),
       layout_(other.layout_),
+      depth_layout_(other.depth_layout_),
       format_(other.format_),
       width_(other.width_),
       height_(other.height_) {
@@ -354,6 +490,35 @@ bool offscreen_presenter::begin_pass(VkCommandBuffer cmd) {
                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
                          0, nullptr, 0, nullptr, 1, &to_att);
     layout_ = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    // Depth side of the same pass-begin (3.3): presenter-owned transition,
+    // same bookkept-old-layout discipline. UNDEFINED old = contents
+    // discarded, legal under LOAD_OP_CLEAR (passes clear depth to 0 =
+    // reversed-Z far every frame).
+    const VkAccessFlags depth_src_access =
+        depth_layout_ == VK_IMAGE_LAYOUT_UNDEFINED
+            ? VkAccessFlags{0}
+            : VkAccessFlags{VK_ACCESS_TRANSFER_READ_BIT}; // came from a capture
+    const VkPipelineStageFlags depth_src_stage =
+        depth_layout_ == VK_IMAGE_LAYOUT_UNDEFINED
+            ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+            : VK_PIPELINE_STAGE_TRANSFER_BIT; // TRANSFER_READ only legal there
+    const VkImageMemoryBarrier depth_to_att{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = depth_src_access,
+        .dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        .oldLayout = depth_layout_,
+        .newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = depth_image_,
+        .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+    };
+    vkCmdPipelineBarrier(cmd, depth_src_stage,
+                         VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0,
+                         0, nullptr, 0, nullptr, 1, &depth_to_att);
+    depth_layout_ = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     return true;
 }
 
@@ -374,6 +539,23 @@ bool offscreen_presenter::end_pass(VkCommandBuffer cmd) {
                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
                          0, nullptr, 0, nullptr, 1, &to_src);
     layout_ = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+    const VkImageMemoryBarrier depth_to_src{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+        .oldLayout = depth_layout_,
+        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = depth_image_,
+        .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                         0, nullptr, 0, nullptr, 1, &depth_to_src);
+    depth_layout_ = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     return true;
 }
 
@@ -469,6 +651,73 @@ std::vector<std::uint8_t> offscreen_presenter::capture_rgba8() {
     }
     out.assign(static_cast<std::uint8_t*>(mapped), static_cast<std::uint8_t*>(mapped) + byte_size);
     vkUnmapMemory(device_, readback_memory_);
+    return out;
+}
+
+std::vector<float> offscreen_presenter::capture_depth_f32() {
+    // Same copy machinery as capture_rgba8, on the DEPTH aspect. Pin-only
+    // tooling: no consumer code path may depend on it existing.
+    const std::size_t byte_size = static_cast<std::size_t>(width_) * height_ * 4u;
+    std::vector<float> out;
+
+    VkCommandBuffer cmd = alloc_one_shot(device_, pool_);
+    if (cmd == VK_NULL_HANDLE) {
+        return out;
+    }
+
+    if (depth_layout_ != VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
+        const VkImageMemoryBarrier to_src{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .pNext = nullptr,
+            .srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+            .oldLayout = depth_layout_,
+            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = depth_image_,
+            .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &to_src);
+        depth_layout_ = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    }
+
+    const VkBufferImageCopy region{
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1},
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {width_, height_, 1},
+    };
+    vkCmdCopyImageToBuffer(cmd, depth_image_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           depth_readback_, 1, &region);
+
+    const VkBufferMemoryBarrier to_host{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = depth_readback_,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0,
+                         0, nullptr, 1, &to_host, 0, nullptr);
+
+    submit_and_wait(queue_, cmd);
+    vkFreeCommandBuffers(device_, pool_, 1, &cmd);
+
+    void* mapped = nullptr;
+    if (const VkResult r = vkMapMemory(device_, depth_readback_memory_, 0, byte_size, 0, &mapped); r != VK_SUCCESS) {
+        return {};
+    }
+    const auto* first = static_cast<float*>(mapped);
+    out.assign(first, first + width_ * height_);
+    vkUnmapMemory(device_, depth_readback_memory_);
     return out;
 }
 

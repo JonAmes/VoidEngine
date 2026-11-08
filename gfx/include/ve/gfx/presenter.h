@@ -51,10 +51,25 @@ public:
     std::uint32_t width() const override { return width_; }
     std::uint32_t height() const override { return height_; }
 
+    // 3.3 depth attachment: every offscreen target carries one D32_SFLOAT
+    // depth image. It is PASS PLUMBING, not a consumer API: passes wire
+    // depth_view() into their rendering attachment (the presenter barriers
+    // it in begin_pass/end_pass like the color image); consumers of a
+    // presented frame still only ever see color_view()/capture_rgba8().
+    // Reversed-Z convention: passes clear it to 0 (= far) and compare
+    // GREATER (better fp precision at contact range, VR standard).
+    static constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
+    VkImageView depth_view() const { return depth_view_; }
+
     // Explicit clear through the full layout chain — the 2.6 render pass
     // takes over the COLOR_ATTACHMENT side of this image later.
     bool clear(const float rgba[4]);
     std::vector<std::uint8_t> capture_rgba8() override;
+
+    // Depth texels as fp32 (test/golden tooling for the reversed-Z pins;
+    // NOT a consumer path — mirrors capture_rgba8's copy machinery on the
+    // DEPTH aspect).
+    std::vector<float> capture_depth_f32();
 
     // Tier-2 frame helpers. The presenter owns the image, therefore it owns
     // its layout transitions — a pass may NEVER barrier the target itself.
@@ -82,8 +97,14 @@ private:
     VkImage image_ = VK_NULL_HANDLE;
     VkDeviceMemory image_memory_ = VK_NULL_HANDLE;
     VkImageView view_ = VK_NULL_HANDLE;
+    // 3.3: depth attachment (created alongside color; never optional).
+    VkImage depth_image_ = VK_NULL_HANDLE;
+    VkDeviceMemory depth_memory_ = VK_NULL_HANDLE;
+    VkImageView depth_view_ = VK_NULL_HANDLE;
     VkBuffer readback_ = VK_NULL_HANDLE;
     VkDeviceMemory readback_memory_ = VK_NULL_HANDLE;
+    VkBuffer depth_readback_ = VK_NULL_HANDLE;
+    VkDeviceMemory depth_readback_memory_ = VK_NULL_HANDLE;
     VkCommandPool pool_ = VK_NULL_HANDLE;
 
     // Presenter-independent sync (2.10): one fence per frame slot, rotated by
@@ -96,6 +117,7 @@ private:
     // Layout bookkeeping: image starts UNDEFINED; every submit leaves it
     // TRANSFER_SRC so readback needs no barrier until a pass writes again.
     VkImageLayout layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkImageLayout depth_layout_ = VK_IMAGE_LAYOUT_UNDEFINED; // same discipline
     VkFormat format_ = VK_FORMAT_UNDEFINED;
     std::uint32_t width_ = 0;
     std::uint32_t height_ = 0;
