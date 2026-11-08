@@ -18,9 +18,8 @@ A from-scratch C++23 game engine + arcade space sim, Linux-first dev with **Wind
 ## Build & test contract
 - `ctest` must be green with **no `$DISPLAY`, no compositor, no headset**. Never add a test that needs a display; gfx tests use the surfaceless/lavapipe path (Tier 2) and XR logic uses `xr_mock` (Tier 3).
 - Every behavior ships with its test **in the same commit**. No "tests later."
-- Run `tools/ci_local.sh` (once it exists) before declaring any task done, and report its result.
+- **Exact gate command:** `./tools/ci_local.sh` (exists since Phase 0.4; preflight-checks lavapipe + the Khronos validation layer, then configure/build/ctest with all display vars stripped — Phase 0.4). Equivalent by hand: `cmake -B build -G Ninja && cmake --build build && ctest --test-dir build --output-on-failure`, headless. ASan+UBSan are default in the Linux configure (Phase 0.4); Windows build/test runs on the VM (decision #38) but **the Linux script is the merge gate**. Run the gate before declaring any task done, and report its result.
 - Sanitizers (ASan/UBSan) on all test builds; TSan once threading exists. Do not mark green with sanitizer errors.
-- Exact build commands are defined in Phase 0 — record them here once known, and keep this section updated.
 
 ## Step checklists — `docs/`, one folder per phase (process spine)
 Every phase runs through a written checklist. No implementation code for a phase exists before its checklist exists.
@@ -71,7 +70,7 @@ Status: not started | in progress | DONE (YYYY-MM-DD)
 - Comments: explain WHY (derived constants, invariants, determinism requirements). Math in physics/stats cites its derivation in the comment.
 
 ## Git discipline — branches: `testing` (working) and `main` (user-approved only)
-- No repo yet; `git init` + remote setup happen in Phase 0, **only when the user provides the remote.** Never reuse or point at another project's remote (this machine hosts repos with remotes — do not confuse them; see standalone rule).
+- Repo live since Phase 0: remote `https://github.com/JonAmes/VoidEngine.git` (user-provided).
 - All work commits to **`testing`**. One task per commit; tests in the same commit. Message: `Phase N: <what changed>`.
 - Push `testing` to the remote at every phase DONE, and whenever the user asks.
 - **`main` is user-gated:** never commit, merge, or push to `main` without the user's explicit request in that session. When asked: merge the approved `testing` state into `main`, strip process docs per the README rule below, push, and report what was promoted.

@@ -43,6 +43,8 @@ add_executable(engine_tests
     tools/test_shader_cook.cpp
     gfx/test_shader_module.cpp
     gfx/test_triangle_golden.cpp
+    gfx/test_golden_harness.cpp
+    gfx/gfx_golden.cpp
     gfx/test_frame_sync.cpp
     gfx/test_wsi_compile.cpp
     gfx/test_validation_strict.cpp
@@ -69,7 +71,7 @@ endif()
 # GCC/Clang spellings only — under MSVC they become D9002 "unknown option" and
 # /WX would turn that into a build failure, so the block is scoped, not skipped.
 if(NOT MSVC)
-set_source_files_properties(gfx/test_texture.cpp PROPERTIES COMPILE_OPTIONS
+set_source_files_properties(gfx/gfx_golden.cpp PROPERTIES COMPILE_OPTIONS
     "-Wno-pedantic;-Wno-unused-function;-Wno-unused-variable;-Wno-unused-but-set-variable;-Wno-implicit-fallthrough;-Wno-shift-negative-value;-Wno-maybe-uninitialized;-Wno-class-memaccess;-Wno-stringop-overflow;-Wno-missing-field-initializers")
 endif()
 # backtrace_symbols needs dynamic symbols for readable frames. The flag is a

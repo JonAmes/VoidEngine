@@ -3,8 +3,7 @@
 // the loader path (ve_gfx + ve_core) contains no decoder — it is byte copy.
 #include <doctest/doctest.h>
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION // test-side PNG authoring (approved dep)
-#include <stb_image_write.h>
+#include "gfx_golden.h" // test-side PNG authoring — the one stb-impl TU is gfx_golden.cpp
 
 #include <cstdint>
 #include <filesystem>
@@ -43,7 +42,8 @@ TEST_CASE("texture_roundtrip") {
         }
     }
     const std::string png = (std::filesystem::path(src) / "tex.png").string();
-    REQUIRE(stbi_write_png(png.c_str(), W, H, 4, rgba.data(), W * 4) != 0);
+    std::string werr;
+    REQUIRE_MESSAGE(gfx_golden::write_png_rgba8(png, rgba.data(), W, H, werr), werr);
 
     auto res = ve::cook::cook_incremental(src, out);
     REQUIRE_MESSAGE(res.ok, res.error);

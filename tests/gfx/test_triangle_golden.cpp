@@ -9,6 +9,7 @@
 #include <ve/gfx/presenter.h>
 #include <ve/gfx/shader.h>
 
+#include "gfx_golden.h" // 2.11: rerun the golden through the committed-image harness
 #include "gfx_test_env.h"
 
 #include <atomic>
@@ -350,6 +351,23 @@ void main() { outColor = vec4(col, 1.0); }
     }
     CHECK(green_count > 380);
     CHECK(green_count < 460);
+
+    // 2.11 rerun through the golden-PNG harness: capture -> committed image.
+    // The readback is raw B8G8R8A8; goldens are stored as plain RGBA8 so they
+    // open in any image viewer without surprises (swap R/B once, here).
+    // Policy stays STRICT: this test only runs under forced lavapipe (the
+    // deterministic gate, #35), where byte-exact is the contract; the harness
+    // tolerances exist for real-GPU goldens on other tiers.
+    // Generate/update the image with VE_GOLDEN_UPDATE=1 (docs/CHEATS.md).
+    std::vector<std::uint8_t> rgba(px.size());
+    for (std::size_t i = 0; i < px.size(); i += 4u) {
+        rgba[i + 0] = px[i + 2];
+        rgba[i + 1] = px[i + 1];
+        rgba[i + 2] = px[i + 0];
+        rgba[i + 3] = px[i + 3];
+    }
+    const auto gv = gfx_golden::check_golden("triangle_64.png", rgba.data(), 64, 64, {});
+    CHECK_MESSAGE(gv.ok, gv.message);
 
     vkDestroyPipeline(dev->handle(), pipe, nullptr);
     vkDestroyPipelineLayout(dev->handle(), layout, nullptr);
