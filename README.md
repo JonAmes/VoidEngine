@@ -23,7 +23,7 @@ Phase 2 (Vulkan right of passage) **complete** (2026-11-08): instance/device/que
 | 0 | Toolchain & skeleton | **complete** |
 | 1 | Math & headless core | **complete** |
 | 2 | Vulkan bring-up | **complete** |
-| 3 | Mini render framework | not started |
+| 3 | Mini render framework | **in progress** |
 | 4 | Arcade flight & gravity core | not started |
 | 5 | Ship designer (hull + hardpoints) | not started |
 | 6 | RPG stats & modifier framework | not started |
