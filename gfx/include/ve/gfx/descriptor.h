@@ -115,9 +115,12 @@ public:
     // The one write shape for now: (texture view, static sampler) pair. The
     // image must already sit in the layout declared here — gpu_texture
     // guarantees SHADER_READ_ONLY_OPTIMAL after create (owner-transition
-    // policy), so plumbing never touches barriers.
+    // policy), so plumbing never touches barriers. 3.11: sampling a DEPTH
+    // aspect (shadow maps) requires DEPTH_READ_ONLY_OPTIMAL in the
+    // descriptor instead — the layout is a parameter, not a constant.
     void write_sampler(VkDescriptorSet set, std::uint32_t binding,
-                       VkSampler sampler, VkImageView view);
+                       VkSampler sampler, VkImageView view,
+                       VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     // 3.9: the UBO write — one uniform_buffer bound whole (offset 0).
     void write_uniform(VkDescriptorSet set, std::uint32_t binding,

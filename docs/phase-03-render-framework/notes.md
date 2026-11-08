@@ -280,3 +280,32 @@ Evidence committed at `docs/phase-02-vulkan/evidence/windows-nvidia-1080p/` (dev
 - capture_rgba8 is image-order (B8G8R8A8); the golden PNG harness wants
   RGBA — same 0<->2 swap as test_triangle_golden before check_golden.
 - Golden pbr_lite_64.png strict byte-exact on lavapipe (#35).
+
+## 3.11 Shadow map (2026-11-08) — decisions & gotchas
+- Shape: one 256x256 D32 depth pass for the cube through `dir_light_shadow_rig`
+  (new in projection.h: ortho fitted to the scene AABB, eye at aD+margin along
+  -dir, near/far bound the box + pads), consumer PBR pass hard-samples it with
+  texelFetch + reversed-Z compare `vis = (lc.z + bias < stored) ? 0 : 1`,
+  bias 0.002 (scene has no self-shadowing faces at risk).
+- The offscreen presenter's own depth target IS the shadow map: depth image
+  usage gained VK_IMAGE_USAGE_SAMPLED_BIT; `expose_depth_for_sampling(cmd)`
+  barriers depth -> DEPTH_READ_ONLY_OPTIMAL between passes (presenter tracks it
+  so end_pass/capture still work).
+- GOTCHA (validation VUID 13.2.5 image-layout matching): sampling a DEPTH
+  aspect requires descriptor imageLayout == DEPTH_READ_ONLY_OPTIMAL, NOT
+  SHADER_READ_ONLY. `descriptor_pool::write_sampler` gained a layout param
+  (default keeps color behavior).
+- GOTCHA (lavapipe): a pass with ZERO color attachments executes but draws
+  NOTHING (no validation error, all-zero depth). Shadow pass carries a
+  sacrificial color attachment, loadOp/storeOp DONT_CARE, frag writes black.
+- GOTCHA (GLSL precedence): `ivec2(uv) * 256` truncates the vec to 0/1 first —
+  texelFetch coords must be `ivec2(uv * 256.0)`. Symptom: shadow reads always
+  hit a map corner (always "unoccluded").
+- GOTCHA: UBO table pos vec4 with w=0 => gl_Position w=0 => entire draw
+  clipped, silently. CPU pins that recompute from .xyz (like the corner probe)
+  stay green while the GPU draws nothing — pin the GPU OUTPUT, not matrices.
+- Pins: depth readback texel == CPU lightVP depth within 2e-3 (top face is
+  oblique; texel-CENTER vs query-point differ by one texel of face gradient);
+  cleared texels == 0 exactly; coverage == projected cube area +-5% (1110
+  texels); floor pins deep inside/outside the parallelogram == CPU GGX with
+  vis from the GPU's own read-back texel; golden scene_64.png byte-exact.

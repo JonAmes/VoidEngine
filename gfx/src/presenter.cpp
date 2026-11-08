@@ -159,9 +159,11 @@ std::expected<offscreen_presenter, std::string> offscreen_presenter::create(
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .tiling = VK_IMAGE_TILING_OPTIMAL,
         // DEPTH_STENCIL_ATTACHMENT: mandatory usage for depth images.
-        // TRANSFER_SRC: only capture_depth_f32 (reversed-Z texel pins) reads
-        // it back; consumer paths never touch the depth aspect.
-        .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        // TRANSFER_SRC: capture_depth_f32 (reversed-Z texel pins) reads it
+        // back. SAMPLED: 3.11 shadow maps — a depth target can BE a shadow
+        // map: another pass samples it via expose_depth_for_sampling().
+        .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                 VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .queueFamilyIndexCount = 0,
         .pQueueFamilyIndices = nullptr,
@@ -498,11 +500,15 @@ bool offscreen_presenter::begin_pass(VkCommandBuffer cmd) {
     const VkAccessFlags depth_src_access =
         depth_layout_ == VK_IMAGE_LAYOUT_UNDEFINED
             ? VkAccessFlags{0}
-            : VkAccessFlags{VK_ACCESS_TRANSFER_READ_BIT}; // came from a capture
+            : depth_layout_ == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL
+                  ? VkAccessFlags{VK_ACCESS_SHADER_READ_BIT} // sampled last (3.11)
+                  : VkAccessFlags{VK_ACCESS_TRANSFER_READ_BIT}; // came from a capture
     const VkPipelineStageFlags depth_src_stage =
         depth_layout_ == VK_IMAGE_LAYOUT_UNDEFINED
             ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
-            : VK_PIPELINE_STAGE_TRANSFER_BIT; // TRANSFER_READ only legal there
+            : depth_layout_ == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL
+                  ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                  : VK_PIPELINE_STAGE_TRANSFER_BIT; // TRANSFER_READ only legal there
     const VkImageMemoryBarrier depth_to_att{
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         .pNext = nullptr,
@@ -556,6 +562,31 @@ bool offscreen_presenter::end_pass(VkCommandBuffer cmd) {
                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
                          0, nullptr, 0, nullptr, 1, &depth_to_src);
     depth_layout_ = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    return true;
+}
+
+// 3.11 shadow-map plumbing: a rendered depth target becomes a sampled
+// shadow map. Owner-side only (the presenter owns its layouts, per the
+// class contract). Call after end_pass — the TRANSFER_SRC side of the
+// end_pass barrier already orders the depth writes, so the source stage
+// here is TRANSFER with TRANSFER_READ access (the bookkept state).
+bool offscreen_presenter::expose_depth_for_sampling(VkCommandBuffer cmd) {
+    const VkImageMemoryBarrier to_read{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+        .oldLayout = depth_layout_,
+        .newLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = depth_image_,
+        .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                         0, nullptr, 0, nullptr, 1, &to_read);
+    depth_layout_ = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
     return true;
 }
 

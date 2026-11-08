@@ -298,11 +298,12 @@ std::expected<VkDescriptorSet, std::string> descriptor_pool::allocate(VkDescript
 }
 
 void descriptor_pool::write_sampler(VkDescriptorSet set, std::uint32_t binding,
-                                    VkSampler sampler, VkImageView view) {
+                                    VkSampler sampler, VkImageView view,
+                                    VkImageLayout layout) {
     const VkDescriptorImageInfo info{
         .sampler = sampler,
         .imageView = view,
-        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .imageLayout = layout,
     };
     const VkWriteDescriptorSet w{
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,

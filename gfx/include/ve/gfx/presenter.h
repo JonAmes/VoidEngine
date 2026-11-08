@@ -71,6 +71,13 @@ public:
     // DEPTH aspect).
     std::vector<float> capture_depth_f32();
 
+    // 3.11: this depth target IS a shadow map — barrier it to
+    // DEPTH_READ_ONLY_OPTIMAL so another pass can bind depth_view() as a
+    // sampler. Owner-side layout bookkeeping (class contract). Call on the
+    // recording command buffer after end_pass, before the consumer's draws;
+    // the following begin_pass transitions back from READ_ONLY.
+    bool expose_depth_for_sampling(VkCommandBuffer cmd);
+
     // Tier-2 frame helpers. The presenter owns the image, therefore it owns
     // its layout transitions — a pass may NEVER barrier the target itself.
     // Two frames in flight (2.10): submit() carries the current slot's fence

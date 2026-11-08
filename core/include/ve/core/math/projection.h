@@ -29,6 +29,7 @@
 //   at contact range where headset occlusion matters).
 
 #include <cmath>
+#include <utility>
 
 #include "ve/core/math/base.h"
 #include "ve/core/math/mat4.h"
@@ -100,6 +101,44 @@ mat4<T> ortho(T l, T r, T b, T t, T n, T f,
         T(0),            -T(2) / (t - b),     zrow[1], T(0),
         -(r + l) / (r - l), -(t + b) / (t - b), zrow[2], T(0),
         T(0),            T(0),                zrow[3], T(1)}};
+}
+
+// 3.11 — directional-light shadow rig fitted to a scene AABB (checklist:
+// "light rig from scene bounds"). dir = the direction the light TRAVELS
+// (toward the scene); any scale, normalized inside. The eye sits
+// aD + margin in front of the box (aD = box half-extent projected on dir),
+// so near/far bound the box exactly plus pads; the ortho u/v box bounds
+// the box projected on the light's screen axes. Everything is derived from
+// the eight corners by projection, no sampling, no slack beyond the pads.
+// Returns {view, proj} — multiply proj * view * world like any rig; pass
+// the same depth_range to both passes that must agree on depth.
+template <typename T>
+std::pair<mat4<T>, mat4<T>> dir_light_shadow_rig(vec3<T> bmin, vec3<T> bmax,
+                                                 vec3<T> dir, vec3<T> up,
+                                                 T margin = T(1), T pad = T(0.5),
+                                                 depth_range dr = depth_range::standard_0_to_1) {
+    const vec3<T> c = (bmin + bmax) * T(0.5);
+    const vec3<T> h = (bmax - bmin) * T(0.5);
+    const vec3<T> f = normalize(dir); // light travel == light forward
+    // Mirror look_at_rh's basis EXACTLY (same degenerate-up fallback) — the
+    // fitted u/v box is only correct against the view matrix we actually use.
+    vec3<T> up_try = up;
+    if (length(cross(f, up_try)) < T(1e-6)) {
+        up_try = (std::abs(f.y) < T(0.9)) ? vec3<T>{0, T(1), 0} : vec3<T>{T(1), 0, 0};
+    }
+    const vec3<T> s = normalize(cross(f, up_try));
+    const vec3<T> u = cross(-f, s);
+    // Half-extent of the box projected on an axis: sum |axis_i| * h_i
+    // (AABB corner projection is separable — exact, conservative, cheap).
+    const auto half_on = [&](vec3<T> a) {
+        return std::abs(a.x) * h.x + std::abs(a.y) * h.y + std::abs(a.z) * h.z;
+    };
+    const T a_d = half_on(f), a_s = half_on(s), a_u = half_on(u);
+    const vec3<T> eye = c - f * (a_d + margin);
+    const T n = std::max(T(0.001), margin - pad);
+    const T far = T(2) * a_d + margin + pad;
+    return {look_at_rh(eye, c, up),
+            ortho(-(a_s + pad), a_s + pad, -(a_u + pad), a_u + pad, n, far, dr)};
 }
 
 } // namespace ve::core::math

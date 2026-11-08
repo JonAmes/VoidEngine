@@ -54,6 +54,7 @@ add_executable(engine_tests
     gfx/test_mesh_upload.cpp
     gfx/test_instanced_eyes.cpp
     gfx/test_pbr_lite.cpp
+    gfx/test_shadow_map.cpp
     gfx/test_wsi_compile.cpp
     gfx/test_validation_strict.cpp
 )
