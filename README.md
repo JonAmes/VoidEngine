@@ -54,13 +54,22 @@ ctest --test-dir build
 
 Sanitizers (ASan+UBSan) are ON by default in test builds (`-DVE_SANITIZERS=OFF` to disable). All tests pass headless — no display, compositor, or headset.
 
-On Windows (decision #38, supported build/test target, not a port): build under a Visual Studio developer shell with the bundled CMake+Ninja — same three commands, no generator flag needed. The warning wall is compiler-gated rather than softened (MSVC gets `/W4 /permissive- /Zc:preprocessor /WX`), the POSIX crash handler and its suite are excluded there, and sanitizers report as unavailable instead of quietly vanishing (every one of those deviations has a line in `docs/CHEATS.md`). Measured on MSVC 14.51: `engine_tests` 40 cases / 407 assertions green, `ctest` 1/1 — the Tier-2 gfx cases skip there for want of a lavapipe ICD and a validation layer, which is exactly what they print.
+On Windows (decision #38, a supported build/test target, not a port): build inside a Visual Studio developer shell (vcvars) with the VS-bundled CMake + Ninja — the same three commands, no generator flag. The warning wall is compiler-gated rather than softened (MSVC gets `/W4 /utf-8 /permissive- /Zc:preprocessor /WX`), and every deviation is compiler-honest rather than silent — each has a line in `docs/CHEATS.md`. Measured on the Phase 2 tree with MSVC 14.51 (VS18 BuildTools): `engine_tests` **40 cases / 427 assertions green**, `ctest` 1/1, exit 0. The gap to the Linux tally is structural: the two POSIX crash-handler cases are not compiled on MSVC (Windows crash handler is a tracked #38 item). The strict byte-exact golden gate stays Linux/lavapipe by design — on a Windows box without a lavapipe ICD the Tier-2 gfx fixtures print their skip reason and pass, and Windows real-GPU runs use the fuzzy golden tiers instead (#35/#36).
 
 Profiling: the Tracy client (pinned v0.15.0) is linked into every engine target by default (`-DVE_TRACY=OFF` to drop it). Attach a Tracy GUI (same version) on port 8086 while any engine binary runs to capture frame marks and zones.
 
 ## Requirements
 
-- Linux (x86_64), Vulkan-capable GPU (tests additionally run on software Vulkan)
+**Linux** (development box; the headless `ctest` run here is the merge gate):
+
+- Linux x86_64 with g++ 15.2 (C++23), CMake 3.31, Ninja 1.12 — `./tools/bootstrap_toolchain.sh` installs CMake/Ninja into `~/.local` if missing
+- Vulkan-capable GPU; the test suite runs on **software Vulkan (lavapipe) with the Khronos validation layer**, no display/compositor/headset required (`vulkan-tools`, validation layers, glslang/spirv-tools — prereq gate list in `docs/phase-02-vulkan/checklist.md`)
 - GLFW 3.3+ for the desktop window/platform seam (`sudo apt install libglfw3-dev`); it is linked only by `platform/`, never by `gfx/`
-- Windows x86_64 is a supported target (decision #38); Windows tests run on real hardware. The engine's own code compiles clean under MSVC — the CMake build mode for Windows (warning flags, sanitizers, POSIX bits in `core/src/crash.cpp`) is still open
+
+**Windows x86_64** (supported build/test target — decision #38; tests run on real hardware):
+
+- Visual Studio C++ toolchain — measured on VS18 BuildTools (MSVC 14.51). Build inside a developer shell; VS's bundled CMake + Ninja are used, nothing else to install for a build
+- A Vulkan-capable GPU with an installed driver (the Vulkan loader ships with the driver). The Khronos validation layer (Vulkan SDK) is used when present — the Windows dev box runs with it active — but is not required, because the strict golden gate lives on Linux/lavapipe
+- No GLFW package needed: CMake fetches GLFW 3.4 and builds it statically, so no DLL next to the binaries
+- Known compiler deviations, each documented in `docs/CHEATS.md`: MSVC gets the equivalent `/W4 /…/ /WX` wall (never lowered); no UBSan on MSVC and ASan only in debug builds, so sanitizers report as unavailable rather than vanishing; the POSIX crash handler (`core/src/crash.cpp`) and its two tests are excluded on MSVC
 - Optional: OpenXR runtime (SteamVR or Monado) for VR mode
