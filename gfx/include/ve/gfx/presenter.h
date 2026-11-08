@@ -78,6 +78,11 @@ public:
     // the following begin_pass transitions back from READ_ONLY.
     bool expose_depth_for_sampling(VkCommandBuffer cmd);
 
+    // 3.14 world canvas: barrier the color target COLOR_ATTACHMENT ->
+    // SHADER_READ_ONLY so a later pass can sample color_view() of this
+    // offscreen target. Same lifetime discipline as the depth expose.
+    bool expose_color_for_sampling(VkCommandBuffer cmd);
+
     // Tier-2 frame helpers. The presenter owns the image, therefore it owns
     // its layout transitions — a pass may NEVER barrier the target itself.
     // Two frames in flight (2.10): submit() carries the current slot's fence

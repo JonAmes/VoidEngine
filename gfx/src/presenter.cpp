@@ -45,8 +45,10 @@ std::expected<offscreen_presenter, std::string> offscreen_presenter::create(
         .tiling = VK_IMAGE_TILING_OPTIMAL,
         // COLOR_ATTACHMENT: the 2.6 render pass writes this same image.
         // TRANSFER_SRC: Tier-2 "present" copies it to the readback buffer.
+        // SAMPLED: an offscreen target doubles as a world-space canvas
+        // (3.14) — a later scene pass samples its color view.
         .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                 VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .queueFamilyIndexCount = 0,
         .pQueueFamilyIndices = nullptr,
@@ -570,6 +572,31 @@ bool offscreen_presenter::end_pass(VkCommandBuffer cmd) {
 // class contract). Call after end_pass — the TRANSFER_SRC side of the
 // end_pass barrier already orders the depth writes, so the source stage
 // here is TRANSFER with TRANSFER_READ access (the bookkept state).
+bool offscreen_presenter::expose_color_for_sampling(VkCommandBuffer cmd) {
+    // 3.14: make this target's color image sampleable by the NEXT pass
+    // (world canvas). Caller must have ended the filling pass; end_pass
+    // leaves layout_ in COLOR_ATTACHMENT_OPTIMAL (capture paths move it to
+    // TRANSFER_SRC and restore is not needed here — reading it again re-
+    // exposes).
+    const VkImageMemoryBarrier to_read{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+        .oldLayout = layout_,
+        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image_,
+        .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                         0, nullptr, 0, nullptr, 1, &to_read);
+    layout_ = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    return true;
+}
+
 bool offscreen_presenter::expose_depth_for_sampling(VkCommandBuffer cmd) {
     const VkImageMemoryBarrier to_read{
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
