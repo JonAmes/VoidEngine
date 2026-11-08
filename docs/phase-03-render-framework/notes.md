@@ -51,6 +51,17 @@ Running design record for the mini render framework. Process rules live in AGENT
 - glslang needs **explicit `layout(location=…)` on vertex outputs / fragment inputs** that cross the stage boundary — "SPIR-V requires location" fails the shader compile; don't rely on auto-assignment.
 - doctest also rejects **`&&` inside `CHECK_MESSAGE`** (same "Expression Too Complex" as `||`): compute a `bool ok = …;` then `CHECK_MESSAGE(ok, …)`.
 
+- **`engine_tests` is not safe to run twice at once.** Fixture scratch lives at *fixed* paths under
+  `%TEMP%` (`ve_test_log_levels.log`, `ve_golden_33`, `ve_mesh_ship_1`, `ve_shdr_out1_2`), so two
+  live processes of the same binary collide inside `std::filesystem::remove`/`remove_all` — measured
+  **8/8 failures across 4 concurrent pairs** ("The process cannot access the file because it is being
+  used by another process", "Access is denied", plus one genuine `REQUIRE( ship.has_value() )` failure
+  when one process deleted a directory the other was mid-write) against **10/10 clean sequentially**.
+  The tell is a red run whose *assertion total differs* (2551 / 2538 / 2518 vs the real 2568) — a
+  throwing fixture bails mid-case, so later assertions in it never run. Caused here by launching
+  `ctest` and `engine_tests.exe` side by side, not by the tree. Not an engine defect; if it ever
+  needs fixing, make those fixture paths pid-unique.
+
 ## Windows run-through at 3.7 (2026-11-08 — MSVC 14.51 / VS 18 BuildTools, VS-bundled CMake 4.3)
 Configure, build, `ctest`, and the windowed demo all green on this box. Facts that changed the
 run-sheet (README's Windows paragraph said "same three commands" — it no longer is):
