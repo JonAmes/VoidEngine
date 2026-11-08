@@ -64,6 +64,8 @@ ve::core::cooked::Bytes synth_payload() {
     s.f32(0.f); s.f32(0.5f);                         // metallic, roughness
     s.f32(0.f); s.f32(0.f); s.f32(0.f);              // emissive
     s.u32(0);                       // alpha_mode opaque
+    s.str("");                      // baseColor texture id (MAT0 v3, none here)
+    s.str("");                      // metallicRoughness texture id
     s.u32(0);                       // socket_count
     s.u32(0);                       // root_extras_len
     return s.b;

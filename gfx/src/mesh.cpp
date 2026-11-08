@@ -113,6 +113,10 @@ parse_mesh_payload(const std::vector<std::uint8_t>& payload) {
         c.take(n);                       // name
         for (int k = 0; k < 4 + 2 + 3; ++k) c.f32(); // color, metal/rough, emissive
         c.u32();                         // alpha_mode
+        const auto tl1 = c.u32();
+        c.take(tl1);                     // baseColor texture content id (3.8;
+        const auto tl2 = c.u32();
+        c.take(tl2);                     // consumed by 3.10 shading)
     }
     const auto sock_count = c.u32();
     if (sock_count > 65536u) return std::unexpected("mesh payload: implausible socket_count");

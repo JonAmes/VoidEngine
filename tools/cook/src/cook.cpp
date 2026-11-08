@@ -160,6 +160,7 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         Unit unit;
         unit.id = id;
         unit.type = unit_type_for(id);
+        std::vector<std::string> mesh_tex_deps; // filled by the .glb cook (3.8)
 
         if (unit.type == kUnitTex0) {
             // PNG -> TEX0: one-time decode to RGBA8 at cook time. Payload:
@@ -186,9 +187,10 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
             unit.payload = std::move(payload);
         } else if (unit.type == kUnitMesh) {
             // .glb -> MESH: hand-rolled GLB parse, TRS-baked meshes,
-            // materials, hp_* socket records (decision #14).
+            // materials (texture refs -> content IDs, 3.8), hp_* socket
+            // records (decision #14).
             Unit g;
-            if (!cook_glb_unit(source, id, g, &err)) {
+            if (!cook_glb_unit(source, id, g, mesh_tex_deps, &err)) {
                 result.error = "glb '" + id + "': " + err;
                 ++result.counts.failures;
                 continue;
@@ -218,6 +220,28 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         ManifestEntry entry;
         entry.id = id;
         entry.source_sha = sha;
+
+        if (unit.type == kUnitMesh) {
+            // material texture refs (3.8): dangling URIs fail the cook —
+            // same doctrine as def refs. Edges are manifest-authoritative
+            // (#13): the runtime load-closure walks mesh -> texture.
+            const std::set<std::string> id_set(ids.begin(), ids.end());
+            std::set<std::string> dep_set;
+            bool deps_ok = true;
+            for (const auto& dep : mesh_tex_deps) {
+                if (!id_set.count(dep)) {
+                    result.error = "glb '" + id + "' references missing '" + dep + "'";
+                    deps_ok = false;
+                    break;
+                }
+                dep_set.insert(dep); // dedup (same tex in both slots) + sorted bytes
+            }
+            if (!deps_ok) {
+                ++result.counts.failures;
+                continue;
+            }
+            entry.deps.assign(dep_set.begin(), dep_set.end());
+        }
 
         if (unit.type == kUnitDef0) {
             DefData def;

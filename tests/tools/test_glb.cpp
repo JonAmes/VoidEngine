@@ -4,6 +4,9 @@
 // Also: a def referencing an EXISTING texture records the dependency edge
 // in the manifest (0.8 dep wiring); a def referencing a MISSING texture
 // fails the cook cleanly (0.10 done-when bullet).
+// Also (3.8): cook_mat_texture_deps — glb material texture slots cook to
+// TEX0 content IDs + manifest dep edges; missing / escaping / embedded
+// image refs fail the cook.
 #include <doctest/doctest.h>
 
 #include <cmath>
@@ -19,6 +22,8 @@
 #include <vector>
 
 #include "../ve_test_portability.h" // getpid + the WIFEXITED/WEXITSTATUS spellings
+#include "glb_fixture.h"           // hand-authored minimal .glb bytes (3.8)
+#include "../gfx/gfx_golden.h"     // write_png_rgba8 — real PNGs for ref targets
 
 #include <ve/cook/cook.h>
 
@@ -128,6 +133,9 @@ TEST_CASE("glb_cook_poc") {
         (void)r2.f32(); // roughness
         const float e0 = r2.f32(), e1 = r2.f32(), e2 = r2.f32();
         (void)r2.u32(); // alpha mode
+        // MAT0 v3 texture ids (3.8): the PoC hull is authored untextured.
+        CHECK(r2.str().empty());
+        CHECK(r2.str().empty());
         if (name == "engine_glow")
             found_folded_emissive = e0 == doctest::Approx(3.0f) &&
                                     e1 == doctest::Approx(0.45f) &&
@@ -292,4 +300,141 @@ TEST_CASE("cook_determinism") {
     CHECK_MESSAGE(has_unit, "no key ending in " << want);
 
     for (const auto& d : {s1, s2, o1, o2}) std::filesystem::remove_all(d);
+}
+
+namespace {
+// 1x1 solid PNG written via the golden harness's stb encoder (same binary).
+void write_png1x1(const std::filesystem::path& p, unsigned char r, unsigned char g,
+                  unsigned char b) {
+    std::filesystem::create_directories(p.parent_path());
+    const unsigned char rgba[4] = {r, g, b, 255};
+    std::string err;
+    REQUIRE_MESSAGE(gfx_golden::write_png_rgba8(p.string(), rgba, 1, 1, err), err);
+}
+
+// Walk a cooked MESH payload to its material section; collect (name,
+// basecolor-id, mr-id) per material. Everything else is skipped verbatim.
+struct MatRow {
+    std::string name, bc, mr;
+};
+std::vector<MatRow> cooked_materials(const ve::cook::Bytes& payload) {
+    Reader r{payload};
+    const auto mc = r.u32();
+    for (std::uint32_t m = 0; m < mc; ++m) {
+        (void)r.str();               // mesh name
+        (void)r.u32();               // material_index
+        const auto vc = r.u32();
+        r.at += vc * (3 + 3 + 2 + 4) * 4; // pos nrm uv tan
+        r.at += r.u32() * 3 * 4;         // indices
+    }
+    std::vector<MatRow> out;
+    const auto mat_count = r.u32();
+    for (std::uint32_t m = 0; m < mat_count; ++m) {
+        MatRow row;
+        row.name = r.str();
+        r.at += (4 + 2 + 3) * 4;    // color, metal/rough, emissive
+        (void)r.u32();              // alpha_mode
+        row.bc = r.str();
+        row.mr = r.str();
+        out.push_back(std::move(row));
+    }
+    return out;
+}
+} // namespace
+
+TEST_CASE("cook_mat_texture_deps") {
+    // Material texture slots resolve to source-file content IDs and land in
+    // both the MAT0 payload and the manifest dep graph (decision #13:
+    // mesh -> texture edges the runtime load-closure can walk).
+    // The glb lives in a subdir so "../shared/mr.png" stays inside the root
+    // (a root-level glb COULD use "../" — that must fail; separate test).
+    const std::string src = tmp_root("matdeps");
+    const std::string out = tmp_root("matdeps_out");
+    // textures sit next to the glb / one dir up-and-over, exercising both
+    // same-dir and ../ URIs relative to the .glb's directory.
+    std::filesystem::create_directories(std::filesystem::path(src) / "models");
+    write_png1x1(std::filesystem::path(src) / "models" / "paint.png", 255, 0, 0);
+    write_png1x1(std::filesystem::path(src) / "shared" / "mr.png", 0, 0, 255);
+    const auto glb = ve_test::make_glb({
+        {"Paint", "paint.png", "../shared/mr.png"}, // uri relative to the .glb dir
+        {"Dup", "paint.png", "paint.png"},          // same tex both slots -> one edge
+        {"Plain", "", ""},
+    });
+    ve::core::cooked::write_file_bytes((std::filesystem::path(src) / "models" / "ship.glb").string(),
+                                       glb, nullptr);
+
+    auto res = ve::cook::cook_incremental(src, out);
+    REQUIRE_MESSAGE(res.ok, res.error);
+    CHECK(res.counts.cooked == 3); // glb + two textures
+
+    ve::cook::Manifest man;
+    std::string err;
+    REQUIRE(ve::cook::read_manifest(out + "/manifest.bin", man, &err));
+    REQUIRE(man.count("models/ship.glb"));
+    CHECK(man["models/ship.glb"].deps ==
+          std::vector<std::string>({"models/paint.png", "shared/mr.png"})); // deduped + sorted
+
+    ve::cook::Unit u;
+    REQUIRE(ve::cook::read_unit_file(out + "/units/models/ship.glb.ck", u, &err));
+    CHECK(u.type == ve::cook::kUnitMesh);
+    const auto mats = cooked_materials(u.payload);
+    REQUIRE(mats.size() == 3);
+    CHECK(mats[0].name == "Paint");
+    CHECK(mats[0].bc == "models/paint.png");  // uris normalized against the .glb's dir
+    CHECK(mats[0].mr == "shared/mr.png");
+    CHECK(mats[1].bc == "models/paint.png");
+    CHECK(mats[1].mr == "models/paint.png");
+    CHECK(mats[2].bc.empty());
+    CHECK(mats[2].mr.empty());
+
+    std::filesystem::remove_all(src);
+    std::filesystem::remove_all(out);
+}
+
+TEST_CASE("cook_mat_texture_missing_fails") {
+    // Dangling texture ref = cook-time failure naming glb + ref, same
+    // doctrine as def refs (0.10).
+    const std::string src = tmp_root("matmiss");
+    const std::string out = tmp_root("matmiss_out");
+    const auto glb = ve_test::make_glb({{"Paint", "missing.png", ""}});
+    ve::core::cooked::write_file_bytes((std::filesystem::path(src) / "ship.glb").string(),
+                                       glb, nullptr);
+    auto res = ve::cook::cook_incremental(src, out);
+    CHECK_FALSE(res.ok);
+    CHECK(res.counts.failures >= 1);
+    CHECK(res.error.find("ship.glb") != std::string::npos);
+    CHECK(res.error.find("missing.png") != std::string::npos);
+    std::filesystem::remove_all(src);
+    std::filesystem::remove_all(out);
+}
+
+TEST_CASE("cook_mat_texture_escapes_fails") {
+    // A uri that leaves the source root has no content ID -> fail, never
+    // a runtime surprise (#39 ref discipline).
+    const std::string src = tmp_root("matesc");
+    const std::string out = tmp_root("matesc_out");
+    const auto glb = ve_test::make_glb({{"Paint", "../evil.png", ""}});
+    ve::core::cooked::write_file_bytes((std::filesystem::path(src) / "ship.glb").string(),
+                                       glb, nullptr);
+    auto res = ve::cook::cook_incremental(src, out);
+    CHECK_FALSE(res.ok);
+    CHECK(res.error.find("escapes") != std::string::npos);
+    std::filesystem::remove_all(src);
+    std::filesystem::remove_all(out);
+}
+
+TEST_CASE("cook_mat_embedded_image_fails") {
+    // bufferView images have no content ID/hash of their own -> rejected;
+    // textures must be external source files.
+    const std::string src = tmp_root("matembed");
+    const std::string out = tmp_root("matembed_out");
+    const auto glb = ve_test::make_glb({{"Paint", "paint.png", ""}}, /*embedded=*/true);
+    ve::core::cooked::write_file_bytes((std::filesystem::path(src) / "ship.glb").string(),
+                                       glb, nullptr);
+    write_png1x1(std::filesystem::path(src) / "paint.png", 1, 2, 3);
+    auto res = ve::cook::cook_incremental(src, out);
+    CHECK_FALSE(res.ok);
+    CHECK(res.error.find("embedded") != std::string::npos);
+    std::filesystem::remove_all(src);
+    std::filesystem::remove_all(out);
 }

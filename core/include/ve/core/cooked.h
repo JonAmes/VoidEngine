@@ -33,7 +33,7 @@ inline constexpr std::uint32_t kUnitMat0 = fourcc("MAT0"); // cooked material (0
 inline constexpr std::uint32_t kUnitDef0 = fourcc("DEF0"); // normalized def
 inline constexpr std::uint32_t kUnitShdr = fourcc("SHDR"); // cooked SPIR-V (2.5)
 
-inline constexpr std::uint32_t kCookFormat = 2; // v2: MESH payload gained tan[vc*4] (3.6)
+inline constexpr std::uint32_t kCookFormat = 3; // v3: MAT0 gained texture content-ID refs (3.8); v2: MESH gained tan[vc*4] (3.6)
 
 // SHDR payload: u32 stage (kShdrStage*) | SPIR-V binary as cooked by
 // glslangValidator at cook time. Runtime never compiles GLSL (decision #13)
@@ -52,11 +52,17 @@ inline constexpr std::uint32_t kTexFmtRgba8 = 0;
 //     f32 tan[vc*4]  // MikkTSpace bake, w = bOrient (+1/-1);
 //                    // reconstruction: bitangent = cross(normal, tangent) * w
 //     u32 tri_count | u32 idx[tc*3]
-//   u32 material_count, then per material:
+//   u32 material_count, then per material (MAT0 block; consumed by 3.10
+//   shading — the loader walks it for integrity):
 //     u32 name_len, name | f32 base_color[4] | f32 metallic | f32 roughness
 //     f32 emissive[3] (KHR emissive_strength folded in)
 //     u32 alpha_mode (0 opaque, 1 blend, 2 mask)  // doubleSided dropped:
 //                                                   the cooklet owns culling
+//     u32 basecolor_tex_len, content-ID bytes ('' = none)   // 3.8: textures
+//     u32 mr_tex_len, content-ID bytes ('' = none)          // are TEX0 units
+//     // referenced ids also appear as manifest dep edges (mesh -> texture);
+//     // only EXTERNAL glTF image URIs are accepted — every texture is its
+//     // own source file with its own content ID and hash
 //   u32 socket_count, then per socket (mesh-less hp_* node, decision #14):
 //     u32 name_len, name | f32 translation[3] (world, TRS-baked)
 //     u32 extras_len, extras as stable JSON bytes (keys sorted)

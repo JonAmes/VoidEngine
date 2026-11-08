@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "internal.h" // resolve_ref — texture URIs resolve like def refs (3.8)
+
 namespace ve::cook {
 namespace {
 
@@ -175,7 +177,8 @@ const json::Value* attr_of(const json::Value& prim, const char* key) {
 
 } // namespace
 
-bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out, std::string* err) {
+bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out,
+                   std::vector<std::string>& tex_deps, std::string* err) {
     auto fail = [&](const std::string& msg) {
         if (err) *err = id + ": " + msg;
         return false;
@@ -386,6 +389,54 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out, std::stri
             const std::string am = mat.find("alphaMode") ? mat.find("alphaMode")->s() : "OPAQUE";
             put32(mat_body, am == "BLEND" ? 1u : am == "MASK" ? 2u : 0u);
             // mat.doubleSided intentionally dropped — cooklet owns renderer flags.
+
+            // texture slots -> TEX0 content IDs (3.8, decision #13 deps).
+            // A glTF texture slot is material.pbrMetallicRoughness.*Texture ->
+            // textures[slot.index] -> images[.source]. Only EXTERNAL image URIs
+            // are accepted: an embedded bufferView image has no content ID, no
+            // hash of its own, and would silently duplicate the TEX0 story.
+            // URIs resolve against the .glb's directory like def refs (#39).
+            auto tex_slot = [&](const char* key, std::string& dep_out) -> bool {
+                dep_out.clear();
+                const auto* slot = pbr ? pbr->find(key) : nullptr;
+                if (!slot) return true; // no texture -> empty id
+                const std::string mname = mat.find("name") ? mat.find("name")->s() : "";
+                const auto* tidx = slot->find("index");
+                if (!tidx) return fail(std::string("material '") + mname + "': " + key + " without index");
+                const auto* texs = doc.find("textures");
+                if (!texs || !texs->is_arr() ||
+                    tidx->d() < 0 || tidx->d() >= static_cast<double>(texs->a().size()))
+                    return fail(std::string("material '") + mname + "': " + key + " texture index out of range");
+                const auto& tex = texs->a()[static_cast<std::size_t>(tidx->d())];
+                if (const auto* tc = slot->find("texCoord"); tc && tc->d() != 0.0)
+                    return fail(std::string("material '") + mname + "': " + key +
+                                " texCoord != 0 (single UV set in the slice)");
+                const auto* src = tex.find("source");
+                const auto* imgs = doc.find("images");
+                if (!src || !imgs || !imgs->is_arr() ||
+                    src->d() < 0 || src->d() >= static_cast<double>(imgs->a().size()))
+                    return fail(std::string("material '") + mname + "': " + key + " image index out of range");
+                const auto& img = imgs->a()[static_cast<std::size_t>(src->d())];
+                const auto* uri = img.find("uri");
+                if (!uri)
+                    return fail(std::string("material '") + mname + "': " + key +
+                                " references an embedded GLB image — textures must be "
+                                "external source files so each gets a content ID + hash");
+                if (!resolve_ref(id, uri->s(), dep_out))
+                    return fail(std::string("material '") + mname + "': texture uri '" +
+                                uri->s() + "' escapes the source root");
+                tex_deps.push_back(dep_out);
+                return true;
+            };
+            std::string bc_tex, mr_tex;
+            if (!tex_slot("baseColorTexture", bc_tex)) return false;
+            if (!tex_slot("metallicRoughnessTexture", mr_tex)) return false;
+            for (const char* unsupported : {"normalTexture", "occlusionTexture", "emissiveTexture"})
+                if (mat.find(unsupported))
+                    return fail(std::string("material '") + (mat.find("name") ? mat.find("name")->s() : "") +
+                                "': " + unsupported + " not supported yet (MAT0 covers baseColor + metallicRoughness)");
+            put_str(mat_body, bc_tex);
+            put_str(mat_body, mr_tex);
         }
     }
 
@@ -408,7 +459,7 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out, std::stri
     }
     put_str(p, root_extras_json);
 
-    return true; // glb->texture deps land with material textures (later task)
+    return true;
 }
 
 } // namespace ve::cook
