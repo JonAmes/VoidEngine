@@ -49,6 +49,7 @@ add_executable(engine_tests
     gfx/test_camera_rig.cpp
     gfx/test_depth_reversed_z.cpp
     gfx/test_pipeline_cache.cpp
+    gfx/test_mesh_upload.cpp
     gfx/test_wsi_compile.cpp
     gfx/test_validation_strict.cpp
 )

@@ -5,6 +5,7 @@ add_library(ve_gfx STATIC
     src/texture.cpp
     src/camera.cpp
     src/pipeline_cache.cpp
+    src/mesh.cpp
     src/instance.cpp
     src/device.cpp
     src/presenter.cpp
