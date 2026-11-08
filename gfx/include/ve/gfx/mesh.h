@@ -18,14 +18,17 @@ namespace ve::gfx {
 // manifest is the authority on what exists; a unit file the manifest does
 // not know about is not loadable.
 
-// One vertex, payload order pos/nrm/uv; byte-identical to the payload
+// One vertex, payload order pos/nrm/uv/tan; byte-identical to the payload
 // region so readback can byte-compare (static_assert pins the layout).
+// tan is the MikkTSpace bake with w = bOrient (+1/-1); shaders reconstruct
+// bitangent = cross(normal, tangent) * w (see core/cooked.h MESH layout).
 struct mesh_vertex {
     float pos[3];
     float nrm[3];
     float uv[2];
+    float tan[4];
 };
-static_assert(sizeof(mesh_vertex) == 32, "payload vertex is 8 f32, no padding");
+static_assert(sizeof(mesh_vertex) == 48, "payload vertex is 12 f32, no padding");
 
 struct cooked_mesh {
     std::string name;                  // Blender node name (#14)

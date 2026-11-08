@@ -33,7 +33,7 @@ inline constexpr std::uint32_t kUnitMat0 = fourcc("MAT0"); // cooked material (0
 inline constexpr std::uint32_t kUnitDef0 = fourcc("DEF0"); // normalized def
 inline constexpr std::uint32_t kUnitShdr = fourcc("SHDR"); // cooked SPIR-V (2.5)
 
-inline constexpr std::uint32_t kCookFormat = 1;
+inline constexpr std::uint32_t kCookFormat = 2; // v2: MESH payload gained tan[vc*4] (3.6)
 
 // SHDR payload: u32 stage (kShdrStage*) | SPIR-V binary as cooked by
 // glslangValidator at cook time. Runtime never compiles GLSL (decision #13)
@@ -49,6 +49,8 @@ inline constexpr std::uint32_t kTexFmtRgba8 = 0;
 //   u32 mesh_count, then per mesh (node TRS baked in, triangles only):
 //     u32 name_len, name | u32 material_index (0xFFFFFFFF = none)
 //     u32 vertex_count | f32 pos[vc*3] | f32 nrm[vc*3] | f32 uv[vc*2]
+//     f32 tan[vc*4]  // MikkTSpace bake, w = bOrient (+1/-1);
+//                    // reconstruction: bitangent = cross(normal, tangent) * w
 //     u32 tri_count | u32 idx[tc*3]
 //   u32 material_count, then per material:
 //     u32 name_len, name | f32 base_color[4] | f32 metallic | f32 roughness

@@ -6,6 +6,8 @@
 // fails the cook cleanly (0.10 done-when bullet).
 #include <doctest/doctest.h>
 
+#include <cmath>
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -76,7 +78,7 @@ TEST_CASE("glb_cook_poc") {
 
     Reader r2{u.payload};
     const auto mc2 = r2.u32();
-    std::uint32_t tri_total = 0, mesh_total = 0;
+    std::uint32_t tri_total = 0, mesh_total = 0, vert_total = 0, tan_total = 0;
     float extent[3] = {0, 0, 0};
     for (std::uint32_t m = 0; m < mc2; ++m) {
         (void)r2.str();
@@ -85,12 +87,22 @@ TEST_CASE("glb_cook_poc") {
         for (std::uint32_t v = 0; v < vc; ++v)
             for (int c = 0; c < 3; ++c)
                 extent[c] = std::max(extent[c], std::abs(r2.f32()));
-        r2.at += vc * 3 * 4 + vc * 2 * 4;
+        r2.at += vc * 3 * 4 + vc * 2 * 4; // nrm + uv
+        // tangents (3.6 bake): unit-length xyz, w exactly +-1 at every vertex.
+        for (std::uint32_t v = 0; v < vc; ++v) {
+            const float tx = r2.f32(), ty = r2.f32(), tz = r2.f32(), tw = r2.f32();
+            ++tan_total;
+            CHECK(tx * tx + ty * ty + tz * tz == doctest::Approx(1.0f).epsilon(0.001f));
+            CHECK(std::fabs(tw) == 1.f);
+        }
         const auto tc = r2.u32();
         tri_total += tc;
+        vert_total += vc;
         ++mesh_total;
         r2.at += tc * 3 * 4;
     }
+    CHECK(tan_total == vert_total);
+    CHECK(vert_total > 0u);
 
     // PoC report: 7 meshes (HullRoot carries mesh 6 too), 376 triangles total.
     CHECK(mesh_total == 7);

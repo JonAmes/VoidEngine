@@ -76,8 +76,9 @@ parse_mesh_payload(const std::vector<std::uint8_t>& payload) {
             return std::unexpected("mesh payload: vertex_count exceeds payload");
         }
         mesh.vertices.resize(vc);
-        // Planar payload: f32 pos[vc*3] | f32 nrm[vc*3] | f32 uv[vc*2] —
-        // NOT interleaved (cooklet writes component arrays; we deinterleave).
+        // Planar payload: f32 pos[vc*3] | f32 nrm[vc*3] | f32 uv[vc*2] |
+        // f32 tan[vc*4] — NOT interleaved (cooklet writes component arrays;
+        // we deinterleave).
         for (std::uint32_t v = 0; v < vc && !c.bad; ++v)
             for (float& f : mesh.vertices[v].pos) f = c.f32();
         if (c.bad) return std::unexpected("mesh payload: truncated pos data");
@@ -87,6 +88,9 @@ parse_mesh_payload(const std::vector<std::uint8_t>& payload) {
         for (std::uint32_t v = 0; v < vc && !c.bad; ++v)
             for (float& f : mesh.vertices[v].uv) f = c.f32();
         if (c.bad) return std::unexpected("mesh payload: truncated uv data");
+        for (std::uint32_t v = 0; v < vc && !c.bad; ++v)
+            for (float& f : mesh.vertices[v].tan) f = c.f32();
+        if (c.bad) return std::unexpected("mesh payload: truncated tan data");
 
         const auto tc = c.u32();
         if (tc > c.left / 4u) {

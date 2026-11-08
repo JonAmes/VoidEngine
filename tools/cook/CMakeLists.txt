@@ -6,6 +6,7 @@ add_library(ve_cooklet STATIC
     src/cook.cpp
     src/glb.cpp
     src/json.cpp
+    src/mikktspace.cpp
     src/png.cpp
     src/shader.cpp
 )

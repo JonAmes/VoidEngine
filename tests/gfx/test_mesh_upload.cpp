@@ -49,9 +49,12 @@ ve::core::cooked::Bytes synth_payload() {
     const float pos[9] = {0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f, 0.f};
     const float nrm[9] = {0.f, 0.f, 1.f, 0.f, 0.f, 1.f, 0.f, 0.f, 1.f};
     const float uv[6] = {0.f, 0.f, 1.f, 0.f, 0.f, 1.f};
+    // Mixed w signs: the parser must copy tan verbatim, not "fix" the sign.
+    const float tan[12] = {1.f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, -1.f, 0.f, 1.f, 0.f, 1.f};
     for (float f : pos) s.f32(f);
     for (float f : nrm) s.f32(f);
     for (float f : uv) s.f32(f);
+    for (float f : tan) s.f32(f);
     s.u32(1);                       // tri_count
     s.u32(0); s.u32(1); s.u32(2);
     s.u32(1);                       // material_count
@@ -126,6 +129,8 @@ TEST_CASE("gfx_mesh_upload") {
     CHECK((*synth)[0].indices == std::vector<std::uint32_t>{0, 1, 2});
     CHECK((*synth)[0].vertices[1].pos[0] == doctest::Approx(1.0f));
     CHECK((*synth)[0].vertices[2].pos[1] == doctest::Approx(1.0f));
+    CHECK((*synth)[0].vertices[0].tan[0] == doctest::Approx(1.0f));
+    CHECK((*synth)[0].vertices[1].tan[3] == -1.0f); // w verbatim
     CHECK((*synth)[0].material_index == 0u);
 
     // truncation anywhere in the payload fails

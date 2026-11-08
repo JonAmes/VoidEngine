@@ -1,10 +1,12 @@
 #include "glb.h"
 #include "json.h"
+#include <ve/cook/mikktspace.h>
 
 #include <cmath>
 #include <cstring>
 #include <functional>
 #include <map>
+#include <string>
 #include <vector>
 
 namespace ve::cook {
@@ -291,13 +293,19 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out, std::stri
             put32(mesh_body, mat ? static_cast<std::uint32_t>(mat->d()) : 0xFFFFFFFFu);
             put32(mesh_body, static_cast<std::uint32_t>(vc));
             const auto& m = world[ni];
+            // Collect planar component arrays (same emission order/bytes as
+            // before), then bake MikkTSpace tangents over them (#14).
+            std::vector<float> pos_v, nrm_v, uv_v;
+            pos_v.reserve(vc * 3);
+            nrm_v.reserve(vc * 3);
+            uv_v.reserve(vc * 2);
             for (std::size_t r = 0; r < vc; ++r) {
                 const double v[3] = {accessor_value(pos_a, bin, r, 0),
                                      accessor_value(pos_a, bin, r, 1),
                                      accessor_value(pos_a, bin, r, 2)};
                 float o[3];
                 apply_point(m, v, o);
-                for (float f : o) put_f32(mesh_body, f);
+                for (float f : o) pos_v.push_back(f);
             }
             for (std::size_t r = 0; r < vc; ++r) {
                 float o[3];
@@ -309,7 +317,7 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out, std::stri
                 } else {
                     o[0] = 0; o[1] = 1; o[2] = 0;
                 }
-                for (float f : o) put_f32(mesh_body, f);
+                for (float f : o) nrm_v.push_back(f);
             }
             for (std::size_t r = 0; r < vc; ++r) {
                 float u = 0, vv = 0;
@@ -317,12 +325,33 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out, std::stri
                     u = static_cast<float>(accessor_value(uv_a, bin, r, 0));
                     vv = static_cast<float>(accessor_value(uv_a, bin, r, 1));
                 }
-                put_f32(mesh_body, u);
-                put_f32(mesh_body, vv);
+                uv_v.push_back(u);
+                uv_v.push_back(vv);
+            }
+            std::vector<std::uint32_t> idx_v(tc * 3);
+            for (std::size_t r = 0; r < tc * 3; ++r) {
+                idx_v[r] = static_cast<std::uint32_t>(accessor_value(idx_a, bin, r, 0));
+                if (idx_v[r] >= vc)
+                    return fail("mesh " + name + ": index " + std::to_string(idx_v[r]) +
+                                " >= vertex_count " + std::to_string(vc));
+            }
+            // Tangent bake (decision #14): cook-side MikkTSpace so the runtime
+            // pays nothing and cooked tangents match DCC bakes. Determinism:
+            // the port's std::sort replaces the reference's randomized-pivot
+            // quicksorts (identical total order), so golden bytes (0.9) hold.
+            const auto tan_v = bake_mikk_tangents(pos_v, nrm_v, uv_v, idx_v);
+
+            for (const float f : pos_v) put_f32(mesh_body, f);
+            for (const float f : nrm_v) put_f32(mesh_body, f);
+            for (const float f : uv_v) put_f32(mesh_body, f);
+            for (const auto& tv : tan_v) {
+                put_f32(mesh_body, tv.x);
+                put_f32(mesh_body, tv.y);
+                put_f32(mesh_body, tv.z);
+                put_f32(mesh_body, tv.w);
             }
             put32(mesh_body, static_cast<std::uint32_t>(tc));
-            for (std::size_t r = 0; r < tc * 3; ++r)
-                put32(mesh_body, static_cast<std::uint32_t>(accessor_value(idx_a, bin, r, 0)));
+            for (const std::uint32_t i : idx_v) put32(mesh_body, i);
             ++mesh_count;
         }
     }

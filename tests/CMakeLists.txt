@@ -34,6 +34,7 @@ add_executable(engine_tests
     core/test_math_coords.cpp
     tools/test_container.cpp
     tools/test_glb.cpp
+    tools/test_mikktspace.cpp
     tools/test_incremental.cpp
     tools/test_watch.cpp
     gfx/test_texture.cpp
