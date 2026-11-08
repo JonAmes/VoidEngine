@@ -43,6 +43,7 @@ add_executable(engine_tests
     tools/test_shader_cook.cpp
     gfx/test_shader_module.cpp
     gfx/test_triangle_golden.cpp
+    gfx/test_frame_sync.cpp
     gfx/test_wsi_compile.cpp
     gfx/test_validation_strict.cpp
 )

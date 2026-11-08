@@ -151,6 +151,21 @@ std::expected<offscreen_presenter, std::string> offscreen_presenter::create(
         return std::unexpected("vkCreateCommandPool failed");
     }
 
+    // Frame sync (2.10): one fence per slot, created signaled; the per-slot
+    // pending-command slots start empty.
+    auto fs = frame_sync::create(out.device_, kFramesInFlight);
+    if (!fs) {
+        vkDestroyCommandPool(out.device_, out.pool_, nullptr);
+        vkFreeMemory(out.device_, out.readback_memory_, nullptr);
+        vkDestroyBuffer(out.device_, out.readback_, nullptr);
+        vkDestroyImageView(out.device_, out.view_, nullptr);
+        vkFreeMemory(out.device_, out.image_memory_, nullptr);
+        vkDestroyImage(out.device_, out.image_, nullptr);
+        return std::unexpected(fs.error());
+    }
+    out.sync_ = std::move(*fs);
+    out.slot_cmd_.assign(kFramesInFlight, VK_NULL_HANDLE);
+
     return out;
 }
 
@@ -176,10 +191,14 @@ offscreen_presenter::offscreen_presenter(offscreen_presenter&& other) noexcept
       readback_(std::exchange(other.readback_, VK_NULL_HANDLE)),
       readback_memory_(std::exchange(other.readback_memory_, VK_NULL_HANDLE)),
       pool_(std::exchange(other.pool_, VK_NULL_HANDLE)),
+      sync_(std::move(other.sync_)),
+      slot_cmd_(std::move(other.slot_cmd_)),
       layout_(other.layout_),
       format_(other.format_),
       width_(other.width_),
-      height_(other.height_) {}
+      height_(other.height_) {
+    other.slot_cmd_.clear();
+}
 
 namespace {
 
@@ -292,6 +311,17 @@ bool offscreen_presenter::clear(const float rgba[4]) {
 // --- Tier-2 frame helpers: presenter-owned layout transitions -------------
 
 VkCommandBuffer offscreen_presenter::begin_command() {
+    // Slot discipline (2.10): this slot's PREVIOUS frame must be complete
+    // (fence) before we re-arm it — and that wait is what makes freeing that
+    // frame's command buffer legal right here (freeing a still-executing
+    // buffer is a validation error).
+    if (!sync_.wait_current() || !sync_.reset_current()) {
+        return VK_NULL_HANDLE;
+    }
+    if (VkCommandBuffer& pending = slot_cmd_[sync_.current()]; pending != VK_NULL_HANDLE) {
+        vkFreeCommandBuffers(device_, pool_, 1, &pending);
+        pending = VK_NULL_HANDLE;
+    }
     // alloc + exactly one begin (alloc_one_shot would begin a second time).
     VkCommandBuffer cmd = alloc_cmd(device_, pool_);
     if (cmd == VK_NULL_HANDLE) {
@@ -301,6 +331,7 @@ VkCommandBuffer offscreen_presenter::begin_command() {
         vkFreeCommandBuffers(device_, pool_, 1, &cmd);
         return VK_NULL_HANDLE;
     }
+    slot_cmd_[sync_.current()] = cmd; // freed at this slot's NEXT begin
     return cmd;
 }
 
@@ -363,12 +394,15 @@ bool offscreen_presenter::submit(VkCommandBuffer cmd) {
         .signalSemaphoreCount = 0,
         .pSignalSemaphores = nullptr,
     };
-    if (vkQueueSubmit(queue_, 1, &si, VK_NULL_HANDLE) != VK_SUCCESS) {
+    // The slot fence carries the frame (2.10): the driver signals it on
+    // completion and the slot's next begin_command() waits it. No
+    // QueueWaitIdle — that stand-in is exactly what 2.10 removes. The buffer
+    // stays allocated: whoever allocated frees, at the slot's next begin.
+    if (vkQueueSubmit(queue_, 1, &si, sync_.fence()) != VK_SUCCESS) {
         return false;
     }
-    const bool ok = (vkQueueWaitIdle(queue_) == VK_SUCCESS);
-    vkFreeCommandBuffers(device_, pool_, 1, &cmd);
-    return ok;
+    sync_.advance();
+    return true;
 }
 
 std::vector<std::uint8_t> offscreen_presenter::capture_rgba8() {

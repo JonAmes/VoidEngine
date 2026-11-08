@@ -21,6 +21,9 @@ target_compile_definitions(ve_demo PRIVATE VE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 if(MSVC)
     set_source_files_properties(src/png_out.cpp PROPERTIES COMPILE_OPTIONS "/wd4702;/wd4267;/wd4244;/wd4100;/wd4996")
 else()
+    # -Wno-missing-field-initializers: stb's `stbi__write_context s = { 0 };`
+    # idiom trips GCC's -Wmissing-field-initializers (MSVC never does); same
+    # reason gfx/test_texture.cpp carries the flag for stb_image.h.
     set_source_files_properties(src/png_out.cpp PROPERTIES COMPILE_OPTIONS
-        "-Wno-pedantic;-Wno-unused-function;-Wno-unused-parameter;-Wno-unused-variable;-Wno-unused-but-set-variable;-Wno-implicit-fallthrough;-Wnull-dereference")
+        "-Wno-pedantic;-Wno-unused-function;-Wno-unused-parameter;-Wno-unused-variable;-Wno-unused-but-set-variable;-Wno-implicit-fallthrough;-Wnull-dereference;-Wno-missing-field-initializers")
 endif()

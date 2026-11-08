@@ -297,8 +297,9 @@ std::expected<wsi_presenter, std::string> wsi_presenter::create(
         return std::unexpected(err);
     }
 
-    VE_LOG_INFO("gfx: WSI presenter up — %ux%u, %u swapchain image(s), FIFO, one frame in flight",
-                out.width_, out.height_, static_cast<std::uint32_t>(out.swapchain_images_.size()));
+    VE_LOG_INFO("gfx: WSI presenter up — %ux%u, %u swapchain image(s), FIFO, %u frames in flight",
+                out.width_, out.height_, static_cast<std::uint32_t>(out.swapchain_images_.size()),
+                kFramesInFlight);
     return out;
 }
 
@@ -579,52 +580,58 @@ void wsi_presenter::destroy_targets() {
     width_ = 0;
     height_ = 0;
     acquired_ = false;
-    in_flight_ = false;
     rt_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
-// One frame in flight (2.8's stated budget; 2.10 doubles it): acquire signals
-// image_available_, the blit signals the per-image render_finished_[index], and
-// the fence on the frame submit marks the blit done. The per-image semaphores are
-// NOT created here — their count is the swapchain's image count, so they are built
-// and destroyed with the chain in create_targets/destroy_targets. Two kinds of
-// sync object because they cross different boundaries: image_available_ is handed
-// to the WSI by acquire, render_finished_ only ever meets our own queue and
-// vkQueuePresentKHR.
+// Two frames in flight (2.10): acquire signals the per-slot image_available_,
+// the blit signals the per-image render_finished_[index], and the per-slot
+// fence from frame_sync marks each frame's blit done — the same machinery the
+// offscreen presenter runs, at these call sites. The per-image semaphores are
+// NOT created here — their count is the swapchain's image count, so they are
+// built and destroyed with the chain in create_targets/destroy_targets. The
+// per-slot acquire semaphores are built here with frame_sync, because their
+// count is the frame depth. Two kinds of sync object because they cross
+// different boundaries: image_available_ is handed to the WSI by acquire,
+// render_finished_ only ever meets our own queue and vkQueuePresentKHR.
 bool wsi_presenter::create_sync(std::string& err) {
     const VkSemaphoreCreateInfo sei{
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
     };
-    if (vkCreateSemaphore(device_, &sei, nullptr, &image_available_) != VK_SUCCESS) {
-        err = "vkCreateSemaphore (image_available) failed";
-        return false;
+    image_available_.assign(kFramesInFlight, VK_NULL_HANDLE);
+    for (VkSemaphore& sem : image_available_) {
+        if (vkCreateSemaphore(device_, &sei, nullptr, &sem) != VK_SUCCESS) {
+            err = "vkCreateSemaphore (image_available) failed";
+            destroy_sync();
+            return false;
+        }
     }
-    // Unsignaled at creation: the first present's wait is armed by this frame's
-    // blit, not by a previous one, which is exactly the one-in-flight start state.
-    const VkFenceCreateInfo fei{
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-    };
-    if (vkCreateFence(device_, &fei, nullptr, &frame_fence_) != VK_SUCCESS) {
-        err = "vkCreateFence (frame) failed";
+    // Fresh fences per chain: created SIGNALED, so the first frame into each
+    // slot waits on nothing (frame_sync's header explains why signaled is the
+    // only non-hanging start state). A rebuild during recreate() discards any
+    // fence state the old chain left behind.
+    auto fs = frame_sync::create(device_, kFramesInFlight);
+    if (!fs) {
+        err = fs.error();
         destroy_sync();
         return false;
     }
+    sync_ = std::move(*fs);
+    slot_cmd_.assign(kFramesInFlight, VK_NULL_HANDLE);
     return true;
 }
 
 void wsi_presenter::destroy_sync() {
-    if (frame_fence_ != VK_NULL_HANDLE) {
-        vkDestroyFence(device_, frame_fence_, nullptr);
-        frame_fence_ = VK_NULL_HANDLE;
+    for (const VkSemaphore sem : image_available_) {
+        if (sem != VK_NULL_HANDLE) {
+            vkDestroySemaphore(device_, sem, nullptr);
+        }
     }
-    if (image_available_ != VK_NULL_HANDLE) {
-        vkDestroySemaphore(device_, image_available_, nullptr);
-        image_available_ = VK_NULL_HANDLE;
-    }
+    image_available_.clear();
+    // The fences live inside sync_ (member object; its own destructor frees
+    // them). recreate()'s create_sync replaces sync_ wholesale, which is the
+    // rebuild semantics the 2.8 stale-acquire note asked for.
 }
 
 wsi_presenter::~wsi_presenter() {
@@ -633,13 +640,13 @@ wsi_presenter::~wsi_presenter() {
     }
     // Wait before tearing anything down: destroying a swapchain or image a queue
     // still touches is device-loss territory, not a leak.
-    if (in_flight_ && frame_fence_ != VK_NULL_HANDLE) {
-        vkWaitForFences(device_, 1, &frame_fence_, VK_TRUE, ~std::uint64_t{0});
-    }
+    sync_.wait_all(); // every slot's frame proved done (empty fences return at once)
     vkDeviceWaitIdle(device_);
-    if (last_cmd_valid_) {
-        vkFreeCommandBuffers(device_, pool_, 1, &last_cmd_); // the idle device proved it finished
-        last_cmd_valid_ = false;
+    for (VkCommandBuffer& pending : slot_cmd_) {
+        if (pending != VK_NULL_HANDLE && pool_ != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(device_, pool_, 1, &pending); // the idle device proved it finished
+            pending = VK_NULL_HANDLE;
+        }
     }
     destroy_targets();
     destroy_sync();
@@ -664,12 +671,11 @@ wsi_presenter::wsi_presenter(wsi_presenter&& other) noexcept
       readback_memory_(std::exchange(other.readback_memory_, VK_NULL_HANDLE)),
       readback_size_(std::exchange(other.readback_size_, 0)),
       pool_(std::exchange(other.pool_, VK_NULL_HANDLE)),
-      last_cmd_(std::exchange(other.last_cmd_, VK_NULL_HANDLE)),
-      last_cmd_valid_(std::exchange(other.last_cmd_valid_, false)),
+      sync_(std::move(other.sync_)),
+      slot_cmd_(std::move(other.slot_cmd_)),
       queue_family_(std::exchange(other.queue_family_, 0)),
-      image_available_(std::exchange(other.image_available_, VK_NULL_HANDLE)),
+      image_available_(std::move(other.image_available_)),
       render_finished_(std::move(other.render_finished_)),
-      frame_fence_(std::exchange(other.frame_fence_, VK_NULL_HANDLE)),
       rt_layout_(other.rt_layout_),
       format_(other.format_),
       color_space_(other.color_space_),
@@ -677,11 +683,12 @@ wsi_presenter::wsi_presenter(wsi_presenter&& other) noexcept
       height_(std::exchange(other.height_, 0)),
       current_(std::exchange(other.current_, 0)),
       acquired_(std::exchange(other.acquired_, false)),
-      in_flight_(std::exchange(other.in_flight_, false)),
       stale_(std::exchange(other.stale_, false)) {
     other.swapchain_images_.clear();
     other.swapchain_views_.clear();
     other.render_finished_.clear();
+    other.image_available_.clear();
+    other.slot_cmd_.clear();
     other.rt_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
     other.format_ = VK_FORMAT_UNDEFINED;
 }
@@ -695,37 +702,40 @@ wsi_presenter& wsi_presenter::operator=(wsi_presenter&& other) noexcept {
 }
 
 // --- the frame loop -------------------------------------------------------
-// One frame in flight (2.8's budget; 2.10 replaces this fence discipline at the
-// same call sites): the CPU waits the previous blit's fence before touching the
-// render target again. Two semaphores because they cross different boundaries —
-// image_available_ is handed to the WSI by acquire, render_finished_ only ever
-// meets our own queue and vkQueuePresentKHR.
+// Two frames in flight (2.10): the CPU waits THIS slot's fence (frame_sync,
+// the same machinery the offscreen path runs) before recording the slot again,
+// so frame k+1 renders while frame k is still presenting. Semaphores stay two
+// kinds because they cross different boundaries — image_available_[slot] is
+// handed to the WSI by acquire, render_finished_ only ever meets our own queue
+// and vkQueuePresentKHR.
 std::expected<std::uint32_t, std::string> wsi_presenter::acquire() {
     if (stale_) {
         return std::unexpected("swapchain is stale — call recreate() before acquiring");
     }
     if (acquired_) {
         return std::unexpected("acquire() called while an image is already held — "
-                               "one frame in flight: present() (or recreate()) first");
+                               "one image at a time: present() (or recreate()) first");
     }
-    if (in_flight_) {
-        if (vkWaitForFences(device_, 1, &frame_fence_, VK_TRUE, ~std::uint64_t{0}) != VK_SUCCESS) {
-            return std::unexpected("waiting on the frame fence failed — device lost?");
-        }
-        if (vkResetFences(device_, 1, &frame_fence_) != VK_SUCCESS) {
-            return std::unexpected("vkResetFences failed on the frame fence");
-        }
-        in_flight_ = false;
+    // Slot discipline (2.10): this slot's PREVIOUS frame must be complete
+    // (its fence) before the slot is re-armed. Fences start signaled, so the
+    // first frame into each slot waits on nothing.
+    if (!sync_.wait_current()) {
+        return std::unexpected("waiting on the frame fence failed — device lost?");
     }
-    // The previous frame's buffer is now provably finished (the fence above, or
-    // the fact that nothing was ever in flight), so it can go back to the pool.
-    if (last_cmd_valid_) {
-        vkFreeCommandBuffers(device_, pool_, 1, &last_cmd_);
-        last_cmd_valid_ = false;
+    if (!sync_.reset_current()) {
+        return std::unexpected("vkResetFences failed on the frame fence");
+    }
+    // That wait proved the slot's previous frame's buffer finished, so it can
+    // go back to the pool now (freeing a still-executing buffer is a
+    // validation error — the wait is what makes this legal).
+    if (VkCommandBuffer& pending = slot_cmd_[sync_.current()]; pending != VK_NULL_HANDLE) {
+        vkFreeCommandBuffers(device_, pool_, 1, &pending);
+        pending = VK_NULL_HANDLE;
     }
 
     std::uint32_t index = 0;
-    const VkResult r = vkAcquireNextImageKHR(device_, swapchain_, ~std::uint64_t{0}, image_available_,
+    const VkResult r = vkAcquireNextImageKHR(device_, swapchain_, ~std::uint64_t{0},
+                                             image_available_[sync_.current()],
                                              VK_NULL_HANDLE, &index);
     if (r == VK_TIMEOUT) {
         return std::unexpected("vkAcquireNextImageKHR timed out — nothing is presenting to this surface");
@@ -846,7 +856,7 @@ bool wsi_presenter::present(VkCommandBuffer cmd) {
     }
 
     const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    const VkSemaphore waits[1] = {image_available_};
+    const VkSemaphore waits[1] = {image_available_[sync_.current()]};
     const VkSemaphore signals[1] = {render_finished_[current_]};
     const VkSubmitInfo si{
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -859,18 +869,19 @@ bool wsi_presenter::present(VkCommandBuffer cmd) {
         .signalSemaphoreCount = 1,
         .pSignalSemaphores = signals,
     };
-    if (vkQueueSubmit(queue_, 1, &si, frame_fence_) != VK_SUCCESS) {
+    if (vkQueueSubmit(queue_, 1, &si, sync_.fence()) != VK_SUCCESS) {
         VE_LOG_ERROR("gfx: vkQueueSubmit failed on the frame — acquire abandoned, recreate required");
         vkFreeCommandBuffers(device_, pool_, 1, &cmd); // the submit never took it: safe to free
         acquired_ = false;
         stale_ = true;
         return false;
     }
-    in_flight_ = true;
-    // Handed off, not owned: the next acquire() frees this once the fence proves
-    // it finished. Freeing it here would yank a buffer out from under the queue.
-    last_cmd_ = cmd;
-    last_cmd_valid_ = true;
+    // Handed off, not owned: the next acquire of THIS slot frees it once the
+    // slot fence proves it finished. Freeing it here would yank a buffer out
+    // from under the queue. Advancing the slot is what lets the next frame
+    // record into the OTHER slot while this one is still in flight (2.10).
+    slot_cmd_[sync_.current()] = cmd;
+    sync_.advance();
 
     VkPresentInfoKHR pi{
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -913,14 +924,12 @@ std::vector<std::uint8_t> wsi_presenter::capture_rgba8() {
         pool_ == VK_NULL_HANDLE) {
         return {};
     }
-    if (in_flight_) {
-        if (vkWaitForFences(device_, 1, &frame_fence_, VK_TRUE, ~std::uint64_t{0}) != VK_SUCCESS) {
-            VE_LOG_ERROR("gfx: capture_rgba8 could not wait on the frame fence");
-            return {};
-        }
-        vkResetFences(device_, 1, &frame_fence_);
-        in_flight_ = false;
+    if (!sync_.wait_all()) {
+        VE_LOG_ERROR("gfx: capture_rgba8 could not wait on the frame fences");
+        return {};
     }
+    // Both slots drained (2.10); acquire re-arms each slot's own fence before
+    // its next submit, so no reset belongs here.
 
     const VkCommandBuffer cmd = begin_command();
     if (cmd == VK_NULL_HANDLE) {
@@ -975,21 +984,26 @@ bool wsi_presenter::recreate(std::uint32_t width, std::uint32_t height) {
         VE_LOG_ERROR("gfx: recreate() while holding an acquired image — present() the frame first");
         return false;
     }
-    if (in_flight_) {
-        if (vkWaitForFences(device_, 1, &frame_fence_, VK_TRUE, ~std::uint64_t{0}) != VK_SUCCESS) {
-            VE_LOG_ERROR("gfx: recreate() could not wait on the frame fence");
-            return false;
-        }
-        vkResetFences(device_, 1, &frame_fence_);
-        in_flight_ = false;
+    // Drain BOTH slots (2.10): with double buffering the second-oldest frame
+    // may still be executing when a stale present shows up. wait_all proves
+    // every slot's work is done; the per-slot acquire semaphores may still be
+    // left signaled by a stale acquire, but create_sync rebuilds them with
+    // fresh SIGNALED fences, so no stale sync state crosses into the new chain.
+    if (!sync_.wait_all()) {
+        VE_LOG_ERROR("gfx: recreate() could not wait on the frame fences");
+        return false;
     }
     if (vkDeviceWaitIdle(device_) != VK_SUCCESS) {
         VE_LOG_ERROR("gfx: recreate() could not idle the device — nothing may touch the old chain");
         return false;
     }
-    if (last_cmd_valid_) {
-        vkFreeCommandBuffers(device_, pool_, 1, &last_cmd_); // idle device: the old frame is done
-        last_cmd_valid_ = false;
+    {
+        for (VkCommandBuffer& pending : slot_cmd_) {
+            if (pending != VK_NULL_HANDLE) {
+                vkFreeCommandBuffers(device_, pool_, 1, &pending); // idle device: every frame is done
+                pending = VK_NULL_HANDLE;
+            }
+        }
     }
 
     destroy_targets();

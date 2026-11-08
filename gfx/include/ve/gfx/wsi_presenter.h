@@ -17,7 +17,8 @@ namespace ve::gfx {
 // exactly why the same passes will drive OpenXR later (Presenter is the seam).
 //
 // Swapchain policy (checklist 2.8): FIFO (the one present mode Vulkan guarantees
-// exists), one frame in flight, and the swapchain format IS the render-target
+// exists), two frames in flight since 2.10 (frame_sync; the acquire->present
+// pairing still holds one swapchain image at a time), and the swapchain format IS the render-target
 // format — blits require format-compatible images, and UNORM vs SRGB of the same
 // channel layout is not format-compatible, so choosing one format everywhere
 // removes a whole class of driver-dependent blit validation.
@@ -47,8 +48,9 @@ public:
     std::uint32_t height() const override { return height_; }
     std::vector<std::uint8_t> capture_rgba8() override; // RT readback, as Tier 2
 
-    // --- frame loop: one frame in flight. 2.10 replaces this fence discipline
-    // with presenter-independent sync at the same call sites.
+    // --- frame loop: two frames in flight (2.10 frame_sync at these call
+    // sites). The CPU still records at most one frame ahead; the swapchain
+    // chain holds the other.
     std::expected<std::uint32_t, std::string> acquire(); // index + image_available_ signaled
     VkCommandBuffer begin_command();                     // from the internal pool
     bool begin_pass(VkCommandBuffer cmd);                // RT current -> COLOR_ATTACHMENT
@@ -93,17 +95,26 @@ private:
     VkDeviceSize readback_size_ = 0; // width*height*4, recomputed by create_targets
     VkCommandPool pool_ = VK_NULL_HANDLE;
 
-    // The frame's command buffer outlives present(): its submit carries the frame
-    // fence, so freeing it inside present() would free a buffer still executing
-    // (a validation error, and worse than a leak). It is freed at the next
-    // acquire(), once that fence has been waited out — which is exactly what keeps
-    // 2.9's ~120-frame spin from growing the pool without bound.
-    VkCommandBuffer last_cmd_ = VK_NULL_HANDLE;
-    bool last_cmd_valid_ = false;
+    // Frame sync (2.10): one fence per frame slot via the presenter-
+    // independent frame_sync class — the same machinery the offscreen
+    // presenter runs. A frame's command buffer outlives present(): its
+    // submit carries the slot fence, so freeing it inside present() would
+    // free a buffer still executing (a validation error, and worse than a
+    // leak). It is freed at that slot's next acquire(), once the fence has
+    // been waited out — which is what keeps 2.9's ~120-frame spin from
+    // growing the pool without bound.
+    static constexpr std::uint32_t kFramesInFlight = 2; // double-buffered pipeline
+    frame_sync sync_;
+    std::vector<VkCommandBuffer> slot_cmd_; // one pending cmd per slot, VK_NULL_HANDLE = empty
+
     std::uint32_t queue_family_ = 0; // the family queue_ came from (pools are per-family)
 
-
-    VkSemaphore image_available_ = VK_NULL_HANDLE; // acquire -> blit
+    // acquire -> blit: ONE PER FRAME SLOT (2.10). With two frames in flight a
+    // single shared acquire semaphore is the same re-signal hazard that made
+    // render_finished_ per-image in 2.9: the second acquire would signal the
+    // semaphore while the first frame's submit still waits on it. Indexed by
+    // frame slot (sync_.current()), so these live with create_sync/destroy_sync.
+    std::vector<VkSemaphore> image_available_;
     // ONE blit->present semaphore PER SWAPCHAIN IMAGE, indexed by image index.
     // A single shared one is a validation error (VUID-vkQueueSubmit-pSignalSemaphores-00067,
     // caught live in 2.9): the frame fence proves only that the SUBMIT finished, never
@@ -114,7 +125,6 @@ private:
     // which attaches a fence to present — that extension is a decision, not a Phase 2 need.)
     // Sized with the swapchain, so these live with create_targets/destroy_targets.
     std::vector<VkSemaphore> render_finished_;
-    VkFence frame_fence_ = VK_NULL_HANDLE; // blit completion (one in flight)
 
     // Layout bookkeeping, same doctrine as offscreen_presenter: the presenter
     // owns its image's transitions, a pass may never barrier the target.
@@ -126,7 +136,6 @@ private:
     std::uint32_t height_ = 0;
     std::uint32_t current_ = 0; // the image index acquire() handed out
     bool acquired_ = false;     // holding an image between acquire and present
-    bool in_flight_ = false;    // a blit is outstanding (fence not yet waited)
     bool stale_ = false;        // recreate() required before the next frame
 };
 

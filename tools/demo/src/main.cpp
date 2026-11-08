@@ -725,7 +725,7 @@ int main(int argc, char** argv) {
     }
     const pipeline_guard pipeline_owner{dev->handle(), &pipe, &layout};
 
-    // --- 5. the frame loop: one frame in flight, FIFO, spin via push const --
+    // --- 5. the frame loop: two frames in flight (2.10), FIFO, spin via push const --
     std::vector<double> frame_ms;
     frame_ms.reserve(frames);
     std::vector<std::uint32_t> image_indices;

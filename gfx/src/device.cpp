@@ -170,8 +170,9 @@ std::expected<device, std::string> device::create(const instance& inst, VkSurfac
 
     // Same family, same handle: the one-queue-for-both policy verified above.
     // Kept as a distinct member so a future split-queue design changes one line
-    // here instead of hunting call sites that assumed they were equal.
-    VkQueue present_queue = queue;
+    // here instead of hunting call sites that assumed they were equal. Surface-
+    // less stays NULL: a queue with no present story must not look present-capable.
+    VkQueue present_queue = (present_family == VK_QUEUE_FAMILY_IGNORED) ? VK_NULL_HANDLE : queue;
 
     device out;
     out.physical_ = chosen;
