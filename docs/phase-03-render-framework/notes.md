@@ -82,6 +82,34 @@ run-sheet (README's Windows paragraph said "same three commands" — it no longe
   engine's required-layer gate stops `ve_demo` at exit 2 with "Vulkan validation layer not
   installed". `VK_LAYER_PATH=C:\Users\AmesL\Projects\.ve-deps\vvlbin` makes it enumerable; the
   demo then logs `validation ON` and `active tool layers: Khronos Validation Layer`.
+
+## ve_demo at 1920x1080 — run 2026-11-08 at user request (Windows/NVIDIA)
+
+`ve_demo` is the repo's only resolution-parameterized harness; the ctest goldens are fixed
+64x64 lavapipe-only fixtures (#35/#36), so 1080p applies to the windowed run, not the gate.
+Both runs **exit 0**: 120/120 frames presented, **0 validation problems** (Khronos layer
+active, device api 1.4.351), extents 32-bit BG, 2 images in flight, avg 62.24 fps (no resize)
+and 63.78 fps with `--resize-at 60` — that second run took **2 clean swapchain rebuilds**
+(1920x1061 -> 1792x989@f60 -> 1920x1061@f110, 0 acquire refusals, 3 distinct images).
+Evidence committed at `docs/phase-02-vulkan/evidence/windows-nvidia-1080p/` (dev-run only per
+#35; the lavapipe capture stays primary, the committed 2.9 evidence is untouched).
+
+- **Requested size != presented extent, and that is correct.** Asking for 1920x1080 yields a
+  client area of **1920x1061** — Win32/DWM takes rows for the window frame (display 1920x1080,
+  work area 1920x1032 with the taskbar). Swapchain extent, render target, readback and PNGs all
+  follow the client area, which is the WSI contract: the extent comes from the surface, not from
+  the requested window size. `summary.txt` prints `1920x1061` while the command asked 1920x1080;
+  that is the discrepancy explained, not a bug. For a presentation that is exactly 1920x1080 the
+  client area must be exactly that (auto-hide taskbar / borderless / taller display, or a hint in
+  `platform/window.cpp`) — a small `platform/` change with WSI-test implications, deliberately
+  **not** made.
+- Geometry scales with the extent as expected: triangle coverage 6.63% of 1920x1061 vs 6.7% at
+  640x360. It stretches horizontally with the wider aspect because the demo's MVP carries no
+  aspect term — 2.6/2.9's existing push-constant contract, not a regression.
+- Frame timing at this resolution: median `present_ms` sub-millisecond, occasional 141-149 ms
+  spikes (the implicit overlay layers this box injects into every instance). `ve_demo` logs loader
+  notes without gating on them; only correctness is asserted, so `>=55 fps` holds on average.
+
 - `VE_GLSLANG` with an absolute `glslangValidator.exe` path: without it `cook_shader_golden`
   prints its skip and `ve_demo` fails the cook at exit 2 (its message names the env var).
 

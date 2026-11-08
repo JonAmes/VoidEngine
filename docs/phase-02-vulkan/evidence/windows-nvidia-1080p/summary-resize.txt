@@ -1,0 +1,36 @@
+ve_demo - checklist 2.9 WSI evidence
+device present: yes
+device: NVIDIA GeForce RTX 4060 Laptop GPU  (api 1.4.351, present family 0)
+instance extensions beyond VK_EXT_debug_utils: VK_KHR_surface, VK_KHR_win32_surface
+extent at close: 1920x1061  format: VK_FORMAT_B8G8R8A8_UNORM
+frames requested: 120  presented: 120  acquire refusals: 0  swapchain rebuilds: 2
+distinct swapchain images used: 3
+frame ms min/median/max: 0.141600 / 0.365300 / 141.558700
+avg fps: 63.778472 (first 10 frame(s) excluded as warmup, mean frame time 15.679272 ms); frames at >=55fps: 83.333333%
+resize requested at frame: 60 (0 = none requested)
+extent trail: 1920x1061 (start) -> 1792x989@f60 -> 1920x1061@f110
+push constants handed to the vertex stage: 120 distinct signature(s) over 120 presented frame(s); matrix term span -0.999965 .. 1.000000
+capture diff first-vs-last: mean_abs=10.534810 changed=9.620408% over 8148480 bytes
+capture probes: 18 sample(s), 18 distinct frame image(s)
+  frame 0: hash=11704024460737393513 mean=75.434582 off_background=135150/2037120
+  frame 7: hash=13559085996498317413 mean=75.431881 off_background=135085/2037120
+  frame 14: hash=896398303736138495 mean=75.431632 off_background=135079/2037120
+  frame 21: hash=945846057181136196 mean=75.438356 off_background=135238/2037120
+  frame 28: hash=16011726429097036042 mean=75.432276 off_background=135095/2037120
+  frame 35: hash=8885421291781102608 mean=75.431840 off_background=135084/2037120
+  frame 42: hash=2447800809661184436 mean=75.432901 off_background=135109/2037120
+  frame 49: hash=5959886960618020072 mean=75.432204 off_background=135093/2037120
+  frame 56: hash=12606378629379565297 mean=75.432007 off_background=135088/2037120
+  frame 63: hash=10669045271439616697 mean=75.424914 off_background=117373/1772288
+  frame 70: hash=10262376303560443939 mean=75.425071 off_background=117376/1772288
+  frame 77: hash=5146492908002751493 mean=75.425092 off_background=117377/1772288
+  frame 84: hash=1002458410979197991 mean=75.424948 off_background=117373/1772288
+  frame 91: hash=1948053437450982242 mean=75.425016 off_background=117375/1772288
+  frame 98: hash=9034775329443957733 mean=75.424279 off_background=117358/1772288
+  frame 105: hash=16153690068133953107 mean=75.424703 off_background=117368/1772288
+  frame 112: hash=7653454703368039376 mean=75.432257 off_background=135095/2037120
+  frame 119: hash=2172468901464679701 mean=75.431910 off_background=135086/2037120
+evidence PNGs written: yes
+active tool layers on this device: Khronos Validation Layer
+validation problems (Khronos layer): 0
+loader notes (environment, not gated): 0
