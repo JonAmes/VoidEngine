@@ -57,6 +57,7 @@ add_executable(engine_tests
     gfx/test_pbr_lite.cpp
     gfx/test_shadow_map.cpp
     gfx/test_text_draw.cpp
+    gfx/test_ui_immediate.cpp
     gfx/test_wsi_compile.cpp
     gfx/test_validation_strict.cpp
 )

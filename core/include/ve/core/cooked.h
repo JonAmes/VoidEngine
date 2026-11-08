@@ -53,7 +53,7 @@ inline constexpr std::uint32_t kTexFmtRgba8 = 0;
 //   u32 px_size | u32 atlas_w | u32 atlas_h |
 //   i32 ascent | i32 descent | u32 first_cp | u32 glyph_count,
 //   then glyph_count * { i32 atlas_x, atlas_y, w, h,  // atlas rect; w==h==0 = blank
-//                        i32 bearing_x, bearing_y, advance },
+//                        i32 bearing_x, bearing_y, f32 advance },
 //   then atlas_w*atlas_h*4 RGBA bytes (top-down; glyph coverage replicated to
 //   R=G=B=A — subpixel-free grayscale mask). Codepoint = first_cp + index.
 

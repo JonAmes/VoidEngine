@@ -337,3 +337,28 @@ Evidence committed at `docs/phase-02-vulkan/evidence/windows-nvidia-1080p/` (dev
   this type 'void'". Just don't declare what you don't use.
 - DejaVu Mono 16 px stems ~1.7 px: AA coverage rarely reaches 255, so exact-pin
   thresholds must derive from the CPU model (measured model_lit > 15), not guesses.
+
+## 3.13 Immediate UI (2026-11-08) — decisions & gotchas
+- Hand-rolled immediate-mode debug UI in `ve::gfx` (`ui.h/ui.cpp`): pure CPU —
+  NO Vulkan/device/GLFW types in the UI core. Input arrives as neutral per-frame
+  actions (`ui_io`, the #15 input seam); output is a draw-command frame
+  (pos2/uv2/color4 interleaved verts + uint16 indices, hard cap 64 quads) that
+  ONE render pass draws onto a presenter render target. Font arrives only as
+  cooked FONT0 via `gfx/src/font.cpp` loader (`load_cooked_font_file`).
+- ID stability bug caught by test: the window scope hash MUST be a pure function
+  of the title. Folding the PREVIOUS `win_id_` into it (via `hash_id`) made every
+  frame's widget ids differ -> press/release ids never match, clicks unreachable.
+- Press capture (`held_`) is cleared in `end_frame`, NOT `begin_frame`: zeroing it
+  on the release frame before widgets run kills `released_ && held_==id` clicks.
+- FONT0 `advance` is **f32** in the payload (cooked.h doc said i32 — fixed).
+  Layout rule: pen is a float summed from advances; glyph box origin =
+  `int(pen)` (truncate) + integer bearing. Deterministic and mirrored by tests.
+- UI blend: RGB src-alpha-over-dst; alpha channel keeps the target
+  (src_alpha=ZERO, dst_alpha=ONE) — UI coverage never leaks into target alpha.
+- lavapipe pins: exact-colour checks only on bare (no-glyph, no-AA) pixels and on
+  atlas texels with coverage exactly 0/255 through the blend; AA texels land on
+  uncheckable intermediate values. `ui_64.png` golden strict per #35.
+- CPU half of the test proves: same io sequence -> byte-identical frames across
+  two fresh contexts (determinism), exact integer layout of chrome/rows, full
+  click lifecycle incl. press-off-cancel, checkbox toggle, text-field
+  focus/edit/backspace/commit, `[x]` close, corrupt-FONT0 clean load error.

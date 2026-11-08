@@ -13,6 +13,8 @@ add_library(ve_gfx STATIC
     src/frame_sync.cpp
     src/wsi_presenter.cpp
     src/shader.cpp
+    src/font.cpp
+    src/ui.cpp
 )
 target_include_directories(ve_gfx PUBLIC include)
 target_link_libraries(ve_gfx PUBLIC ve_core volk)
