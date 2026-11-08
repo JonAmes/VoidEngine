@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <ve/cook/cook.h>
@@ -150,7 +151,14 @@ TEST_CASE("gfx_mesh_upload") {
     // though only meshes are consumed
     {
         ve::core::cooked::Bytes t = good;
-        auto it = std::search(t.begin(), t.end(), std::string_view("Mat").begin(), std::string_view("Mat").end());
+        // One named view, not two temporaries: the needle's begin()/end() must
+        // come from the SAME view. Two separate string_view temporaries make a
+        // range across different views — UB that MSVC's debug string_view
+        // iterators assert on ("iterators in range are from different views").
+        // It only ever appeared to work because both pointed into the same
+        // string literal, and libstdc++ ships no such check.
+        const std::string_view needle{"Mat"};
+        auto it = std::search(t.begin(), t.end(), needle.begin(), needle.end());
         REQUIRE(it != t.end());
         *(it - 4) = 0xFF; *(it - 3) = 0xFF; // name_len = 65535-ish
         CHECK_FALSE(ve::gfx::parse_mesh_payload(t).has_value());
