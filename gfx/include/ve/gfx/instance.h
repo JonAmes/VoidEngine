@@ -20,14 +20,19 @@ struct validation_state;
 //    the strict-messenger watchdog depends on it; an unvalidated instance is
 //    a bug, never a fallback. (Release-mode opt-out is a later build-mode
 //    decision, not an ad-hoc flag.)
-//  - Surfaceless by default: no WSI extensions here. Desktop WSI lands in 2.8
-//    as its own path; XR API calls never come through this class at all
-//    (AGENTS boundary 2: XR lives in platform/xr/).
+//  - Surfaceless unless the caller opts in: extra_extensions carries WSI
+//    names from OUTSIDE gfx/ — platform/window.cpp asks GLFW (2.8). The WSI
+//    entry point that makes a VkSurfaceKHR is GLFW's glfwCreateWindowSurface;
+//    everything gfx then calls (vkCreateSwapchainKHR et al.) comes from
+//    VK_KHR_surface and stays OS-neutral (#38). XR API calls never come
+//    through this class at all (AGENTS boundary 2: XR lives in platform/xr/).
 // OS-neutral per decision #38: volk loads the platform loader at runtime
 // (no link against libvulkan/vulkan-1.lib).
 class instance {
 public:
-    static std::expected<instance, std::string> create(const char* app_name = "void-engine");
+    static std::expected<instance, std::string> create(
+        const char* app_name = "void-engine",
+        const std::vector<std::string>& extra_extensions = {});
 
     ~instance();
     instance(const instance&) = delete;
