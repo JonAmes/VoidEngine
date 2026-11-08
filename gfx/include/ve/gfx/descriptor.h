@@ -1,0 +1,66 @@
+#pragma once
+#include <ve/gfx/device.h>
+
+#include <cstdint>
+#include <expected>
+#include <string>
+#include <vector>
+
+// 3.7 descriptor plumbing: the minimal glue that gets sampled images into
+// dynamic-rendering pipelines. Thin deliberately — the engine's per-draw
+// inputs are a small fixed set (sampler bindings now; UBO/storage writes are
+// added when 3.9/3.11 need them). No bindless, no pooling heuristics:
+// those are optimizations with a phase, not scaffolding for one.
+namespace ve::gfx {
+
+// A VkDescriptorSetLayout with exactly one COMBINED_IMAGE_SAMPLER binding —
+// the shape every Phase 3 pass uses. Move-only; destroy before the device.
+class sampler_set_layout {
+public:
+    static std::expected<sampler_set_layout, std::string> create(
+        const device& dev, std::uint32_t binding, VkShaderStageFlags stage);
+    ~sampler_set_layout();
+    sampler_set_layout(sampler_set_layout&&) noexcept;
+    sampler_set_layout& operator=(sampler_set_layout&&) noexcept;
+    sampler_set_layout(const sampler_set_layout&) = delete;
+    sampler_set_layout& operator=(const sampler_set_layout&) = delete;
+
+    VkDescriptorSetLayout handle() const { return layout_; }
+
+private:
+    sampler_set_layout() = default;
+    const device* dev_ = nullptr;
+    VkDescriptorSetLayout layout_ = VK_NULL_HANDLE;
+};
+
+// Descriptor storage for sampler sets. Sized at creation by set count;
+// freed wholesale (pool destroy) — per-set frees don't exist in Vulkan
+// anyway, so there is no fake granularity to expose.
+class descriptor_pool {
+public:
+    static std::expected<descriptor_pool, std::string> create(
+        const device& dev, std::uint32_t max_sampler_sets);
+    ~descriptor_pool();
+    descriptor_pool(descriptor_pool&&) noexcept;
+    descriptor_pool& operator=(descriptor_pool&&) noexcept;
+    descriptor_pool(const descriptor_pool&) = delete;
+    descriptor_pool& operator=(const descriptor_pool&) = delete;
+
+    VkDescriptorPool handle() const { return pool_; }
+
+    std::expected<VkDescriptorSet, std::string> allocate(VkDescriptorSetLayout layout);
+
+    // The one write shape for now: (texture view, static sampler) pair. The
+    // image must already sit in the layout declared here — gpu_texture
+    // guarantees SHADER_READ_ONLY_OPTIMAL after create (owner-transition
+    // policy), so plumbing never touches barriers.
+    void write_sampler(VkDescriptorSet set, std::uint32_t binding,
+                       VkSampler sampler, VkImageView view);
+
+private:
+    descriptor_pool() = default;
+    const device* dev_ = nullptr;
+    VkDescriptorPool pool_ = VK_NULL_HANDLE;
+};
+
+} // namespace ve::gfx

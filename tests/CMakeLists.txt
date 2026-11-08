@@ -38,6 +38,7 @@ add_executable(engine_tests
     tools/test_incremental.cpp
     tools/test_watch.cpp
     gfx/test_texture.cpp
+    gfx/test_texture_gpu.cpp
     gfx/test_instance.cpp
     gfx/test_device.cpp
     gfx/test_offscreen_target.cpp
