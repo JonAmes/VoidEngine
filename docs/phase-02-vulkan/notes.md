@@ -62,3 +62,22 @@
 - With a messenger installed, layer output does NOT also go to stdout —
   messages only reach validation_problems(); tests print them via
   CHECK_MESSAGE so failures self-document.
+
+## 2.8 gotchas (learned 2026-11-08)
+- GLFW's Vulkan entry points take **instance first**: `glfwCreateWindowSurface(instance, window, ...)`
+  and `glfwGetPhysicalDevicePresentationSupport(instance, window, family)` — opposite of intuition
+  from the native-* functions; the compile error is a confusing arg-swap diagnostic.
+- `glfwGetRequiredInstanceExtensions` works WITHOUT glfwInit (baked at GLFW build time) — safe to
+  call headless; returns empty/NULL where no window system exists, so CI must treat empty as legal.
+- CMake: `find_package(glfw3 3.3)` target name is `glfw` (lowercase). Link it PRIVATE on
+  ve_platform so no higher layer can include GLFW (window.h keeps the handle as void*);
+  volk must be PUBLIC on ve_platform because window.h's public API speaks VkSurfaceKHR.
+- Designated initializers demand Vulkan struct **declaration order** AND every member:
+  VkPresentInfoKHR is waitSemaphores then swapchainCount THEN pSwapchains (swapping those two is
+  a -Werror designator-order error, easy to hit since pSwapchains reads like it comes first).
+  VkImageBlit offsets are int32_t (VkOffset3D) — uint32 extents need explicit casts.
+- wsi_presenter stores VkPhysicalDevice (not ve::gfx::device): recreate() and memory-type lookups
+  must work with handles only; find_memory_type is keyed on VkPhysicalDevice in cmd_helpers.h.
+- Swapchain teardown order: image views → vkDestroySwapchainKHR BEFORE the surface (surface belongs
+  to platform/window; the presenter must never destroy it). Window teardown: presenter → surface →
+  glfwDestroyWindow.
