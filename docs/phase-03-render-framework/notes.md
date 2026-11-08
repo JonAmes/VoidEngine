@@ -21,7 +21,7 @@ Running design record for the mini render framework. Process rules live in AGENT
 - **Q5 uniform strategy.** Push constants ≤256 B can't hold per-material PBR params across instanced draws: UBO per frame (lights + per-eye MVP array + material table), push constants for the instance transform basis. Boring and debuggable.
 
 ## Per-task decisions (recorded as they happen)
-- (fill in as tasks land)
+- **3.2 camera:** `camera_rig` = rig TRS + ordered `eye_def` list (authored order = instance eye index for 3.9 — never hash order). `compute()` is pure: per eye, `view = inverse_rigid(trs_compose(rig) * trs_compose(eye.rig_local))`, `proj = perspective_offaxis(n,f,L,R,B,T)`; desktop is a 1-eye rig through the same path. `frustum` carries tans only (fov/aspect is input sugar). `converged_stereo_frustums`: eyes at ±ipd/2, no toe-in; derivation `clip.x=0 ⇒ x/z = -(r+l)/2` with fixation at eye-space (-ipd/2, 0, -focal) gives `r+l = -ipd/focal_dist` (right eye; left mirrors) — verified: fixation on rig axis → ndc.x == 0 in both eyes, width/verticals stay symmetric. All camera math fp32 (rig space = floating origin, decision #3).
 
 ## Gotchas (append as found)
-- (fill in as found)
+- doctest `Approx` has no `.margin()` (v2.4): repo float-comparison convention is `approximately_equal(a, b, eps)` from core math; vec4-from-vec3 is `vec4f::point(p)`.

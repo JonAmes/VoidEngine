@@ -13,7 +13,7 @@ Existing seams this phase builds on (Phase 2): `gfx/instance|device|frame_sync|p
 - Q5: per-material params live in a **UBO indexed by material**, per-draw data in push constants.
 
 ## Tasks — execute top to bottom, one commit each
-- [ ] 3.1 Checklist decomposition + notes skeleton (this commit) — test: none (docs) — commit: —
+- [x] 3.1 Checklist decomposition + notes skeleton — test: none (docs) — commit: b926238
 - [ ] 3.2 Camera = rig + eyes: `gfx/camera` — rig transform + eye list (desktop: rig + one centered eye, identical code path); each eye carries view (rig TRS + eye-local offset, `look_at_rh`/quat path from Phase 1) + projection from the core off-axis builder (L/R/T/B tans). Test: `gfx_camera_rig` — one-eye symmetric output equals Phase 1 symmetric pins; two-eye rig (64 mm IPD) yields hand-derived asymmetric per-eye clip pins with converged frustum axes; #34 frame convention re-pinned. Pure CPU, no GPU fixture.
 - [ ] 3.3 Depth attachment + reversed-Z: offscreen target gains a D32_SFLOAT depth attachment; presenter consumers still only see `color_view()` — depth is pass plumbing, not a consumer API. Passes consume Phase 1's reversed-Z builder. Test: `gfx_depth_reversed_z` — two overlapping quads, nearer occludes farther by readback; cleared depth == 0 (reversed far), depth-attachment texel pins.
 - [ ] 3.4 Pipeline state cache: `gfx/pipeline_cache` keyed by layout + stages + fixed state; same key ⇒ same handle, different state ⇒ distinct; all pipelines destroyed before device (ASan clean). Test: `gfx_pipeline_cache` on lvp.

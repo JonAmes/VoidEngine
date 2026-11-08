@@ -46,6 +46,7 @@ add_executable(engine_tests
     gfx/test_golden_harness.cpp
     gfx/gfx_golden.cpp
     gfx/test_frame_sync.cpp
+    gfx/test_camera_rig.cpp
     gfx/test_wsi_compile.cpp
     gfx/test_validation_strict.cpp
 )
