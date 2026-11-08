@@ -5,8 +5,8 @@ instance extensions beyond VK_EXT_debug_utils: VK_KHR_surface, VK_KHR_xcb_surfac
 extent at close: 640x360  format: VK_FORMAT_B8G8R8A8_UNORM
 frames requested: 120  presented: 120  acquire refusals: 0  swapchain rebuilds: 2
 distinct swapchain images used: 4
-frame ms min/median/max: 2.404136 / 3.549502 / 67.024722
-avg fps: 104.073131 (first 10 frame(s) excluded as warmup, mean frame time 9.608628 ms); frames at >=55fps: 84.166667%
+frame ms min/median/max: 1.716324 / 3.767065 / 66.804368
+avg fps: 104.310355 (first 10 frame(s) excluded as warmup, mean frame time 9.586776 ms); frames at >=55fps: 85.000000%
 resize requested at frame: 80 (0 = none requested)
 extent trail: 640x360 (start) -> 512x288@f80 -> 640x360@f110
 push constants handed to the vertex stage: 120 distinct signature(s) over 120 presented frame(s); matrix term span -0.999965 .. 1.000000
