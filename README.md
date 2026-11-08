@@ -16,13 +16,13 @@ Phase 0 (toolchain & skeleton) **complete** (2026-11-07): reproducible toolchain
 
 Phase 1 (math & headless core) **complete** (2026-11-07): hand-rolled `core/math` — fp32 vec/mat4/quat + fp64 `dvec3` sim positions with AU-scale precision proven, euler/rig-frame conventions, `look_at_rh`, TRS decompose/compose, projection builders where **off-axis asymmetric (L/R/T/B-tan) perspective is the primary implementation** (VR per-eye ready, Vulkan depth + reversed-Z variants), spherical↔cartesian, and a floating-origin frame. World frame pinned by decision #34: right-handed, Y-up, −Z forward — matching glTF and OpenXR natively. 33 test cases / 404 assertions, green with no display.
 
-Phase 2 (Vulkan right of passage) **in progress**: instance/device/queues on Volk at API 1.3 with the Khronos validation layer required and a strict messenger that fails tests on any error or warning (2.7); cooked GLSL→SPIR-V; the Presenter seam with an offscreen target and a 64×64 golden triangle in ctest on lavapipe (2.4–2.6); and the desktop WSI presenter — GLFW window behind the platform seam, FIFO swapchain, one frame in flight, and **blit RT→swapchain image** so no pass ever sees a swapchain image (2.8). Behavior evidence for the windowed path lands in 2.9 (Xvfb+lavapipe capture per decision #36).
+Phase 2 (Vulkan right of passage) **in progress**: instance/device/queues on Volk at API 1.3 with the Khronos validation layer required and a strict messenger that fails tests on any error or warning (2.7); cooked GLSL→SPIR-V; the Presenter seam with an offscreen target and a 64×64 golden triangle in ctest on lavapipe (2.4–2.6); and the desktop WSI presenter — GLFW window behind the platform seam, FIFO swapchain, one frame in flight, and **blit RT→swapchain image** so no pass ever sees a swapchain image (2.8); and `tools/ve_demo`, the windowed rotating triangle whose committed capture (`docs/phase-02-vulkan/evidence/`) is the 2.9 evidence — 120/120 frames presented, median 16.631 ms, 0 validation problems, 2 resize-triggered swapchain rebuilds, self-gating on exit code. That evidence is a real-display Windows/NVIDIA dev run; the reproducible Xvfb+lavapipe capture decision #36 prescribes is committed (`tools/dev/xvfb_run.sh`) but not yet run.
 
 | Phase | Area | Status |
 |---|---|---|
 | 0 | Toolchain & skeleton | **complete** |
 | 1 | Math & headless core | **complete** |
-| 2 | Vulkan bring-up | **in progress** (2.1–2.8) |
+| 2 | Vulkan bring-up | **in progress** (2.1–2.9) |
 | 3 | Mini render framework | not started |
 | 4 | Arcade flight & gravity core | not started |
 | 5 | Ship designer (hull + hardpoints) | not started |

@@ -45,7 +45,6 @@ add_executable(engine_tests
     gfx/test_triangle_golden.cpp
     gfx/test_wsi_compile.cpp
     gfx/test_validation_strict.cpp
-    gfx/test_wsi_compile.cpp
 )
 target_compile_definitions(engine_tests PRIVATE
     VE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
