@@ -141,3 +141,62 @@ Evidence committed at `docs/phase-02-vulkan/evidence/windows-nvidia-1080p/` (dev
   source of the 96 ms spikes; the demo logs loader notes without gating on them. Timing, not
   correctness — no action taken.
 
+
+### Linux merge gate re-run on WSL2 (2026-11-08) — interim, does **not** close 3.16
+- Ran `tools/ci_local.sh` unmodified (`BUILD_DIR=build-wsl BUILD_TYPE=Debug`) against a fresh clone
+  of the **pushed** `testing` tip `e3a60045211043e3501f5e2578ac622edd9ea27b` (clone HEAD ==
+  `origin/testing` == GitHub `refs/heads/testing`; worktree clean; `ci_local.sh` CR count 0).
+  Inside a user+mount namespace (`unshare -Urm`) with `/usr/share/vulkan` on tmpfs.
+  **GREEN, exit 0.** `ctest` 1/1 `engine_tests` Passed (2.92 s); doctest **54 cases / 3091
+  assertions, 0 failed, 0 skipped** — identical to the 3090/P5000 dev box's counts, and 2 cases /
+  523 asserts above the Windows run (the POSIX crash-handler + log fixtures `engine_tests` does
+  not compile under MSVC; their deliberate `[FATAL] crash: SIGSEGV/SIGILL` + `[ERROR] error-line`
+  output is expected suite noise, not a failure).
+- Sanitizers and the wall are real, not assumed: 132 × `-fsanitize=address,undefined` in
+  `build.ninja`; `ldd` under the gate env resolves `libasan.so.8` + `libubsan.so.1`. Wall intact
+  (`-Wall -Wextra -Wpedantic -Werror`, `CMakeLists.txt:27`); the `-Wno-*` that show up in
+  `build.ninja` are `tests/CMakeLists.txt:81`'s pre-existing per-target suppressions. Nothing was
+  weakened to pass. `VE_TRACY=ON`.
+- GPU half genuinely exercised: device string `llvmpipe (LLVM 21.1.8, 256 bits)` in the suite
+  output and doctest's own `0 skipped`. The 2.11 preflight (`ci_local.sh:23-39`) refuses to
+  configure without a `lvp_icd*.json` **and** `VkLayer_khronos_validation.json`, so a GREEN here
+  cannot come from quietly skipping the render tests.
+- Toolchain without root/sudo (user's chosen path — a deviation, stated not hidden): WSL2 Ubuntu
+  26.04 shipped lavapipe (`mesa-vulkan-drivers`, Mesa 26.0.8) and loader `libvulkan1 1.4.341.0-1`
+  but **no C++ compiler at all**. The closure — `g++ 15.2.0`, `vulkan-validationlayers
+  1.4.341.0-1`, `glslang-tools 16.2.0`, `spirv-tools`, `libglfw3-dev 3.4`, `pkg-config` (57
+  packages, 95 MB) — was resolved via `apt-get update/download` with apt's index+archives
+  redirected into user-writable dirs (`-o Dir::State::lists=… -o Dir::Cache::archives=…`, closure
+  read out of `apt-get -s install --no-install-recommends`) and unpacked with `dpkg -x` into
+  `~/ve-prefix`. cmake 3.31.6 + ninja 1.12.1 came from the repo's own
+  `tools/bootstrap_toolchain.sh` (user-local, checksum-pinned). gcc's drivers run through
+  `--sysroot=$HOME/ve-prefix` wrappers; sonames the system cannot resolve are symlinked into
+  `~/ve-san` on `LD_LIBRARY_PATH`, deliberately **excluding** glibc/libstdc++/libgcc_s so the C
+  runtime stays the distro's.
+- Deviations from the prescribed gate: WSL2 kernel 6.6.87.2-microsoft-standard, not the dev box's
+  hardware; g++ 15.2 (AGENTS.md floor ≥14); packages are Ubuntu's but hand-unpacked, so the
+  toolchain is assembled rather than distro-installed. This run covers the **ctest half** only;
+  windowed/WSI evidence stays with the Windows/NVIDIA and Xvfb runs (#35/#36). Nothing about the
+  3090 box's outcome is inferred from this one.
+- **3.16 stays open**: it demands a clean-tree GREEN *on the final Phase 3 tree*. What this run
+  retires is the older obligation — that the Windows-session fixes (`f3be6cb` string_view,
+  `a97f973` docs) never be measured on Linux. They were, and they are clean.
+
+### Gotchas from the WSL2 gate run (each cost a run)
+- `.sh` files authored on Windows arrive CRLF and bash dies with `set: - : invalid option` /
+  `head: parse error: 0` — normalize to LF before handing them to WSL. In-repo scripts are clean
+  (the gate asserts `ci_local.sh CRs = 0`).
+- Cloning the drvfs working tree from WSL fails with `fatal: detected dubious ownership in
+  repository at '/mnt/c/…'` (drvfs files carry a foreign uid). Supplied per-process through git's
+  env config (`GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=safe.directory`, `GIT_CONFIG_VALUE_0=…`)
+  instead of mutating `~/.gitconfig`.
+- The extracted gcc must be reached through the sysroot wrapper via `CC`/`CXX`:
+  `CMAKE_PREFIX_PATH=$PREFIX/usr` also puts `$PREFIX/usr/bin` on CMake's search path, and that raw
+  driver fails the ABI test — `ld.bfd: cannot find /usr/lib/x86_64-linux-gnu/libc_nonshared.a`.
+- `VK_ADD_LAYER_PATH`/`VK_LAYER_PATH` alone will **not** satisfy the 2.11 preflight: it greps
+  `/usr/share/vulkan/explicit_layer.d`. Without root, mount tmpfs there inside `unshare -Urm`
+  (uid-mapped root, no host writes) and copy the staged manifest + `libVkLayer_khronos_validation.so`
+  in.
+- The gate scripts live outside the repo (`C:\Users\AmesL\Projects\.ve-deps\gate2.sh`, logs beside
+  it) on purpose: they encode this box's paths, not engine facts.
+

@@ -37,3 +37,8 @@ Existing seams this phase builds on (Phase 2): `gfx/instance|device|frame_sync|p
 
 ## Notes
 - See `notes.md` for the running design record + deferred-question context.
+- 2026-11-08: `tools/ci_local.sh` re-ran **GREEN on Linux (WSL2, no sudo)** against pushed
+  `testing` `e3a6004` — ctest 1/1, doctest 54/3091, 0 skipped, ASan+UBSan linked, lavapipe
+  confirmed as the device. This is an interim re-check that the Windows-session fixes are clean on
+  Linux; it is **not** the 3.16 pass, which needs the final Phase 3 tree. Evidence + toolchain
+  deviations in `notes.md`.

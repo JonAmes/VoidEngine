@@ -77,6 +77,7 @@ Profiling: the Tracy client (pinned v0.15.0) is linked into every engine target 
 - Linux x86_64 with g++ 15.2 (C++23), CMake 3.31, Ninja 1.12 — `./tools/bootstrap_toolchain.sh` installs CMake/Ninja into `~/.local` if missing
 - Vulkan-capable GPU; the test suite runs on **software Vulkan (lavapipe) with the Khronos validation layer**, no display/compositor/headset required (`vulkan-tools`, validation layers, glslang/spirv-tools — prereq gate list in `docs/phase-02-vulkan/checklist.md`)
 - GLFW 3.3+ for the desktop window/platform seam (`sudo apt install libglfw3-dev`); it is linked only by `platform/`, never by `gfx/`
+- Verified green on WSL2 Ubuntu 26.04 as well as bare metal: `ctest` 1/1, `engine_tests` 54 cases / 3091 assertions, 0 skipped, with ASan+UBSan linked and the device reported as `llvmpipe` (lavapipe). CMake/Ninja come from `./tools/bootstrap_toolchain.sh` without sudo; a C++23 compiler and the validation layer are the only apt-level prerequisites.
 
 **Windows x86_64** (supported build/test target — decision #38; tests run on real hardware):
 
