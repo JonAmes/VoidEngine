@@ -200,3 +200,24 @@ Evidence committed at `docs/phase-02-vulkan/evidence/windows-nvidia-1080p/` (dev
 - The gate scripts live outside the repo (`C:\Users\AmesL\Projects\.ve-deps\gate2.sh`, logs beside
   it) on purpose: they encode this box's paths, not engine facts.
 
+
+## 3.7 GPU textures — 3.8 (MAT0 texture refs) decisions & gotchas
+- MAT0 v3 appends two length-prefixed **content-ID** strings per material
+  (baseColor, metallicRoughness); `kCookFormat` is global so it went 2 -> 3
+  with everything else (bump commit `2f26f8a` set that precedent). The gfx
+  loader only *consumes* them for now — sampling binds land with 3.10 PBR.
+- Texture doctrine: only **external** glTF image URIs are accepted. Embedded
+  bufferView images have no content ID/hash of their own, so they'd break the
+  manifest-deps story (#13) — the cook rejects them. URIs resolve relative to
+  the `.glb`'s directory through `resolve_ref` (same lexical normalization +
+  escape-root policy as def refs): a `models/ship.glb` saying `../shared/mr.png`
+  is fine; a root-level glb saying `../` fails, and the test suite pins both.
+- Dep edges are validated at cook time (missing ref = cook fails naming glb +
+  ref, matching def-ref doctrine) and land deduped+sorted in the manifest.
+  The incremental test pins the payoff: editing the PNG re-cooks only the
+  TEX0 (1 cooked, 1 skipped) — the glb keeps its content-ID ref, its hash is
+  unchanged, and the preserved manifest entry keeps the dep edge.
+- Test fixture: `tests/tools/glb_fixture.h` authors minimal valid GLB bytes
+  (JSON+BIN, one triangle, N material specs with texture-slot URIs) — no DCC
+  needed to pin material plumbing. Real-PNG fixtures reuse the golden
+  harness's `write_png_rgba8` (single `engine_tests` binary makes that free).
