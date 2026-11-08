@@ -362,3 +362,34 @@ Evidence committed at `docs/phase-02-vulkan/evidence/windows-nvidia-1080p/` (dev
   two fresh contexts (determinism), exact integer layout of chrome/rows, full
   click lifecycle incl. press-off-cancel, checkbox toggle, text-field
   focus/edit/backspace/commit, `[x]` close, corrupt-FONT0 clean load error.
+
+## 3.14 World canvas (2026-11-08) — decisions & gotchas
+- Canvas doctrine: a world-space canvas is NOT a new subsystem — it is just an
+  `offscreen_presenter` target + a scene transform. The target's color image now
+  always advertises `VK_IMAGE_USAGE_SAMPLED_BIT`; `expose_color_for_sampling()`
+  barriers COLOR_ATTACHMENT -> SHADER_READ_ONLY (mirror of 3.11's depth expose).
+  Presenter owns the layout; a pass never barriers it.
+- mvp for the scene quad rides a UBO (binding 1 in a raw 2-binding test layout:
+  sampler 0 / UBO 1) — engine's proven path (3.10 UBOs). Push constants would
+  work too (the earlier "push mat4 drops the draw" lead was wrong, see below).
+- **GOTCHA (the one that cost this task hours): vertex attribute format MUST
+  match the shader input width.** The scene `pos` attribute was declared
+  `R32G32_SFLOAT` while the shader reads `in vec3 pos`. Vulkan default-fills
+  missing components with (0,0,1) -> z=1 silently -> `clip.w = m[11]*z = -1` ->
+  entire quad discarded, no validation error, no layer message. Bisection
+  probes (fixed vertex drew, any mat4-mult didn't) looked like a lavapipe
+  mat4 bug; it was my own attribute layout. When a draw vanishes but state
+  probes are clean, dump the per-vertex inputs into a varying and read them
+  back as color — PROBE8-style diagonal readout localizes in one run.
+- **GOTCHA: `pipeline_cache` sizes color-attachment writes from `blends.size()`**
+  — `blends.clear()` compiles a write-nothing pipeline (lavapipe drops it
+  silently, same zero-color lesson as 3.11). For an opaque pass pass one
+  explicit `blend_attachment_state{}` (blend_enable=false), never an empty list.
+- **GOTCHA: `offscreen_presenter::submit()` does not fence-wait here (test
+  pattern).** Destroying vertex/index buffers right after submit SEGVs inside
+  lavapipe draw threads; `vkDeviceWaitIdle(dev.handle())` before destroy.
+- CPU pinning: forward map is just `mvp * point(x,y,-2)` (CPU mat4, GLSL order);
+  back-projection solves xv=(2*nx+2*B)/A, yv=(2*D-2*ny)/C from the off-axis
+  rows — both agree with the GPU to the byte, all sampled interior pixels
+  byte-exact (NEAREST at texel centers keeps raster jitter under the half-texel
+  margin; quad ~28 px per 32 texels).
