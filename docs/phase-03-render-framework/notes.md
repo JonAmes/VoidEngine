@@ -260,3 +260,23 @@ Evidence committed at `docs/phase-02-vulkan/evidence/windows-nvidia-1080p/` (dev
   0 px vertical) can't be rounded away; frustum optics have realistic pins
   in 3.2 already. No-bleed pins: exact clear color at row 1 of each eye
   rect and at the computed gap column between quad columns 1/2.
+
+## 3.10 PBR-lite (2026-11-08) — decisions & gotchas
+- Shader shape: hand-written Cook-Torrance in 25 lines of GLSL — GGX NDF
+  (a=rough^2, a2=a^2, D=a2/max(pi*h^2,1e-7)), Smith-Schlick visibility in
+  the UE4 approx form vis=0.25/max(ndl*ndv,1e-4), Schlick Fresnel with
+  F0=mix(0.04,baseColor,metallic), Lambert diffuse scaled (1-metallic)/pi,
+  ambient*baseColor+emissive kept even when ndl clamps to 0. No engine-side
+  BRDF lib, no IBL (PLAN scope: one directional light).
+- Data flow per Q5: ONE descriptor set, three UBO bindings — Cam
+  (view|proj|camPos, VERTEX|FRAGMENT), Mats (base[2]|emis[2]|mr[2],
+  FRAGMENT), Lights (dir|color|ambient, FRAGMENT). Per-draw = push constants
+  only (model mat4 + material index, 68 B). uniform_set_layout gained a
+  multi-binding create() (ubo_binding list) for exactly this.
+- CPU reference matched lavapipe BYTE-EXACT at both material pins — Mesa
+  did not fma-contract the shader math. Pins keep the <= 2/255 tolerance
+  anyway (a different driver/LLVM may contract; the golden is the strict
+  byte gate, pins are the analytic gate).
+- capture_rgba8 is image-order (B8G8R8A8); the golden PNG harness wants
+  RGBA — same 0<->2 swap as test_triangle_golden before check_golden.
+- Golden pbr_lite_64.png strict byte-exact on lavapipe (#35).

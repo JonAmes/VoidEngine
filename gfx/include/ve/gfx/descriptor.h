@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <expected>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,15 @@ class uniform_set_layout {
 public:
     static std::expected<uniform_set_layout, std::string> create(
         const device& dev, std::uint32_t binding, VkShaderStageFlags stage);
+
+    // 3.10: multi-UBO set (Cam / Mats / Lights ride one set).
+    struct ubo_binding {
+        std::uint32_t binding;
+        VkShaderStageFlags stages;
+    };
+    static std::expected<uniform_set_layout, std::string> create(
+        const device& dev, std::span<const ubo_binding> bindings);
+
     ~uniform_set_layout();
     uniform_set_layout(uniform_set_layout&&) noexcept;
     uniform_set_layout& operator=(uniform_set_layout&&) noexcept;

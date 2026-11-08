@@ -1,6 +1,7 @@
 #include "ve/gfx/descriptor.h"
 
 #include <cstring>
+#include <span>
 #include <optional>
 #include <vector>
 
@@ -70,17 +71,27 @@ sampler_set_layout& sampler_set_layout::operator=(sampler_set_layout&& o) noexce
 
 std::expected<uniform_set_layout, std::string> uniform_set_layout::create(
     const device& dev, std::uint32_t binding, VkShaderStageFlags stage) {
-    const VkDescriptorSetLayoutBinding b{
-        .binding = binding,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = 1,
-        .stageFlags = stage,
-        .pImmutableSamplers = nullptr,
-    };
+    const ubo_binding b{binding, stage};
+    return create(dev, std::span<const ubo_binding>{&b, 1});
+}
+
+std::expected<uniform_set_layout, std::string> uniform_set_layout::create(
+    const device& dev, std::span<const ubo_binding> bindings) {
+    std::vector<VkDescriptorSetLayoutBinding> bs;
+    bs.reserve(bindings.size());
+    for (const auto& b : bindings) {
+        bs.push_back(VkDescriptorSetLayoutBinding{
+            .binding = b.binding,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = b.stages,
+            .pImmutableSamplers = nullptr,
+        });
+    }
     const VkDescriptorSetLayoutCreateInfo ci{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = nullptr, .flags = 0,
-        .bindingCount = 1, .pBindings = &b,
+        .bindingCount = static_cast<std::uint32_t>(bs.size()), .pBindings = bs.data(),
     };
     uniform_set_layout out;
     if (const VkResult r = vkCreateDescriptorSetLayout(dev.handle(), &ci, nullptr, &out.layout_);
