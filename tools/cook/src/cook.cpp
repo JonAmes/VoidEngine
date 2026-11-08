@@ -8,6 +8,7 @@
 #include <thread>
 
 #include "internal.h"
+#include "font.h"
 #include "glb.h"
 #include "png.h"
 #include "shader.h"
@@ -31,6 +32,7 @@ std::uint32_t unit_type_for(const std::string& id) {
     if (ext == ".png") return kUnitTex0; // decoded to RGBA8 at cook time (0.7)
     if (ext == ".glb") return kUnitMesh; // parsed at cook time (0.8)
     if (ext == ".vert" || ext == ".frag" || ext == ".comp") return kUnitShdr; // SPIR-V at cook time (2.5)
+    if (ext == ".ttf") return kUnitFont0; // glyph atlas at cook time (3.12)
     return kUnitRawD;
 }
 
@@ -196,6 +198,14 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
                 continue;
             }
             unit.payload = std::move(g.payload);
+        } else if (unit.type == kUnitFont0) {
+            // .ttf -> FONT0: stb_truetype rasterization once at cook time
+            // (#15: the runtime never parses fonts).
+            if (!cook_font_unit(source, unit.payload, &err)) {
+                result.error = "font '" + id + "': " + err;
+                ++result.counts.failures;
+                continue;
+            }
         } else if (unit.type == kUnitShdr) {
             // GLSL -> SPIR-V once at cook time (decision #13: runtime never
             // compiles). Payload: u32 stage | SPIR-V bytes.

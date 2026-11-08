@@ -32,6 +32,7 @@ inline constexpr std::uint32_t kUnitMesh = fourcc("MESH"); // cooked mesh (0.8)
 inline constexpr std::uint32_t kUnitMat0 = fourcc("MAT0"); // cooked material (0.8)
 inline constexpr std::uint32_t kUnitDef0 = fourcc("DEF0"); // normalized def
 inline constexpr std::uint32_t kUnitShdr = fourcc("SHDR"); // cooked SPIR-V (2.5)
+inline constexpr std::uint32_t kUnitFont0 = fourcc("FONT0"); // cooked glyph atlas (3.12)
 
 inline constexpr std::uint32_t kCookFormat = 3; // v3: MAT0 gained texture content-ID refs (3.8); v2: MESH gained tan[vc*4] (3.6)
 
@@ -43,7 +44,18 @@ inline constexpr std::uint32_t kShdrStageFrag = 1;
 inline constexpr std::uint32_t kShdrStageComp = 2;
 
 // TEX0 payload: u32 width | u32 height | u32 format | raw pixels (top-down).
+
 inline constexpr std::uint32_t kTexFmtRgba8 = 0;
+
+// FONT0 payload (3.12): .ttf rasterized ONCE at cook time via stb_truetype
+// (cooklet-side only; #15 "zero font parsing at runtime"). Cook px size and
+// codepoint range are fixed (see tools/cook/src/font.h). All little-endian:
+//   u32 px_size | u32 atlas_w | u32 atlas_h |
+//   i32 ascent | i32 descent | u32 first_cp | u32 glyph_count,
+//   then glyph_count * { i32 atlas_x, atlas_y, w, h,  // atlas rect; w==h==0 = blank
+//                        i32 bearing_x, bearing_y, advance },
+//   then atlas_w*atlas_h*4 RGBA bytes (top-down; glyph coverage replicated to
+//   R=G=B=A — subpixel-free grayscale mask). Codepoint = first_cp + index.
 
 // MESH payload (cooked hull .glb, decision #14; all little-endian):
 //   u32 mesh_count, then per mesh (node TRS baked in, triangles only):

@@ -309,3 +309,31 @@ Evidence committed at `docs/phase-02-vulkan/evidence/windows-nvidia-1080p/` (dev
   cleared texels == 0 exactly; coverage == projected cube area +-5% (1110
   texels); floor pins deep inside/outside the parallelogram == CPU GGX with
   vis from the GPU's own read-back texel; golden scene_64.png byte-exact.
+
+## 3.12 Cooked text (2026-11-08) — decisions & gotchas
+- `.ttf` -> FONT0 unit at cook time via stb_truetype (already FetchContent'd; no new dep).
+  Runtime never parses fonts (decision #15). Params pinned in `tools/cook/src/font.h`:
+  16 px, cp 32..126 (95 glyphs), atlas width 512, 1-px-gutter shelf packer.
+- FONT0 payload (doc in `ve/core/cooked.h`): LE header (px, atlas w/h, ascent/descent,
+  first_cp, count) + per-glyph (atlas x/y/w/h, bearing, advance) + RGBA atlas;
+  coverage replicated R=G=B=A; `w==h==0` = blank; cp = first_cp + index.
+- Vendored `assets/fonts/DejaVuSansMono.ttf`; license text lives in
+  `docs/licenses/DejaVu-fonts.txt` — anything under `assets/` gets cooked, so
+  license/text files must sit outside it.
+- Pinned 2021 stb_truetype takes NO buffer size and trusts the table directory:
+  truncated/corrupt .ttf reads OOB under ASan. `validate_sfnt()` (version magic +
+  table-dir bounds) runs first; bad source = clean cook error, not crash.
+- stb gotchas: `stbtt_GetCodepointHMetrics` is 4-arg in the pinned version;
+  `stbtt_GetCodepointBitmapBox` offsets x0/y0 must be STORED during the pack pass
+  (raster pass re-queries size and compares against them).
+- GFX test (`gfx_text_draw`): atlas uploads byte-exact through the 3.7 gpu_texture
+  path; glyphs drawn as push-constant quads (6 verts each, NEAREST sampler, texel-
+  center UVs); CPU atlas model pins cov==255 -> exact white, cov==0 -> exact clear,
+  outside quads -> exact clear; golden `text_64.png` byte-exact on lavapipe.
+- **Vulkan NDC y is DOWN**: framebuffer row r = y_ndc 2r/H-1. The OpenGL-style
+  `gl_Position.y = 1 - 2r/H` flip mirrors the whole text off the pins — this cost
+  most of the debugging (draw looked "dead"; it was drawing mirrored at the bottom).
+- GLSL has no `(void)expr;` cast-away trick — glslang errors "cannot construct
+  this type 'void'". Just don't declare what you don't use.
+- DejaVu Mono 16 px stems ~1.7 px: AA coverage rarely reaches 255, so exact-pin
+  thresholds must derive from the CPU model (measured model_lit > 15), not guesses.

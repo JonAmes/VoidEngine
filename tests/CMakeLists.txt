@@ -37,6 +37,7 @@ add_executable(engine_tests
     tools/test_mikktspace.cpp
     tools/test_incremental.cpp
     tools/test_watch.cpp
+    tools/test_font_atlas.cpp
     gfx/test_texture.cpp
     gfx/test_texture_gpu.cpp
     gfx/test_instance.cpp
@@ -55,6 +56,7 @@ add_executable(engine_tests
     gfx/test_instanced_eyes.cpp
     gfx/test_pbr_lite.cpp
     gfx/test_shadow_map.cpp
+    gfx/test_text_draw.cpp
     gfx/test_wsi_compile.cpp
     gfx/test_validation_strict.cpp
 )

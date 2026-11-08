@@ -4,6 +4,7 @@
 # byte-identical cooked bytes out (golden test 0.9 enforces this).
 add_library(ve_cooklet STATIC
     src/cook.cpp
+    src/font.cpp
     src/glb.cpp
     src/json.cpp
     src/mikktspace.cpp
@@ -19,7 +20,7 @@ target_link_libraries(ve_cooklet PUBLIC ve_core stb_headers)
 # unknown options to cl.exe (D9002) and /WX would make them fatal, so the block
 # is scoped to the compilers that have them; MSVC builds this TU unfiltered.
 if(NOT MSVC)
-set_source_files_properties(src/png.cpp PROPERTIES COMPILE_OPTIONS
+set_source_files_properties(src/png.cpp src/font.cpp PROPERTIES COMPILE_OPTIONS
     "-Wno-pedantic;-Wno-unused-function;-Wno-unused-variable;-Wno-unused-but-set-variable;-Wno-implicit-fallthrough;-Wno-shift-negative-value;-Wno-maybe-uninitialized;-Wno-class-memaccess;-Wno-stringop-overflow")
 endif()
 
