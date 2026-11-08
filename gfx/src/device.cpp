@@ -130,6 +130,16 @@ std::expected<device, std::string> device::create(const instance& inst, VkSurfac
         device_extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     }
 
+    // 3.9 single-pass multi-eye draws write gl_ViewportIndex from the vertex
+    // shader. The functionality is Vulkan 1.3 core (the extension was
+    // promoted — no feature struct survives in vulkan_core.h), but lavapipe
+    // still advertises the EXT name and its pipeline validation requires it
+    // enabled, so: enable iff advertised (drivers that folded it into 1.3
+    // core don't advertise it and need nothing).
+    if (device_extension_available(chosen, VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME)) {
+        device_extensions.push_back(VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME);
+    }
+
     const float priority = 1.0f;
     const VkDeviceQueueCreateInfo queue_ci{
         .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -146,6 +156,12 @@ std::expected<device, std::string> device::create(const instance& inst, VkSurfac
     VkPhysicalDeviceVulkan13Features feats13{}; // value-init: the struct
     feats13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES; // has ~24
     feats13.dynamicRendering = VK_TRUE; // members; don't fight the warning wall
+    // 3.9 eye pass: one pipeline/draw serves E eyes via per-eye viewports +
+    // shader gl_ViewportIndex, so viewportCount > 1 must be legal.
+    // multiViewport is a 1.0 feature made mandatory in 1.1 (floor is 1.3,
+    // #37) — it rides pEnabledFeatures, which composes with the 1.3 chain.
+    VkPhysicalDeviceFeatures feats10{};
+    feats10.multiViewport = VK_TRUE;
     const VkDeviceCreateInfo dev_ci{
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pNext = &feats13,
@@ -156,7 +172,7 @@ std::expected<device, std::string> device::create(const instance& inst, VkSurfac
         .ppEnabledLayerNames = nullptr,
         .enabledExtensionCount = static_cast<std::uint32_t>(device_extensions.size()),
         .ppEnabledExtensionNames = device_extensions.empty() ? nullptr : device_extensions.data(),
-        .pEnabledFeatures = nullptr, // 1.0 baseline stays default; 1.3 chain above
+        .pEnabledFeatures = &feats10, // 1.0 baseline + 1.3 chain above
     };
 
     VkDevice dev = VK_NULL_HANDLE;

@@ -221,3 +221,42 @@ Evidence committed at `docs/phase-02-vulkan/evidence/windows-nvidia-1080p/` (dev
   (JSON+BIN, one triangle, N material specs with texture-slot URIs) — no DCC
   needed to pin material plumbing. Real-PNG fixtures reuse the golden
   harness's `write_png_rgba8` (single `engine_tests` binary makes that free).
+
+## 3.9 Instanced eye pass (2026-11-08) — decisions & gotchas
+- Shape: ONE `vkCmdDraw(6, N*E)`, `eye = gl_InstanceIndex / N` (instance eye
+  order = ordered rig eyes, the 3.2 camera contract). UBO holds
+  `mat4 mvp[2]` (per-eye proj*view) + `mat4 model[N]` (per-instance); the
+  vertex shader writes `gl_ViewportIndex = eye`; pipeline declares
+  viewportCount = scissorCount = E (dynamic), `vkCmdSetViewport/Scissor`
+  carry per-eye rects from `eye_frame::viewport_`. Desktop = same path,
+  E=1, one centered eye — and its instanced capture is byte-checked against
+  the N-single-draw (firstInstance) sequence.
+- Why viewport-index and not multiview: the checklist's "eye index derived
+  from instance id" needs per-eye matrices without changing the render pass;
+  the viewport-index path keeps the RT, presenter, and pass code untouched
+  and works for desktop E=1 identically.
+- Feature plumbing: `multiViewport` (1.0 feature, mandatory since 1.1) rides
+  `pEnabledFeatures` — it is NOT in `VkPhysicalDeviceVulkan11Features`
+  (that struct lists only *new-in-1.1* members), and validation demanded it
+  explicitly even at apiVersion 1.3. Gotcha.
+- `VK_EXT_shader_viewport_index_layer` is enabled *iff advertised*
+  (device_extension_available). VK 1.3 folded it into core — Vulkan13Features
+  has no such member — but lavapipe still advertises the EXT name and the
+  validation layer refuses pipeline creation with a shader writing
+  gl_ViewportIndex unless the extension is enabled on the device. NVIDIA
+  drivers advertise nothing to enable (pure core). Hence conditional.
+- GLSL: `#extension GL_ARB_shader_viewport_layer_array : require` is the
+  only spelling glslangValidator accepts for writing `gl_ViewportIndex`
+  (the EXT-named pragma does not exist in glslang).
+- Descriptor additions: `uniform_set_layout` (one UNIFORM_BUFFER binding),
+  `uniform_buffer` (host-visible|coherent, persistently mapped; write() =
+  memcpy — device-local staging buys nothing for per-frame updates), and
+  `descriptor_pool` now sizes two set kinds + `write_uniform`. Gotcha: a
+  `VkDescriptorPoolSize` entry with count 0 is a validation error
+  (VUID-00302) — omit zero-count kinds from the pool sizes.
+- Pins: pixel centers computed on the CPU from the *same* matrices that
+  fill the UBO (Vulkan y-down NDC: ndc +1 = bottom row — 2.11's comment).
+  ipd exaggerated (0.2 m) so the between-eye parallax pin (>= 2 px shift,
+  0 px vertical) can't be rounded away; frustum optics have realistic pins
+  in 3.2 already. No-bleed pins: exact clear color at row 1 of each eye
+  rect and at the computed gap column between quad columns 1/2.
