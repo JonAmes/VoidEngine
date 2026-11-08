@@ -1,37 +1,36 @@
 ve_demo - checklist 2.9 WSI evidence
 device present: yes
-device: NVIDIA GeForce RTX 4060 Laptop GPU  (api 1.4.351, present family 0)
-instance extensions beyond VK_EXT_debug_utils: VK_KHR_surface, VK_KHR_win32_surface
+device: llvmpipe (LLVM 21.1.8, 256 bits)  (api 1.4.335, present family 0)
+instance extensions beyond VK_EXT_debug_utils: VK_KHR_surface, VK_KHR_xcb_surface
 extent at close: 640x360  format: VK_FORMAT_B8G8R8A8_UNORM
 frames requested: 120  presented: 120  acquire refusals: 0  swapchain rebuilds: 2
-distinct swapchain images used: 3
-frame ms min/median/max: 0.201600 / 16.631200 / 117.099500
-avg fps: 57.391684 (first 10 frame(s) excluded as warmup, mean frame time 17.424127 ms); frames at >=55fps: 80.833333%
+distinct swapchain images used: 4
+frame ms min/median/max: 2.404136 / 3.549502 / 67.024722
+avg fps: 104.073131 (first 10 frame(s) excluded as warmup, mean frame time 9.608628 ms); frames at >=55fps: 84.166667%
 resize requested at frame: 80 (0 = none requested)
 extent trail: 640x360 (start) -> 512x288@f80 -> 640x360@f110
 push constants handed to the vertex stage: 120 distinct signature(s) over 120 presented frame(s); matrix term span -0.999965 .. 1.000000
-capture diff first-vs-last: mean_abs=10.695446 changed=9.768338% over 921600 bytes
+capture diff first-vs-last: mean_abs=10.698408 changed=9.768229% over 921600 bytes
 capture probes: 18 sample(s), 18 distinct frame image(s)
-  frame 0: hash=546160481902380868 mean=75.509642 off_background=15498/230400
-  frame 7: hash=13154405485547496702 mean=75.529644 off_background=15553/230400
-  frame 14: hash=15398551556421015339 mean=75.528156 off_background=15549/230400
-  frame 21: hash=913876308529950793 mean=75.527356 off_background=15548/230400
-  frame 28: hash=10694641128080435596 mean=75.528800 off_background=15551/230400
-  frame 35: hash=9389089167215840676 mean=75.528095 off_background=15549/230400
-  frame 42: hash=8670869297879781202 mean=75.525543 off_background=15541/230400
-  frame 49: hash=18036651984254766762 mean=75.529147 off_background=15552/230400
-  frame 56: hash=1007588493075723816 mean=75.528767 off_background=15551/230400
-  frame 63: hash=6528721744556611278 mean=75.527773 off_background=15548/230400
-  frame 70: hash=8716354901461462442 mean=75.528902 off_background=15551/230400
-  frame 77: hash=3077284499636076624 mean=75.529184 off_background=15552/230400
-  frame 84: hash=2164076729470387934 mean=75.529029 off_background=9953/147456
-  frame 91: hash=6947043800952311805 mean=75.527874 off_background=9951/147456
-  frame 98: hash=5318667349508804874 mean=75.530077 off_background=9955/147456
-  frame 105: hash=1641768092539832632 mean=75.529178 off_background=9953/147456
-  frame 112: hash=6061822852115003891 mean=75.529543 off_background=15553/230400
-  frame 119: hash=12637678300912810739 mean=75.532412 off_background=15561/230400
+  frame 0: hash=17409049985895854134 mean=75.511237 off_background=15498/230400
+  frame 7: hash=14656570187095233514 mean=75.531204 off_background=15553/230400
+  frame 14: hash=3259195064677997535 mean=75.529728 off_background=15549/230400
+  frame 21: hash=13511599858992888428 mean=75.528906 off_background=15548/230400
+  frame 28: hash=11705211600733353440 mean=75.530358 off_background=15551/230400
+  frame 35: hash=11136760047115217266 mean=75.529687 off_background=15549/230400
+  frame 42: hash=7130634015618267590 mean=75.527109 off_background=15541/230400
+  frame 49: hash=2973181749467345797 mean=75.530739 off_background=15552/230400
+  frame 56: hash=16551609286965473885 mean=75.530416 off_background=15551/230400
+  frame 63: hash=15635091726302087056 mean=75.529345 off_background=15548/230400
+  frame 70: hash=17796233986531884559 mean=75.530448 off_background=15551/230400
+  frame 77: hash=11633685000853546634 mean=75.530751 off_background=15552/230400
+  frame 84: hash=16681956718173585430 mean=75.530524 off_background=9953/147456
+  frame 91: hash=3453632107877690882 mean=75.529473 off_background=9951/147456
+  frame 98: hash=13305144711053472264 mean=75.531582 off_background=9955/147456
+  frame 105: hash=6484624809023625344 mean=75.530707 off_background=9953/147456
+  frame 112: hash=10943427758580198487 mean=75.531097 off_background=15553/230400
+  frame 119: hash=9298706341869854583 mean=75.533979 off_background=15561/230400
 evidence PNGs written: yes
 active tool layers on this device: Khronos Validation Layer
 validation problems (Khronos layer): 0
-loader notes (environment, not gated): 1
-  Loader Message: windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+loader notes (environment, not gated): 0

@@ -1,0 +1,37 @@
+ve_demo - checklist 2.9 WSI evidence
+device present: yes
+device: NVIDIA GeForce RTX 4060 Laptop GPU  (api 1.4.351, present family 0)
+instance extensions beyond VK_EXT_debug_utils: VK_KHR_surface, VK_KHR_win32_surface
+extent at close: 640x360  format: VK_FORMAT_B8G8R8A8_UNORM
+frames requested: 120  presented: 120  acquire refusals: 0  swapchain rebuilds: 2
+distinct swapchain images used: 3
+frame ms min/median/max: 0.201600 / 16.631200 / 117.099500
+avg fps: 57.391684 (first 10 frame(s) excluded as warmup, mean frame time 17.424127 ms); frames at >=55fps: 80.833333%
+resize requested at frame: 80 (0 = none requested)
+extent trail: 640x360 (start) -> 512x288@f80 -> 640x360@f110
+push constants handed to the vertex stage: 120 distinct signature(s) over 120 presented frame(s); matrix term span -0.999965 .. 1.000000
+capture diff first-vs-last: mean_abs=10.695446 changed=9.768338% over 921600 bytes
+capture probes: 18 sample(s), 18 distinct frame image(s)
+  frame 0: hash=546160481902380868 mean=75.509642 off_background=15498/230400
+  frame 7: hash=13154405485547496702 mean=75.529644 off_background=15553/230400
+  frame 14: hash=15398551556421015339 mean=75.528156 off_background=15549/230400
+  frame 21: hash=913876308529950793 mean=75.527356 off_background=15548/230400
+  frame 28: hash=10694641128080435596 mean=75.528800 off_background=15551/230400
+  frame 35: hash=9389089167215840676 mean=75.528095 off_background=15549/230400
+  frame 42: hash=8670869297879781202 mean=75.525543 off_background=15541/230400
+  frame 49: hash=18036651984254766762 mean=75.529147 off_background=15552/230400
+  frame 56: hash=1007588493075723816 mean=75.528767 off_background=15551/230400
+  frame 63: hash=6528721744556611278 mean=75.527773 off_background=15548/230400
+  frame 70: hash=8716354901461462442 mean=75.528902 off_background=15551/230400
+  frame 77: hash=3077284499636076624 mean=75.529184 off_background=15552/230400
+  frame 84: hash=2164076729470387934 mean=75.529029 off_background=9953/147456
+  frame 91: hash=6947043800952311805 mean=75.527874 off_background=9951/147456
+  frame 98: hash=5318667349508804874 mean=75.530077 off_background=9955/147456
+  frame 105: hash=1641768092539832632 mean=75.529178 off_background=9953/147456
+  frame 112: hash=6061822852115003891 mean=75.529543 off_background=15553/230400
+  frame 119: hash=12637678300912810739 mean=75.532412 off_background=15561/230400
+evidence PNGs written: yes
+active tool layers on this device: Khronos Validation Layer
+validation problems (Khronos layer): 0
+loader notes (environment, not gated): 1
+  Loader Message: windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.

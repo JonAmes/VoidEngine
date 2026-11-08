@@ -189,3 +189,42 @@
   layer". It does have one — `VK_LAYER_KHRONOS_validation` is reachable and was
   active for 2.9's run with 0 problems. What this box lacks is a **lavapipe
   ICD**, which is the only reason Tier-2 still skips here.
+
+## 2.10 gotchas (two frames in flight, presenter-independent sync)
+- **`this->~frame_sync()` then member-assign = double free.** Running a
+  destructor manually and then move-assigning members writes into a DEAD
+  vector, whose buffer the move-assign frees again. ASan caught it only at
+  the demo's resize path (wsi `recreate()` -> `create_sync` reassigns
+  `sync_`) — no unit path move-assigned a live `frame_sync`, which is why
+  `gfx_frame_sync` now pins move-assign explicitly. Rule: release held
+  resources (`destroy_fences()`), then exchange members; never call the
+  destructor on a living object.
+- **Fences created SIGNALED.** The "no previous frame yet" state must not
+  make the first `wait_current()` block, and signaled doubles as "slot
+  empty": teardown/capture/recreate can `wait_all()` unconditionally.
+- **Swapchain semaphores are NOT frame sync.** `image_available_` is
+  per-SLOT (acquire crosses the frame boundary; one shared semaphore would
+  be re-signaled while the prior frame still waits on it); `render_finished_`
+  stays per-swapchain-IMAGE (it only meets our queue + `vkQueuePresentKHR`)
+  and dies with the chain. `frame_sync` itself is fences + rotation only —
+  same object, same rules, offscreen and WSI presenters.
+- **A frame's command buffer outlives `present()`.** Its submit carries the
+  slot fence; freeing inside present frees executing work (validation-
+  illegal). Free at the slot's next acquire, after the fence wait — that is
+  also what keeps a 120-frame spin from growing the pool without bound.
+- **Drain the RIGHT thing at teardown/resize.** `capture_rgba8()` and
+  `recreate()` must `sync_.wait_all()` (both slots), not wait one fence;
+  `recreate()` additionally `vkDeviceWaitIdle`s before destroying the old
+  chain. The 2.9 demo exit "no in-flight work at queue/pool destroy" under
+  ASan + strict messenger is the gate for all of this.
+- **Surfaceless devices must expose `present_queue = VK_NULL_HANDLE`** when
+  no present-capable family exists — handing back the graphics queue made a
+  no-present device look present-capable and failed the WSI compile gate's
+  surfaceless half on LINUX ONLY (Windows skips that case with no lvp ICD).
+  Another concrete reason the Linux gate is the merge gate (#38).
+- **lavapipe is fast enough to make fps gates meaningful on CPU:** median
+  3.55 ms/frame at 640x360 on this box — the demo's >=55 fps self-gate is
+  not just a real-GPU criterion.
+- **`xvfb_run.sh` manifest names vary by Mesa packaging** (`lvp_icd.json`
+  vs `lvp_icd.x86_64.json`; `VkLayer_khronos_validation.json` case).
+  Discover by prefix glob / `-iname`, exactly like the gfx fixtures do.

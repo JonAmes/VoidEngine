@@ -21,13 +21,22 @@ for t in xvfb-run glslangValidator; do
 done
 [ -x "$DEMO" ] || { echo "MISSING: $DEMO — build first (cmake --build $BUILD_DIR)" >&2; missing=1; }
 
-LVP_ICD="${LVP_ICD:-/usr/share/vulkan/icd.d/lvp_icd.$(uname -m).json}"
-[ -f "$LVP_ICD" ] || { echo "MISSING: lavapipe ICD at $LVP_ICD (apt install mesa-vulkan-drivers)" >&2; missing=1; }
+LVP_ICD="${LVP_ICD:-}"
+if [ -z "$LVP_ICD" ]; then
+    # Manifest spelling varies by Mesa packaging (lvp_icd.json vs
+    # lvp_icd.x86_64.json) — discover by prefix like the gfx fixtures do.
+    for cand in /usr/share/vulkan/icd.d/lvp_icd*.json /etc/vulkan/icd.d/lvp_icd*.json; do
+        [ -f "$cand" ] && { LVP_ICD="$cand"; break; }
+    done
+fi
+[ -n "$LVP_ICD" ] && [ -f "$LVP_ICD" ] || { echo "MISSING: lavapipe ICD manifest lvp_icd*.json under /usr/share/vulkan/icd.d (apt install mesa-vulkan-drivers)" >&2; missing=1; }
 
 # instance::create refuses any instance without the Khronos layer (2.2 policy),
-# so a box without it cannot produce this evidence at all.
-layer="$(ls /usr/share/vulkan/explicit_layer.d/VkLayer_KHRONOS_validation.json \
-            /usr/share/vulkan/implicit_layer.d/VkLayer_KHRONOS_validation.json 2>/dev/null | head -n1 || true)"
+# so a box without it cannot produce this evidence at all. The manifest file's
+# case (khronos vs KHRONOS) varies by packaging version; match it case-insensitively.
+layer="$(find /usr/share/vulkan/explicit_layer.d /usr/share/vulkan/implicit_layer.d \
+             /etc/vulkan/explicit_layer.d /etc/vulkan/implicit_layer.d \
+             -iname 'VkLayer_khronos_validation.json' 2>/dev/null | head -n1 || true)"
 [ -n "$layer" ] || { echo "MISSING: VK_LAYER_KHRONOS_validation manifest (apt install vulkan-validationlayers)" >&2; missing=1; }
 [ "$missing" -eq 0 ] || exit 1
 
