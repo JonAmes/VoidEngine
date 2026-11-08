@@ -109,6 +109,12 @@ std::expected<VkSurfaceKHR, std::string> window::create_surface(VkInstance insta
     return surface;
 }
 
+void window::set_size(int width, int height) {
+    if (glfw_ != nullptr) {
+        glfwSetWindowSize(as_glfw(glfw_), width, height);
+    }
+}
+
 bool window::should_close() const {
     return glfw_ != nullptr && glfwWindowShouldClose(as_glfw(glfw_)) == GLFW_TRUE;
 }

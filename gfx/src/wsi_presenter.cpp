@@ -117,6 +117,11 @@ VkPipelineStageFlags dest_stage_for(VkImageLayout layout) {
     case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL: return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL: return VK_PIPELINE_STAGE_TRANSFER_BIT;
     case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL: return VK_PIPELINE_STAGE_TRANSFER_BIT;
+    // PRESENT_SRC is the hand-off to the presentation engine, which is not a
+    // pipeline stage on our queue: BOTTOM_OF_PIPE is the "after everything in
+    // this submit" boundary the spec asks for, and no access mask is needed
+    // because nothing on this side reads the image afterwards.
+    case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR: return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
     default: return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     }
 }
@@ -168,6 +173,25 @@ void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageL
 // A swapchain image's layout is undefined every time it is acquired, so the
 // first barrier against it must start from UNDEFINED (old contents are garbage).
 constexpr VkImageLayout kSwapchainEntryLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+// A composite alpha mode the surface actually advertises, chosen in a fixed
+// order. INHERIT first because it defers to the window system (what a compositor
+// desktop usually wants), OPAQUE next because it is the one mode every surface
+// must support in practice, then the multiplied modes. 0 = nothing supported.
+VkCompositeAlphaFlagBitsKHR pick_composite_alpha(VkCompositeAlphaFlagsKHR supported) {
+    const VkCompositeAlphaFlagBitsKHR order[] = {
+        VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+        VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+        VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
+    };
+    for (const VkCompositeAlphaFlagBitsKHR mode : order) {
+        if ((supported & mode) != 0u) {
+            return mode;
+        }
+    }
+    return static_cast<VkCompositeAlphaFlagBitsKHR>(0u);
+}
 
 } // namespace
 
@@ -324,7 +348,17 @@ bool wsi_presenter::create_targets(std::uint32_t width, std::uint32_t height, st
     sci.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     sci.preTransform = caps.currentTransform; // composite the surface as it already is
-    sci.compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+    // INHERIT sounds like the right answer and is what a Linux desktop usually
+    // offers, but it is a bit the surface either supports or does not: the win32
+    // surface here reports OPAQUE + PRE_MULTIPLIED only, and asking for an
+    // unsupported bit is a validation error (VUID-...-compositeAlpha-01280).
+    // Pick the first supported bit in a fixed preference order, deterministically,
+    // and never fall back silently to an unsupported one.
+    sci.compositeAlpha = pick_composite_alpha(caps.supportedCompositeAlpha);
+    if (sci.compositeAlpha == 0u) {
+        err = "surface supports no composite alpha mode";
+        return false;
+    }
     sci.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     sci.clipped = VK_TRUE;
     sci.oldSwapchain = VK_NULL_HANDLE; // recreate() waits idle first, so no chaining needed
@@ -337,8 +371,12 @@ bool wsi_presenter::create_targets(std::uint32_t width, std::uint32_t height, st
     }
     swapchain_ = swapchain;
 
-    // The images belong to the swapchain; we only ever borrow the handles. We DO
-    // own the views, and they must die before the swapchain does.
+    // The images belong to the swapchain: borrowed handles, never ours to destroy.
+    // And deliberately NO image views over them — a view would require a usage
+    // bit the swapchain image does not have (VUID-VkImageViewCreateInfo-image-04441:
+    // TRANSFER_DST alone cannot back a view), and a view is pointless here anyway:
+    // the present path only ever blits into these images by handle, because a pass
+    // renders into the render target, not into the swapchain (seam rule).
     std::uint32_t count = 0;
     vkGetSwapchainImagesKHR(device_, swapchain_, &count, nullptr);
     swapchain_images_.resize(count);
@@ -347,28 +385,6 @@ bool wsi_presenter::create_targets(std::uint32_t width, std::uint32_t height, st
         err = "swapchain reported no images";
         destroy_targets();
         return false;
-    }
-
-    swapchain_views_.reserve(swapchain_images_.size());
-    for (const VkImage image : swapchain_images_) {
-        const VkImageViewCreateInfo vi{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .image = image,
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = format_,
-            .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
-                           VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
-            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-        };
-        VkImageView view = VK_NULL_HANDLE;
-        if (const VkResult r = vkCreateImageView(device_, &vi, nullptr, &view); r != VK_SUCCESS) {
-            err = "vkCreateImageView on a swapchain image failed";
-            destroy_targets();
-            return false;
-        }
-        swapchain_views_.push_back(view);
     }
 
     const VkImageCreateInfo rti{
@@ -494,6 +510,23 @@ bool wsi_presenter::create_targets(std::uint32_t width, std::uint32_t height, st
         return false;
     }
 
+    // One present semaphore PER SWAPCHAIN IMAGE (see the header note: a single
+    // shared one is a validation error the moment the loop turns over). Built with
+    // the chain because the count is the chain's own, so recreate() rebuilds both.
+    const VkSemaphoreCreateInfo sei{
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+    };
+    render_finished_.assign(swapchain_images_.size(), VK_NULL_HANDLE);
+    for (VkSemaphore& sem : render_finished_) {
+        if (vkCreateSemaphore(device_, &sei, nullptr, &sem) != VK_SUCCESS) {
+            err = "vkCreateSemaphore (render_finished) failed";
+            destroy_targets();
+            return false;
+        }
+    }
+
     width_ = extent.width;
     height_ = extent.height;
     rt_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -504,6 +537,12 @@ bool wsi_presenter::create_targets(std::uint32_t width, std::uint32_t height, st
 // the swapchain's images, so they die first, and the swapchain itself has to die
 // before the device does.
 void wsi_presenter::destroy_targets() {
+    for (const VkSemaphore sem : render_finished_) {
+        if (sem != VK_NULL_HANDLE) {
+            vkDestroySemaphore(device_, sem, nullptr);
+        }
+    }
+    render_finished_.clear();
     if (pool_ != VK_NULL_HANDLE) {
         vkDestroyCommandPool(device_, pool_, nullptr); // frees its buffers too (2.7 rule)
         pool_ = VK_NULL_HANDLE;
@@ -545,10 +584,13 @@ void wsi_presenter::destroy_targets() {
 }
 
 // One frame in flight (2.8's stated budget; 2.10 doubles it): acquire signals
-// image_available_, the blit signals render_finished_, and the fence on the
-// present submit marks the whole frame done. Two semaphores rather than one
-// because each crosses a different boundary — the first is handed to the WSI,
-// the second only ever meets our own queue.
+// image_available_, the blit signals the per-image render_finished_[index], and
+// the fence on the frame submit marks the blit done. The per-image semaphores are
+// NOT created here — their count is the swapchain's image count, so they are built
+// and destroyed with the chain in create_targets/destroy_targets. Two kinds of
+// sync object because they cross different boundaries: image_available_ is handed
+// to the WSI by acquire, render_finished_ only ever meets our own queue and
+// vkQueuePresentKHR.
 bool wsi_presenter::create_sync(std::string& err) {
     const VkSemaphoreCreateInfo sei{
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
@@ -557,11 +599,6 @@ bool wsi_presenter::create_sync(std::string& err) {
     };
     if (vkCreateSemaphore(device_, &sei, nullptr, &image_available_) != VK_SUCCESS) {
         err = "vkCreateSemaphore (image_available) failed";
-        return false;
-    }
-    if (vkCreateSemaphore(device_, &sei, nullptr, &render_finished_) != VK_SUCCESS) {
-        err = "vkCreateSemaphore (render_finished) failed";
-        destroy_sync();
         return false;
     }
     // Unsignaled at creation: the first present's wait is armed by this frame's
@@ -584,10 +621,6 @@ void wsi_presenter::destroy_sync() {
         vkDestroyFence(device_, frame_fence_, nullptr);
         frame_fence_ = VK_NULL_HANDLE;
     }
-    if (render_finished_ != VK_NULL_HANDLE) {
-        vkDestroySemaphore(device_, render_finished_, nullptr);
-        render_finished_ = VK_NULL_HANDLE;
-    }
     if (image_available_ != VK_NULL_HANDLE) {
         vkDestroySemaphore(device_, image_available_, nullptr);
         image_available_ = VK_NULL_HANDLE;
@@ -604,6 +637,10 @@ wsi_presenter::~wsi_presenter() {
         vkWaitForFences(device_, 1, &frame_fence_, VK_TRUE, ~std::uint64_t{0});
     }
     vkDeviceWaitIdle(device_);
+    if (last_cmd_valid_) {
+        vkFreeCommandBuffers(device_, pool_, 1, &last_cmd_); // the idle device proved it finished
+        last_cmd_valid_ = false;
+    }
     destroy_targets();
     destroy_sync();
     // surface_ is the caller's (documented in the header) — never destroyed here.
@@ -627,9 +664,11 @@ wsi_presenter::wsi_presenter(wsi_presenter&& other) noexcept
       readback_memory_(std::exchange(other.readback_memory_, VK_NULL_HANDLE)),
       readback_size_(std::exchange(other.readback_size_, 0)),
       pool_(std::exchange(other.pool_, VK_NULL_HANDLE)),
+      last_cmd_(std::exchange(other.last_cmd_, VK_NULL_HANDLE)),
+      last_cmd_valid_(std::exchange(other.last_cmd_valid_, false)),
       queue_family_(std::exchange(other.queue_family_, 0)),
       image_available_(std::exchange(other.image_available_, VK_NULL_HANDLE)),
-      render_finished_(std::exchange(other.render_finished_, VK_NULL_HANDLE)),
+      render_finished_(std::move(other.render_finished_)),
       frame_fence_(std::exchange(other.frame_fence_, VK_NULL_HANDLE)),
       rt_layout_(other.rt_layout_),
       format_(other.format_),
@@ -642,6 +681,7 @@ wsi_presenter::wsi_presenter(wsi_presenter&& other) noexcept
       stale_(std::exchange(other.stale_, false)) {
     other.swapchain_images_.clear();
     other.swapchain_views_.clear();
+    other.render_finished_.clear();
     other.rt_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
     other.format_ = VK_FORMAT_UNDEFINED;
 }
@@ -676,6 +716,12 @@ std::expected<std::uint32_t, std::string> wsi_presenter::acquire() {
             return std::unexpected("vkResetFences failed on the frame fence");
         }
         in_flight_ = false;
+    }
+    // The previous frame's buffer is now provably finished (the fence above, or
+    // the fact that nothing was ever in flight), so it can go back to the pool.
+    if (last_cmd_valid_) {
+        vkFreeCommandBuffers(device_, pool_, 1, &last_cmd_);
+        last_cmd_valid_ = false;
     }
 
     std::uint32_t index = 0;
@@ -757,9 +803,9 @@ bool wsi_presenter::present(VkCommandBuffer cmd) {
                      static_cast<int>(rt_layout_));
         return false;
     }
-    if (current_ >= swapchain_images_.size()) {
-        VE_LOG_ERROR("gfx: present() at image index %u, but the swapchain has %zu image(s)", current_,
-                     swapchain_images_.size());
+    if (current_ >= swapchain_images_.size() || current_ >= render_finished_.size()) {
+        VE_LOG_ERROR("gfx: present() at image index %u, but the swapchain has %zu image(s) / %zu semaphore(s)",
+                     current_, swapchain_images_.size(), render_finished_.size());
         return false;
     }
     const VkImage dst = swapchain_images_[current_];
@@ -784,8 +830,16 @@ bool wsi_presenter::present(VkCommandBuffer cmd) {
     vkCmdBlitImage(cmd, rt_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
 
+    // The presented image must sit in PRESENT_SRC_KHR when vkQueuePresentKHR runs
+    // (VUID-VkPresentInfoKHR-pImageIndices-01430) — TRANSFER_DST_OPTIMAL is where the
+    // blit left it, so the same command buffer closes the gap. Entering a present
+    // layout declares no app-side access (presentation is the WSI's job), and the
+    // destination stage is BOTTOM_OF_PIPE: nothing after it in this buffer.
+    transition(cmd, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
         VE_LOG_ERROR("gfx: vkEndCommandBuffer failed on the frame's command buffer");
+        vkFreeCommandBuffers(device_, pool_, 1, &cmd); // never submitted: safe to free now
         acquired_ = false;
         stale_ = true;
         return false;
@@ -793,7 +847,7 @@ bool wsi_presenter::present(VkCommandBuffer cmd) {
 
     const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     const VkSemaphore waits[1] = {image_available_};
-    const VkSemaphore signals[1] = {render_finished_};
+    const VkSemaphore signals[1] = {render_finished_[current_]};
     const VkSubmitInfo si{
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .pNext = nullptr,
@@ -807,11 +861,16 @@ bool wsi_presenter::present(VkCommandBuffer cmd) {
     };
     if (vkQueueSubmit(queue_, 1, &si, frame_fence_) != VK_SUCCESS) {
         VE_LOG_ERROR("gfx: vkQueueSubmit failed on the frame — acquire abandoned, recreate required");
+        vkFreeCommandBuffers(device_, pool_, 1, &cmd); // the submit never took it: safe to free
         acquired_ = false;
         stale_ = true;
         return false;
     }
     in_flight_ = true;
+    // Handed off, not owned: the next acquire() frees this once the fence proves
+    // it finished. Freeing it here would yank a buffer out from under the queue.
+    last_cmd_ = cmd;
+    last_cmd_valid_ = true;
 
     VkPresentInfoKHR pi{
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -927,6 +986,10 @@ bool wsi_presenter::recreate(std::uint32_t width, std::uint32_t height) {
     if (vkDeviceWaitIdle(device_) != VK_SUCCESS) {
         VE_LOG_ERROR("gfx: recreate() could not idle the device — nothing may touch the old chain");
         return false;
+    }
+    if (last_cmd_valid_) {
+        vkFreeCommandBuffers(device_, pool_, 1, &last_cmd_); // idle device: the old frame is done
+        last_cmd_valid_ = false;
     }
 
     destroy_targets();

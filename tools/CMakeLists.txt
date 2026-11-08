@@ -12,3 +12,4 @@ add_library(stb_headers INTERFACE)
 target_include_directories(stb_headers INTERFACE ${stb_SOURCE_DIR})
 
 add_subdirectory(cook)
+add_subdirectory(demo)

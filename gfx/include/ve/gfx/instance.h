@@ -39,7 +39,6 @@ public:
         const char* app_name = "void-engine",
         const std::vector<std::string>& extra_extensions = {});
 
-
     ~instance();
     instance(const instance&) = delete;
     instance& operator=(const instance&) = delete;

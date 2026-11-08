@@ -16,7 +16,17 @@ namespace {
 // empty output from the shell and no file, which is the clean failure path.
 int run_tool(const std::string& cmd, std::string& output) {
 #ifdef _WIN32
-    FILE* p = _popen(cmd.c_str(), "r");
+    // One extra quote pair around the whole line, and it is load-bearing.
+    // _popen hands cmd.exe a command line that is ALREADY wrapped in quotes, and
+    // this command starts with the quoted tool path. cmd's /c parser then
+    // consumes a quote pair of its own, leaving the tool path and the -o target
+    // mismatched: measured on MSVC, the shell answered "The filename, directory
+    // name, or volume label syntax is incorrect." and glslang never ran — which
+    // surfaced as "produced no SPIR-V (not found, or GLSL error)", i.e. a real
+    // Windows bug wearing an env-problem costume. One more pair survives the
+    // strip. The test suite hit the identical quirk (tests/ve_test_portability.h,
+    // shell_cmd) — this is the production-side counterpart.
+    FILE* p = _popen(("\"" + cmd + "\"").c_str(), "r");
 #else
     FILE* p = popen(cmd.c_str(), "r");
 #endif
@@ -48,10 +58,28 @@ bool compile_glsl(const std::string& src_path, ve::core::cooked::Bytes& spirv_ou
     const char* env_tool = std::getenv("VE_GLSLANG");
     const std::string tool = (env_tool != nullptr && *env_tool != '\0') ? env_tool : "glslangValidator";
 
-    // Unique temp name per call; removed on every path.
+    // Temp name + lifetime are load-bearing, not cosmetics.
+    //
+    // A process-local counter alone restarts at 1 in EVERY process, so two runs
+    // of the cooklet pick the same temp name. The hole that opens is silent and
+    // nasty: if the tool run fails to write (missing PATH entry, GLSL error,
+    // quoting), spv_exists still answers yes from the PREVIOUS run's leftover,
+    // and the magic/size checks pass — so the unit gets valid SPIR-V for the
+    // WRONG source. Measured here: a demo frame loop drew a stale triangle, and
+    // the only reason it looked like a GPU bug is that the stale bytes were
+    // indistinguishable from a working compile. That breaks the cooklet's core
+    // promise (same sources in, byte-identical cooked bytes out).
+    //
+    // So: the name is keyed by the source path (two processes cooking different
+    // files never collide, and a parallel build cannot trample), and the file is
+    // removed BEFORE the tool runs, which makes "the tool wrote nothing" the only
+    // way the read path can be reached.
     static std::uint64_t counter = 0;
     const auto spv_path = std::filesystem::temp_directory_path() /
-                          ("ve_glslang_" + std::to_string(++counter) + ".spv");
+                          ("ve_glslang_" + std::to_string(std::filesystem::hash_value(src_path)) +
+                           "_" + std::to_string(++counter) + ".spv");
+    std::error_code remove_ec;
+    std::filesystem::remove(spv_path, remove_ec); // no stale bytes may survive into the read
 
     // -V = Vulkan GLSL semantics; --quiet drops the stage banner; binary
     // SPIR-V out. Stage comes from the source extension.

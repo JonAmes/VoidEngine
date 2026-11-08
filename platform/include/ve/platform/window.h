@@ -40,6 +40,12 @@ public:
     // vkDestroySurfaceKHR before the VkInstance dies. The presenter never does.
     std::expected<VkSurfaceKHR, std::string> create_surface(VkInstance instance) const;
 
+    // Ask the window system for a new size. This is the only way a resize gets
+    // *requested* from outside: the frame loop still decides what to do by
+    // watching frame_size(), because a window manager (and a headless X server
+    // under Xvfb) is free to ignore or clamp the request.
+    void set_size(int width, int height);
+
     bool should_close() const;
     void poll_events();
 

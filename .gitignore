@@ -3,3 +3,5 @@ build/
 compile_commands.json
 *.log
 cooked/
+# 2.9 evidence is committed; the cook units the demo writes beside it are not.
+docs/phase-02-vulkan/evidence/cook/

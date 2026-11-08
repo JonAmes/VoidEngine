@@ -92,12 +92,29 @@ private:
     VkDeviceMemory readback_memory_ = VK_NULL_HANDLE;
     VkDeviceSize readback_size_ = 0; // width*height*4, recomputed by create_targets
     VkCommandPool pool_ = VK_NULL_HANDLE;
+
+    // The frame's command buffer outlives present(): its submit carries the frame
+    // fence, so freeing it inside present() would free a buffer still executing
+    // (a validation error, and worse than a leak). It is freed at the next
+    // acquire(), once that fence has been waited out — which is exactly what keeps
+    // 2.9's ~120-frame spin from growing the pool without bound.
+    VkCommandBuffer last_cmd_ = VK_NULL_HANDLE;
+    bool last_cmd_valid_ = false;
     std::uint32_t queue_family_ = 0; // the family queue_ came from (pools are per-family)
 
 
     VkSemaphore image_available_ = VK_NULL_HANDLE; // acquire -> blit
-    VkSemaphore render_finished_ = VK_NULL_HANDLE; // blit -> present
-    VkFence frame_fence_ = VK_NULL_HANDLE;         // blit completion (one in flight)
+    // ONE blit->present semaphore PER SWAPCHAIN IMAGE, indexed by image index.
+    // A single shared one is a validation error (VUID-vkQueueSubmit-pSignalSemaphores-00067,
+    // caught live in 2.9): the frame fence proves only that the SUBMIT finished, never
+    // that vkQueuePresentKHR stopped waiting, so the next frame can re-signal a semaphore
+    // a previous present still owns. Per-image is sound because a given semaphore is only
+    // re-signaled after its image was re-acquired, and acquire() hands an image back only
+    // once its earlier presentation is over. (The other fix is VK_KHR_swapchain_maintenance1,
+    // which attaches a fence to present — that extension is a decision, not a Phase 2 need.)
+    // Sized with the swapchain, so these live with create_targets/destroy_targets.
+    std::vector<VkSemaphore> render_finished_;
+    VkFence frame_fence_ = VK_NULL_HANDLE; // blit completion (one in flight)
 
     // Layout bookkeeping, same doctrine as offscreen_presenter: the presenter
     // owns its image's transitions, a pass may never barrier the target.

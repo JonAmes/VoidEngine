@@ -1,0 +1,26 @@
+[INFO ] demo: cooked 2, unchanged 0 -> C:\Users\AmesL\Projects\VoidEngine\docs\phase-02-vulkan\evidence\cook
+[INFO ] gfx: VkInstance @API 1.3 created on 1 device(s), validation ON
+[INFO ] gfx: logical device 'NVIDIA GeForce RTX 4060 Laptop GPU' (family 0 graphics queue, present same family)
+[INFO ] gfx: WSI presenter up — 640x360, 3 swapchain image(s), FIFO, one frame in flight
+[INFO ] demo: presenter target 640x360 VK_FORMAT_B8G8R8A8_UNORM
+[INFO ] demo: frame 0 probe: push m0=0.5625 m1=0.0000 m4=0.0000 (angle 0.000 rad)
+[INFO ] demo: frame 7 probe: push m0=-0.4333 m1=0.3587 m4=-0.6378 (angle 2.450 rad)
+[INFO ] demo: frame 14 probe: push m0=0.1049 m1=-0.5526 m4=0.9825 (angle 4.900 rad)
+[INFO ] demo: frame 21 probe: push m0=0.2716 m1=0.4926 m4=-0.8757 (angle 7.350 rad)
+[INFO ] demo: frame 28 probe: push m0=-0.5234 m1=-0.2061 m4=0.3665 (angle 9.800 rad)
+[INFO ] demo: frame 35 probe: push m0=0.5346 m1=-0.1750 m4=0.3111 (angle 12.250 rad)
+[INFO ] demo: frame 42 probe: push m0=-0.3001 m1=0.4757 m4=-0.8457 (angle 14.700 rad)
+[INFO ] demo: frame 49 probe: push m0=-0.0722 m1=-0.5578 m4=0.9917 (angle 17.150 rad)
+[INFO ] demo: frame 56 probe: push m0=0.4114 m1=0.3836 m4=-0.6820 (angle 19.600 rad)
+[INFO ] demo: frame 63 probe: push m0=-0.5615 m1=-0.0331 m4=0.0588 (angle 22.050 rad)
+[INFO ] demo: frame 70 probe: push m0=0.4536 m1=-0.3326 m4=0.5914 (angle 24.500 rad)
+[INFO ] demo: frame 77 probe: push m0=-0.1372 m1=0.5455 m4=-0.9698 (angle 26.950 rad)
+[INFO ] gfx: WSI chain rebuilt at 512x288
+[INFO ] demo: frame 84 probe: push m0=-0.2422 m1=-0.5077 m4=0.9026 (angle 29.400 rad)
+[INFO ] demo: frame 91 probe: push m0=0.5103 m1=0.2366 m4=-0.4206 (angle 31.850 rad)
+[INFO ] demo: frame 98 probe: push m0=-0.5440 m1=0.1433 m4=-0.2547 (angle 34.300 rad)
+[INFO ] demo: frame 105 probe: push m0=0.3276 m1=-0.4573 m4=0.8129 (angle 36.750 rad)
+[INFO ] gfx: WSI chain rebuilt at 640x360
+[INFO ] demo: frame 112 probe: push m0=0.0393 m1=0.5611 m4=-0.9976 (angle 39.200 rad)
+[INFO ] demo: frame 119 probe: push m0=-0.3881 m1=-0.4071 m4=0.7238 (angle 41.650 rad)
+[INFO ] demo: 120 frame(s) presented, median 16.631 ms, 0 validation problem(s)
