@@ -41,6 +41,19 @@ Running design record for the arcade flight & gravity core. Process rules live i
 - Test gotcha (fixed before landing): C1 finite-difference pins need small δ — a ±1 m central diff across the taper join measures ~3.7e-6, which looks like a kink but is the honest slope of a cubic 1 m off the join. Use δ ~ 1e-3·range/1000 (δ=1e-3 m pins ~1.5e-8 there) and pin one mid-ramp slope analytically (central diff of a cubic = exact derivative at midpoint) to prove the sampler isn't just always-small.
 - Hand-authored well bodies everywhere (#45d): `add_body` sanity (well>taper>surface, all finite) front-loads def validity so field math stays branch-light.
 
+### 4.5 — home well + crossfade (3ab9532)
+- Physics blend is SOFT-DOMINANCE, not a pairwise hard switch: w_i = smoothstep((A_i/A_max − (1−band))/band) over ordered bodies, accel = Σ w_i·a_i / Σ w_i. Chosen because it is stateless (no per-ship or per-pair state in the force path — hysteresis lives ONLY in `home_well_tracker`, so ship history can never change physics; scrubber/ghost-sim stay pure functions of (pos, tick)), C0 everywhere (composition of C1 magnitudes + smoothstep), and one scalar (`band`, 0.25 default) replaces per-pair shell radii.
+- "Down = the moon, not the giant in its sky" is STRUCTURAL at band 0.25: a well contributes exactly w=0 once its magnitude drops below (1−band)·A_max. On the lunar surface the giant's raw pull (~0.44 vs moon 2.0, ratio 4.6×) is suppressed to zero weight — the authoring constraint #17b wants is `g_body(surface) ≥ 3×g_neighbor(raw)`, tunable per system, no blend-zone bookkeeping.
+- Σw ≥ 1.0 always (the max well maps to smoothstep(1) = 1 exactly) → no division guard needed; outside every well the early-out returns the EXACT zero vector (hash stability, same rule as 4.4).
+- Constant-g cores flip pull direction AT r=0 (magnitude is surface_g right up to the center): the field is discontinuous only at a body center, which nothing can occupy (contacts/landing live at the surface). Continuity pins therefore walk legs that STOP SHORT of centers — a full-diameter walk would measure the intentional center flip.
+- Hysteresis pin is two-sided: at the raw-argmax crossing point, oscillation 10050↔10100 m alternates the argmax every step (pinned via raw magnitudes) while the tracker never flips (challenger never beats home by >1.1×); then a monotone walk switches EXACTLY once and can't switch back (to flip home you must beat it by (1+hyst), impossible once dominant).
+- doctest gotcha: REQUIRE inside a value-returning helper is a hard compile error (it returns from the helper) — testbed builders must take the world by reference and return void.
+
+### 4.4 green-claim incident (process lesson)
+- bb28a80's message claimed ci_local GREEN 72/8470, but `test_sim_gravity.cpp` did NOT compile at that commit (bare `dvec3` — `using namespace ve::core` does not leak the nested `math::` namespace; the rails test qualifies `math::dvec3` and never tripped). The green run predates the last test-file patch that removed/never had the using — the gate must be the LAST command run over the tree before committing, never reused from earlier in the task.
+- Caught by the clean-tree pass (`rm -rf build`, fresh configure): 1/1 ctest failure exposed it. Fixed with an explicit `using ve::core::math::dvec3;` in both sim test TUs; 4.4's checkbox now names both commits (3ab9532 carries the repair).
+- AGENTS rule honored post-hoc, but the correct order is: edit -> gate -> commit. Any patch after a green gate invalidates the claim.
+
 ## Open threads for later phases (do NOT build here)
 - Safe-speed bubbles + warp multiplier (#22) → Phase 8, rides this well math.
 - Swept contacts → Phase 7 (user ruling 2026-11-09, decision #45e; PLAN corrected).
