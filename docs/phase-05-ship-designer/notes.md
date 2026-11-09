@@ -44,3 +44,10 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
 - units.h is the ONLY unit-math home outside the cooklet itself (cooklet will call it in 5.7). Suffix set is exactly #42-ratified and case-sensitive: m km AU s day rad deg deg/day. Bare suffix ("") is its own error kind so cook errors can distinguish 'forgot the unit' from 'invented a unit'.
 - AU pinned to the IAU-2012 nominal value 149597870700 m (exact integer in double).
 - engine_tests already linked ve_game (since early gfx-era CMake), so header-only game constants needed zero link changes - test registered, include dir came free.
+
+### 5.5 — thruster force-at-point (903e72d)
+- Concept-free split: the attr-key READING (`thrust.force` -> max_force, type-id -> axis policy, gimbal cone sizing) is game-side glue; core thruster.h never names a component. 5.13 does the glue inline in the harness (game/ module for it can land with Phase 6).
+- thruster.main vs thruster.rcs = SAME machinery. RCS translation + torque couple are just summed point forces; no pod-cluster abstraction needed yet (pods authored as individual thruster_statics).
+- Gimbal semantics pinned: (pitch,yaw) ANGLE pair scaled into the cone FIRST, then fixed-order pitch-about-mount-X then yaw-about-mount-Y. Composition of two axes makes the composed angle match the cone half-angle only to O(theta^3) (pin loosened accordingly for the 2-axis case); single-axis deflection is exact.
+- limit==0 means FIXED MOUNT and the gimbal input is ignored (not 'cone of zero angle that would deflect by whatever' - first implementation got this wrong, test caught it).
+- applied-force record skips zero-throttle and degenerate-axis thrusters; impulse = force_local * kSim_tick_dt at drain time (Phase 6).
