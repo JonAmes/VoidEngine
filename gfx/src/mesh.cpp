@@ -50,8 +50,11 @@ struct Cursor {
 };
 } // namespace
 
+// Shared walk: parses the mesh list always; additionally fills *mats_out
+// when the caller asked for the material list (3.15).
 std::expected<std::vector<cooked_mesh>, std::string>
-parse_mesh_payload(const std::vector<std::uint8_t>& payload) {
+parse_payload_impl(const std::vector<std::uint8_t>& payload,
+                   std::vector<cooked_material>* mats_out) {
     Cursor c{payload.data(), payload.size()};
     std::vector<cooked_mesh> meshes;
 
@@ -103,21 +106,38 @@ parse_mesh_payload(const std::vector<std::uint8_t>& payload) {
         meshes.push_back(std::move(mesh));
     }
 
-    // Walk (and validate) the rest of the payload so truncation in the
-    // material/socket sections still rejects the unit — even though 3.5
-    // only consumes the mesh list. Material consumption itself is 3.10.
+    // MAT0 material section: CONSUMED since 3.15 (scene harness reads
+    // base_color/metallic/roughness + texture content IDs) — lands in
+    // *mats_out when requested. Socket/root-extras sections stay walk-and-
+    // validate so truncation anywhere still rejects the unit.
     const auto mat_count = c.u32();
     if (mat_count > 65536u) return std::unexpected("mesh payload: implausible material_count");
-    for (std::uint32_t i = 0; i < mat_count && !c.bad; ++i) {
-        const auto n = c.u32();
-        c.take(n);                       // name
-        for (int k = 0; k < 4 + 2 + 3; ++k) c.f32(); // color, metal/rough, emissive
-        c.u32();                         // alpha_mode
-        const auto tl1 = c.u32();
-        c.take(tl1);                     // baseColor texture content id (3.8;
-        const auto tl2 = c.u32();
-        c.take(tl2);                     // consumed by 3.10 shading)
+    if (mats_out) {
+        mats_out->clear();
+        mats_out->reserve(std::min<std::size_t>(mat_count, 4096u));
     }
+    for (std::uint32_t i = 0; i < mat_count && !c.bad; ++i) {
+        cooked_material mat;
+        const auto n = c.u32();
+        if (n > c.left) { c.bad = true; break; } // guard BEFORE any assign
+        if (mats_out) mat.name.assign(reinterpret_cast<const char*>(c.p), n);
+        c.take(n);                       // name
+        for (int k = 0; k < 4; ++k) mat.base_color[k] = c.f32();
+        mat.metallic = c.f32(); mat.roughness = c.f32();
+        for (int k = 0; k < 3; ++k) mat.emissive[k] = c.f32();
+        mat.alpha_mode = c.u32();
+        const auto tl1 = c.u32();
+        if (tl1 > c.left) { c.bad = true; break; }
+        if (mats_out) mat.basecolor_tex.assign(reinterpret_cast<const char*>(c.p), tl1);
+        c.take(tl1);                     // baseColor texture content id (3.8)
+        const auto tl2 = c.u32();
+        if (tl2 > c.left) { c.bad = true; break; }
+        if (mats_out) mat.mr_tex.assign(reinterpret_cast<const char*>(c.p), tl2);
+        c.take(tl2);                     // metallicRoughness texture id
+        if (!c.bad && mats_out) mats_out->push_back(std::move(mat));
+    }
+    // Walk (and validate) the rest of the payload so truncation in the
+    // socket sections still rejects the unit.
     const auto sock_count = c.u32();
     if (sock_count > 65536u) return std::unexpected("mesh payload: implausible socket_count");
     for (std::uint32_t i = 0; i < sock_count && !c.bad; ++i) {
@@ -155,7 +175,43 @@ load_meshes_by_id(const std::string& cooked_dir, const std::string& content_id) 
     if (unit.type != ve::core::cooked::kUnitMesh) {
         return std::unexpected("mesh load: unit '" + content_id + "' is not a MESH unit");
     }
-    return parse_mesh_payload(unit.payload);
+    return parse_payload_impl(unit.payload, nullptr);
+}
+
+std::expected<std::vector<cooked_mesh>, std::string>
+parse_mesh_payload(const std::vector<std::uint8_t>& payload) {
+    return parse_payload_impl(payload, nullptr);
+}
+
+std::expected<std::vector<cooked_material>, std::string>
+parse_mesh_materials(const std::vector<std::uint8_t>& payload) {
+    std::vector<cooked_material> mats;
+    if (auto meshes = parse_payload_impl(payload, &mats); !meshes) {
+        return std::unexpected(meshes.error());
+    }
+    return mats;
+}
+
+std::expected<std::vector<cooked_material>, std::string>
+load_materials_by_id(const std::string& cooked_dir, const std::string& content_id) {
+    // Manifest authority (#13), same pattern as load_meshes_by_id.
+    ve::core::cooked::Manifest manifest;
+    if (std::string err;
+        !ve::core::cooked::read_manifest(cooked_dir + "/manifest.bin", manifest, &err)) {
+        return std::unexpected("material load: " + err);
+    }
+    if (!manifest.contains(content_id)) {
+        return std::unexpected("material load: '" + content_id + "' not in manifest");
+    }
+    ve::core::cooked::Unit unit;
+    if (std::string err;
+        !ve::core::cooked::read_unit_file(cooked_dir + "/units/" + content_id + ".ck", unit, &err)) {
+        return std::unexpected("material load: " + err);
+    }
+    if (unit.type != ve::core::cooked::kUnitMesh) {
+        return std::unexpected("material load: unit '" + content_id + "' is not a MESH unit");
+    }
+    return parse_mesh_materials(unit.payload);
 }
 
 namespace {

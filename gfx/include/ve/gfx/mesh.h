@@ -43,6 +43,23 @@ struct cooked_mesh {
 std::expected<std::vector<cooked_mesh>, std::string>
 parse_mesh_payload(const std::vector<std::uint8_t>& payload);
 
+// The MAT0 block embedded in the MESH payload (layout in core/cooked.h).
+// Consumed since 3.15 (done-when scene): base_color/metallic/roughness
+// drive PBR-lite; the texture slots are CONTENT IDs ('' = untextured — the
+// PoC hull is authored untextured). Same payload walk, materials out.
+struct cooked_material {
+    std::string name;
+    float base_color[4]{};
+    float metallic = 0.f, roughness = 1.f;
+    float emissive[3]{};
+    std::uint32_t alpha_mode = 0; // 0 opaque, 1 blend, 2 mask
+    std::string basecolor_tex, mr_tex; // content IDs ('' = none)
+};
+std::expected<std::vector<cooked_material>, std::string>
+parse_mesh_materials(const std::vector<std::uint8_t>& payload);
+std::expected<std::vector<cooked_material>, std::string>
+load_materials_by_id(const std::string& cooked_dir, const std::string& content_id);
+
 // Content-ID load through the manifest: <cooked_dir>/manifest.bin must list
 // the id; the unit comes from <cooked_dir>/units/<id>.ck and must be a
 // MESH unit with a valid payload.

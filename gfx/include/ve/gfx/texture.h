@@ -24,6 +24,12 @@ struct CpuTexture {
 bool load_cooked_texture_file(const std::string& unit_path, CpuTexture& out,
                               std::string* err);
 
+// Load by CONTENT ID through the manifest (decision #13, same authority
+// pattern as gfx/mesh load-by-id; 3.15 scene harness): an id the manifest
+// does not list is not loadable, even if a matching .ck file sits on disk.
+std::expected<CpuTexture, std::string>
+load_texture_by_id(const std::string& cooked_dir, const std::string& content_id);
+
 // ---------------------------------------------------------------------------
 // GPU textures (3.7). The CPU half above is the ONLY place texel bytes are
 // ever seen: gpu_texture::upload is one-shot (staging -> optimal image), and

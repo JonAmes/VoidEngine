@@ -21,6 +21,24 @@ std::uint32_t get_u32(const Bytes& b, std::size_t& p, bool& bad) {
 }
 } // namespace
 
+std::expected<CpuTexture, std::string>
+load_texture_by_id(const std::string& cooked_dir, const std::string& content_id) {
+    ve::core::cooked::Manifest manifest;
+    if (std::string err;
+        !ve::core::cooked::read_manifest(cooked_dir + "/manifest.bin", manifest, &err)) {
+        return std::unexpected("texture load: " + err);
+    }
+    if (!manifest.contains(content_id)) {
+        return std::unexpected("texture load: '" + content_id + "' not in manifest");
+    }
+    CpuTexture out;
+    std::string err;
+    if (!load_cooked_texture_file(cooked_dir + "/units/" + content_id + ".ck", out, &err)) {
+        return std::unexpected("texture load: " + err);
+    }
+    return out;
+}
+
 bool load_cooked_texture_file(const std::string& unit_path, CpuTexture& out,
                               std::string* err) {
     Unit unit;
