@@ -32,6 +32,7 @@ add_executable(engine_tests
     core/test_math_quat.cpp
     core/test_math_dquat.cpp
     core/test_sim_rails.cpp
+    core/test_sim_gravity.cpp
     core/test_math_projection.cpp
     core/test_math_coords.cpp
     tools/test_container.cpp
