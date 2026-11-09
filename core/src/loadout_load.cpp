@@ -66,7 +66,8 @@ const char* assemble_kind_name(loadout_error e) {
         case loadout_error::socket_occupied:        return "socket_occupied";
         case loadout_error::category_mismatch:      return "category_mismatch";
         case loadout_error::duplicate_instance_id:  return "duplicate_instance_id";
-        case loadout_error::duplicate_attr_key:     return "duplicate_attr_key";
+        case loadout_error::duplicate_attr_key:    return "duplicate_attr_key";
+        case loadout_error::duplicate_tag:         return "duplicate_tag";
         case loadout_error::invalid_grid:           return "invalid_grid";
         case loadout_error::invalid_hull_mass:      return "invalid_hull_mass";
     }
@@ -123,8 +124,10 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
         (void)cat_or_bad(r.u8(), r.bad);  // category gate is assemble's job
         m.socket_id = r.str();
         (void)r.u8();                     // face (#46c1): interior graph later
+        // #18: tags (role/facet) ride the mount into the loadout; occupancy
+        // (#18) and Phase 6 interaction systems read them. Core never parses.
         const std::uint32_t ntag = r.u32();
-        for (std::uint32_t t = 0; t < ntag && !r.bad; ++t) r.str();
+        for (std::uint32_t t = 0; t < ntag && !r.bad; ++t) m.tags.push_back(r.str());
         const std::uint32_t nattr = r.u32();
         for (std::uint32_t a = 0; a < nattr && !r.bad; ++a)
             m.attrs.push_back({r.str(), r.f64()});

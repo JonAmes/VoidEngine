@@ -79,7 +79,8 @@ Bytes def_payload() {
     pstr(b, "operate.station"); pf64(b, 2.0); pu8(b, 0); pu8(b, 0);
     pstr(b, "door_1"); pstr(b, "door.hatch"); pu8(b, 3);
     pstr(b, "door_1"); pu8(b, 5);        // socket, face +z (#46c1)
-    pu32(b, 0);                          // tags
+    pu32(b, 2);                          // tags (#18 role/facet, def order)
+    pstr(b, "use.door"); pstr(b, "station.engineer");
     pu32(b, 0);                          // attrs
     pu32(b, 1);                          // facet: door.toggle
     pstr(b, "door.toggle"); pf64(b, 2.0); pu8(b, 1); pu8(b, 0);
@@ -165,6 +166,12 @@ TEST_CASE("loadout_load") {
     CHECK(lo.mounts()[0].attrs[0].value == 5000.0);
     CHECK(lo.mounts()[1].instance_id == "door_1");
     CHECK(lo.mounts()[1].socket_id == "door_1");
+    // #18: tags ride the mount in def order; loader keeps them verbatim and
+    // never interprets them (loadout_seats pins the duplicate_tag gate).
+    CHECK(lo.mounts()[0].tags.empty());
+    REQUIRE(lo.mounts()[1].tags.size() == 2);
+    CHECK(lo.mounts()[1].tags[0] == "use.door");
+    CHECK(lo.mounts()[1].tags[1] == "station.engineer");
     CHECK(lo.attr(*lo.mount("door_1"), "nope") == std::nullopt);
     CHECK(lo.mount_at_socket("hp_engine")->instance_id == "eng_1");
     CHECK(lo.free_socket_count() == 1);

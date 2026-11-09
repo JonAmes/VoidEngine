@@ -42,6 +42,7 @@ add_executable(engine_tests
     core/test_sim_flight_figure8.cpp
     core/test_loadout.cpp
     core/test_loadout_load.cpp
+    core/test_occupancy.cpp
     core/test_sim_inertia.cpp
     core/test_sim_tensor.cpp
     core/test_sim_thruster.cpp

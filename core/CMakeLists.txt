@@ -14,6 +14,7 @@ add_library(ve_core STATIC
     src/well_blend.cpp
     src/loadout.cpp
     src/loadout_load.cpp
+    src/occupancy.cpp
     src/inertia.cpp
     src/thruster.cpp
 )

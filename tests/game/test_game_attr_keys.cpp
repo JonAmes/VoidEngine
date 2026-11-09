@@ -9,6 +9,7 @@
 #include "ve/game/attr_keys.h"
 #include "ve/game/units.h"
 #include "ve/game/facet_actions.h"
+#include "ve/game/role_tags.h"
 
 namespace {
 using namespace ve::game;
@@ -67,6 +68,18 @@ TEST_CASE("game_attr_keys") {
 }
 
 // #28a / 5.9b — the closed facet-action registry (#46f checkpoint decision).
+TEST_CASE("game_role_tags") {
+    using namespace ve::game;
+    CHECK(kPhase5_role_tags.size() == 5);  // #18c slice crew roster
+    for (const auto t : kPhase5_role_tags) {
+        CHECK(is_valid_role_tag(t));
+        CHECK(is_valid_attr_key(t));  // same dotted grammar
+    }
+    CHECK_FALSE(is_valid_role_tag("station.captain"));  // parses, not ratified
+    CHECK_FALSE(is_valid_role_tag("use.seat"));         // facet tag, not a role
+    CHECK(is_valid_facet_action("use.seat"));
+}
+
 TEST_CASE("game_facet_actions") {
     using namespace ve::game;
     CHECK(kPhase5_facet_actions.size() == 12);
