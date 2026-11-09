@@ -55,7 +55,9 @@ inline constexpr std::uint32_t kUnitFont0 = fourcc("FONT0"); // cooked glyph atl
 //   u32 sections (str name, u32 boxes, box = 6*i32 lo.xyz then hi.xyz, CELL
 //     coords),
 //   u32 components (str id, str type, u8 category [0 main/1 rcs/2 gun/3
-//     utility = core socket_category encoding], str socket, u32 tags str*,
+//     utility = core socket_category encoding], str socket,
+//     u8 face [0 none, 1 +x, 2 -x, 3 +y, 4 -y, 5 +z, 6 -z; required for
+//     door.*/airlock.* types, #46c1], u32 tags str*,
 //     u32 attrs {str key, f64} in key order, u32 facets {str action,
 //     f64 range_m, u8 manual, u8 has_target [str target]} (#28a cross-ref),)
 //   u32 catalog (str type_id, u8 category; first-seen order),

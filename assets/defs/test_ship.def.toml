@@ -123,6 +123,7 @@ id = "door_1"
 type = "door.hatch"
 category = "utility"
 socket = "door_1"
+face = "+z"   # #46c1: joins midship (cell z=0) to engineering (cell z=+1)
 
 [[component.facet]]
 action = "use.door"

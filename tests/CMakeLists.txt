@@ -50,6 +50,7 @@ add_executable(engine_tests
     tools/test_container.cpp
     cook/test_toml.cpp
     cook/test_hulldef.cpp
+    cook/test_hull_validate.cpp
     tools/test_glb.cpp
     tools/test_mikktspace.cpp
     tools/test_incremental.cpp

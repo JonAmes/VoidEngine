@@ -122,11 +122,12 @@ TEST_CASE("cook_hull_def") {
     // whose socket names pair 1:1 with the GLB's named empties, #46a)
     CHECK(s.u32() == 11u);
     auto expect_comp = [&](const std::string& id, const std::string& type, int cat,
-                           const std::string& sock, int tags) {
+                           const std::string& sock, int tags, int face = 0) {
         CHECK(s.str() == id);
         CHECK(s.str() == type);
         CHECK(static_cast<int>(s.u8()) == cat);
         CHECK(s.str() == sock);
+        CHECK(static_cast<int>(s.u8()) == face);  // #46c1
         CHECK(s.u32() == static_cast<std::uint32_t>(tags));
         for (int t = 0; t < tags; ++t) (void)s.str();
     };
@@ -165,7 +166,7 @@ TEST_CASE("cook_hull_def") {
     skip_attr(2); skip_facet(1);
     expect_comp("seat_pilot", "seat.pilot", 3, "hp_seat_pilot", 1);
     skip_attr(0); skip_facet(1);  // use.seat 1.2 m (#28a)
-    expect_comp("door_1", "door.hatch", 3, "door_1", 0);
+    expect_comp("door_1", "door.hatch", 3, "door_1", 0, 5);  // face +z (#46c1)
     skip_attr(0); skip_facet(1);  // interior anchor, socket==name (#46a)
     expect_comp("panel_main", "panel.dash", 3, "panel_main", 0);
     skip_attr(0);
@@ -317,6 +318,19 @@ TEST_CASE("cook_hull_def_gates") {
               "[[component]]\nid = \"b\"\ntype = \"t\"\ncategory = \"rcs\"\nsocket = \"s2\"\n",
               "conflicting categories");                          // catalog one-category-per-type
 
+    // #28a: facet action tags outside the game-side registry fail the cook.
+    must_fail("class_tag = \"class.mini\"\n"
+              "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+              "[[component]]\nid = \"a\"\ntype = \"t\"\ncategory = \"main\"\nsocket = \"s\"\n"
+              "[[component.facet]]\naction = \"use.ladder\"\nrange = \"2 m\"\n",
+              "facet-action registry");  // #28a
+    // #46c1: face axis spelling is strict.
+    must_fail("class_tag = \"class.mini\"\n"
+              "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+              "[[component]]\nid = \"a\"\ntype = \"door.hatch\"\ncategory = \"utility\"\nsocket = \"s\"\n"
+              "face = \"north\"\n",
+              "face");
+
     // TOML array-table law: sub-headers land on the LAST [[component]] entry.
     {
         const std::string text =
@@ -325,7 +339,7 @@ TEST_CASE("cook_hull_def_gates") {
             "[[component]]\nid = \"a\"\ntype = \"t1\"\ncategory = \"main\"\nsocket = \"s1\"\n"
             "[[component]]\nid = \"b\"\ntype = \"t2\"\ncategory = \"utility\"\nsocket = \"s2\"\n"
             "[component.attrs]\nmass = 5\n"
-            "[[component.facet]]\naction = \"use.x\"\nrange = \"2 m\"\n";
+            "[[component.facet]]\naction = \"use.panel\"\nrange = \"2 m\"\n";
         ve::cook::Bytes payload;
         std::vector<std::string> refs;
         REQUIRE_MESSAGE(cook(text, payload, refs), err);
@@ -335,15 +349,15 @@ TEST_CASE("cook_hull_def_gates") {
         (void)s.f64(); (void)s.u32(); (void)s.f64(); (void)s.f64();
         (void)s.u32();  // 0 sections
         CHECK(s.u32() == 2u);
-        CHECK(s.str() == "a"); (void)s.str(); (void)s.u8(); (void)s.str();
+        CHECK(s.str() == "a"); (void)s.str(); (void)s.u8(); (void)s.str(); (void)s.u8();
         CHECK(s.u32() == 0u);   // a: no tags,
         CHECK(s.u32() == 0u);   // no attrs,
         CHECK(s.u32() == 0u);   // no facets
-        CHECK(s.str() == "b"); (void)s.str(); (void)s.u8(); (void)s.str();
+        CHECK(s.str() == "b"); (void)s.str(); (void)s.u8(); (void)s.str(); (void)s.u8();
         CHECK(s.u32() == 0u);   // tags
         CHECK(s.u32() == 1u);   // attrs landed on b
         CHECK(s.str() == "mass"); CHECK(s.f64() == 5.0);
         CHECK(s.u32() == 1u);   // facet landed on b
-        CHECK(s.str() == "use.x"); CHECK(s.f64() == 2.0); CHECK(s.u8() == 0);
+        CHECK(s.str() == "use.panel"); CHECK(s.f64() == 2.0); CHECK(s.u8() == 0); CHECK(s.u8() == 0);
     }
 }

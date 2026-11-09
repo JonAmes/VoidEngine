@@ -8,6 +8,7 @@
 
 #include "ve/game/attr_keys.h"
 #include "ve/game/units.h"
+#include "ve/game/facet_actions.h"
 
 namespace {
 using namespace ve::game;
@@ -63,4 +64,16 @@ TEST_CASE("game_attr_keys") {
     CHECK(coerce_to_si(5.0, "bogus").error() == unit_error::unknown_suffix);
     CHECK_FALSE(coerce_to_si(5.0, "KM").has_value());   // case-sensitive
     CHECK_FALSE(coerce_to_si(5.0, "Day").has_value());
+}
+
+// #28a / 5.9b — the closed facet-action registry (#46f checkpoint decision).
+TEST_CASE("game_facet_actions") {
+    using namespace ve::game;
+    CHECK(kPhase5_facet_actions.size() == 12);
+    for (const auto a : kPhase5_facet_actions) CHECK(is_valid_facet_action(a));
+    CHECK_FALSE(is_valid_facet_action("use.ladder"));   // grammar ok, not ratified
+    CHECK_FALSE(is_valid_facet_action("Use.Seat"));     // case-sensitive
+    CHECK_FALSE(is_valid_facet_action("use..seat"));    // bad grammar
+    CHECK_FALSE(is_valid_facet_action(""));
+    CHECK(is_valid_attr_key("use.ladder"));             // grammar vs membership
 }

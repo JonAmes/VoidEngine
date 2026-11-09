@@ -33,6 +33,7 @@
 #include <ve/game/attr_keys.h>
 
 #include "ve/cook/toml.h"
+#include "ve/game/facet_actions.h"
 
 namespace ve::cook {
 namespace {
@@ -166,10 +167,25 @@ struct Attr {
 struct CompRow {
     std::string id, type, socket;
     std::uint8_t category = 0;
+    // #46c1 explicit facing for door.*/airlock.* components: 0 = absent,
+    // 1 +x, 2 -x, 3 +y, 4 -y, 5 +z, 6 -z (engine axes, #34). Required (cook
+    // fail at 5.9b validation) on those types; meaningless elsewhere.
+    std::uint8_t face = 0;
     std::vector<std::string> tags;
     std::vector<Attr> attrs;   // std::map key order (deterministic)
     std::vector<Facet> facets;
 };
+
+// #46c1 axis spelling -> face code (engine axes, #34 RH Y-up -Z fwd).
+bool face_u8(std::string_view s, std::uint8_t& out) {
+    if (s == "+x") { out = 1; return true; }
+    if (s == "-x") { out = 2; return true; }
+    if (s == "+y") { out = 3; return true; }
+    if (s == "-y") { out = 4; return true; }
+    if (s == "+z") { out = 5; return true; }
+    if (s == "-z") { out = 6; return true; }
+    return false;
+}
 
 bool parse_component(const TomlValue& row, const std::string& where, CompRow& c, std::string& err) {
     if (!row.is_table()) return fail(err, where + " must be a table");
@@ -181,6 +197,12 @@ bool parse_component(const TomlValue& row, const std::string& where, CompRow& c,
     if (!category_u8(cat, c.category))
         return fail(err, where + ".category '" + cat + "' not one of main/rcs/gun/utility");
     if (!req_str(t, "socket", where + ".", c.socket, err)) return false;
+    if (const TomlValue* fv = at(t, "face")) {  // #46c1 (door/airlock facing)
+        if (!fv->is_string())
+            return fail(err, where + ".face must be a string (\"+x\"/\"-x\"/\"+y\"/\"-y\"/\"+z\"/\"-z\")");
+        if (!face_u8(fv->str, c.face))
+            return fail(err, where + ".face '" + fv->str + "' not one of +x/-x/+y/-y/+z/-z");
+    }
     if (const TomlValue* tags = at(t, "tags"))
         if (!req_string_array(*tags, where + ".tags", c.tags, err)) return false;
 
@@ -227,6 +249,11 @@ bool parse_component(const TomlValue& row, const std::string& where, CompRow& c,
             if (!f.is_table()) return fail(err, fpath + " must be a table");
             Facet fac;
             if (!req_str(f.table, "action", fpath + ".", fac.action, err)) return false;
+            // #28a: unknown action tags are rejected cook-time; the ratified
+            // closed set lives game-side (kPhase5_facet_actions).
+            if (!ve::game::is_valid_facet_action(fac.action))
+                return fail(err, fpath + ".action '" + fac.action +
+                                 "' not in the ratified facet-action registry (#28a)");
             const TomlValue* range = at(f.table, "range");
             if (!range) return fail(err, fpath + " missing 'range'");
             if (!req_unit(*range, fpath + ".range", fac.range_m, err)) return false;
@@ -480,6 +507,7 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
         w.str(c.type);
         w.u8(c.category);
         w.str(c.socket);
+        w.u8(c.face);  // #46c1
         w.u32(static_cast<std::uint32_t>(c.tags.size()));
         for (const auto& t : c.tags) w.str(t);
         w.u32(static_cast<std::uint32_t>(c.attrs.size()));
