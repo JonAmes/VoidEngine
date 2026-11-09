@@ -66,4 +66,15 @@ std::optional<dvec3> rail_world::position(std::int32_t id, tick_t t) const {
     return p;
 }
 
+std::optional<dvec3> rail_world::velocity(std::int32_t id, tick_t t) const {
+    if (!body(id)) return std::nullopt;
+    // Central difference of the analytic position: pure function of the
+    // integer tick, no stored state, bit-deterministic. Exact for static
+    // roots; chord-vs-tangent relative error ~ (2*pi*dt/P)^2/24 (<= ~1e-9
+    // rel for authored periods >= 60 s).
+    const auto p1 = position(id, t + 1);
+    const auto p0 = position(id, t - 1);
+    return (*p1 - *p0) * (0.5 * kSim_tick_hz);
+}
+
 } // namespace ve::core::sim

@@ -55,6 +55,11 @@ public:
     // it never advances or perturbs anything.
     std::optional<math::dvec3> position(std::int32_t id, tick_t t) const;
 
+    // Rail velocity at tick t: central-difference of the analytic position
+    // (exact for the static root; chord-vs-tangent error ~ (2*pi*dt/P)^2/24,
+    // ~1e-9 rel for authored periods >= 60 s). Deterministic by construction.
+    std::optional<math::dvec3> velocity(std::int32_t id, tick_t t) const;
+
 private:
     std::vector<body_def> m_bodies;
 };

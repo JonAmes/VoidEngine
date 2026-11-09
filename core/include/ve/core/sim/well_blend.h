@@ -37,6 +37,12 @@ namespace ve::core::sim {
 math::dvec3 total_accel(const rail_world& world, const math::dvec3& pos, tick_t t,
                         double dominance_band = 0.25);
 
+// Stateless dominant well: argmax of well pull magnitude at (pos, tick),
+// ties -> lower body id, nullopt outside every well. The pure query the
+// assist path uses (frame selection must not carry state); home_well_tracker
+// below is the stateful hysteresis version for framing/HUD.
+std::optional<std::int32_t> dominant_well_at(const rail_world& world, const math::dvec3& pos, tick_t t);
+
 // Per-ship home well: argmax of well magnitude at the queried point, with a
 // challenger only taking over if it exceeds the CURRENT home by
 // (1 + hysteresis) — deterministic given the same (pos, tick) stream; ties

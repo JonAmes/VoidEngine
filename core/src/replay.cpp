@@ -56,14 +56,32 @@ void replay_step(const rail_world& w, const ReplayLog& log, std::size_t i, tick_
     const tick_command& cmd = log.at(i);
     const dvec3 thrust_world = math::rotate(s.att, cmd.thrust_body);
     const dvec3 gravity = total_accel(w, s.pos, tick);
-    const dvec3 accel_world = gravity + thrust_world * (1.0 / p.mass);
+    dvec3 accel_world = gravity + thrust_world * (1.0 / p.mass);
     dvec3 torque = cmd.torque_body;
-    // Assists (4.8): pure functions of (state, gravity-at-tick); gated by
+    // Assists (4.8/4.9): pure functions of (state, world, tick); gated by
     // the command's assist_mask so toggles are part of the replay record.
     if (cmd.assist_mask & kAssist_stabilizer)
         torque = torque + stabilizer_torque(s, kArcade_assist_gains);
     if (cmd.assist_mask & kAssist_auto_level)
         torque = torque + auto_level_torque(gravity, s, kArcade_assist_gains);
+    if (cmd.assist_mask & kAssist_air_brake) {
+        // Home-well frame = stateless dominant well's rail velocity; no
+        // well -> static root frame. (Pure query, so ghost/replay agree.)
+        dvec3 frame_vel(0.0, 0.0, 0.0);
+        if (const auto home = dominant_well_at(w, s.pos, tick))
+            if (const auto fv = w.velocity(*home, tick)) frame_vel = *fv;
+        accel_world = accel_world + air_brake_accel(s.vel, frame_vel, kArcade_assist_gains);
+    }
+    if (cmd.assist_mask & kAssist_autopilot) {
+        const auto tp = w.position(cmd.autopilot_body, tick);
+        const auto tv = w.velocity(cmd.autopilot_body, tick);
+        if (tp && tv) {
+            const dvec3 a_cmd =
+                autopilot_accel(s.pos, s.vel, gravity, *tp, *tv, kArcade_assist_gains);
+            accel_world = accel_world + a_cmd;
+            torque = torque + autopilot_torque(s, a_cmd, kArcade_assist_gains);
+        }
+    }
     integrate_step(s, p, accel_world, torque);
 }
 

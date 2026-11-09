@@ -26,7 +26,11 @@ namespace ve::core::sim {
 struct tick_command {
     math::dvec3 thrust_body{};   // N, ship frame
     math::dvec3 torque_body{};   // N*m, ship frame
-    std::uint32_t assist_mask = 0;  // kAssist_* bits (assist.h, 4.8)
+    std::uint32_t assist_mask = 0;  // kAssist_* bits (assist.h, 4.8/4.9)
+    // Autopilot waypoint when kAssist_autopilot is set (4.9): a rail body
+    // id; the target position/velocity come from the rails at the current
+    // tick, so the log stays tiny and the ghost sim inherits it free.
+    std::int32_t autopilot_body = -1;
 };
 
 // Ordered per-tick command stream (#5: vector, indexed by tick offset).
