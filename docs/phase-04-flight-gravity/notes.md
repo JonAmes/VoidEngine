@@ -34,6 +34,13 @@ Running design record for the arcade flight & gravity core. Process rules live i
 - Purity contract pinned as bitwise `==` (same tick twice; interleaved other-tick calls cannot perturb — there is no state). Nested pin: moon world == planet world + moon local is **bit-exact**, since `position()` sums the same two offsets with IEEE-commutative adds.
 - Well params (well_radius/surface_g/taper_start) ride `body_def` now with shape sanity at insert; the field math itself is 4.4.
 
+### 4.4 — well field math (bb28a80)
+- Profile: constant `surface_g` core → C1 ramp `g = surface_g·(1-u)²(1+2u)`, u=(r−taper)/(well−taper) (≡ 1−smoothstep; factored form avoids cancellation near the edge); exactly 0 at/outside the edge. The quadratic-in-(1−u) edge falloff is what makes the finite-difference slope →0 at the boundary: crossing the well edge is force-continuous, so no teleport-assist needs and no integrator artifacts at the shell.
+- `well_accel_at` returns the **exact zero vector** outside/at-center (early return on g==0) — a scaled `0·ĝ` would leak −0.0 and NaN (r==0) into replay hashes; the zero-guard is a hash-stability requirement, not cosmetics.
+- Rail sampling is an identity, not a second path: `well_accel(world,id,pos,t) == well_accel_at(def, position(id,t), pos)` bitwise, pinned.
+- Test gotcha (fixed before landing): C1 finite-difference pins need small δ — a ±1 m central diff across the taper join measures ~3.7e-6, which looks like a kink but is the honest slope of a cubic 1 m off the join. Use δ ~ 1e-3·range/1000 (δ=1e-3 m pins ~1.5e-8 there) and pin one mid-ramp slope analytically (central diff of a cubic = exact derivative at midpoint) to prove the sampler isn't just always-small.
+- Hand-authored well bodies everywhere (#45d): `add_body` sanity (well>taper>surface, all finite) front-loads def validity so field math stays branch-light.
+
 ## Open threads for later phases (do NOT build here)
 - Safe-speed bubbles + warp multiplier (#22) → Phase 8, rides this well math.
 - Swept contacts → Phase 7 (user ruling 2026-11-09, decision #45e; PLAN corrected).
