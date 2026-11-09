@@ -148,3 +148,30 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
   `berth_1`) whose socket field is the anchor *name* (pairing key, #46a); panel_main
   carries the `repair.target = "w_engL"` facet. Goldens re-pinned: DEF0 1639->2113 B,
   SOCK 8-entries->12-entries 897 B.
+
+
+## 5.9b — cooklet cross-validation gates (4f60996, CI GREEN 93/10659)
+
+- New module `tools/cook/{include/ve/cook/,src/}hullvalidate.{h,cpp}`: byte-faithful DEF0-v2 / SOCK-v2
+  decoders + SOCK re-encoder + `cook_hull_validate` (fixed gate order -> deterministic first error).
+- Gate list (order fixed): face required on door.*/airlock.* (#46c1) -> comp socket names anchor ->
+  #46a interior-empty 1:1 pairing (name==comp id) -> #46b snap/rewrite (cell lattice for kind 0/1,
+  SUBCELL lattice for furnishings; >tolerance = cook fail; snapped coords REWRITTEN into the SOCK unit,
+  re-written only when the bytes change) -> #44 anchor in exactly one section -> #46c/c1 facing
+  (door: neighbor must be a DIFFERENT section; door into space = fail "declare it airlock"; airlock:
+  must face NO section) -> #26a wire endpoints -> #28a facet target names a wire -> #46d seams
+  (partner cooked, socket hardpoint on both sides, seam cell on the EXTREME (not enclosed by sections),
+  grid compatible = integer-multiple cell sizes, symmetric back-declaration).
+- cook.cpp trigger: gates run post-cook for every hull whose def OR input units were (re)cooked this
+  run, in manifest (content-ID) order; reused untouched hulls keep last-run verdict.
+- GOTCHA (caught by e2e): plain passthrough defs are ALSO `kUnitDef0` unit files (raw TOML bytes in
+  payload, 5.8 design). The hull scan must PEEK payload_ver==2 (first 4 LE bytes) or every non-hull
+  def fails the cook with "DEF0 payload version must be 2".
+- #28a action tags: hulldef schema gate rejects tags outside `game/include/ve/game/facet_actions.h`
+  (closed 12-tag registry; grammar via is_valid_attr_key, membership separate). DEF0 component rows
+  gained `u8 face` (0 none, 1 +x, 2 -x, 3 +y, 4 -y, 5 +z, 6 -z) -> DEF0 golden re-pinned (+1B/comp);
+  SOCK payload unchanged.
+- Test footguns: hull anchors must sit on CELL-CORNER multiples (floor(pos/cell) membership), not cell
+  centers; Wire aggregate order is (id,type,from_kind,to_kind,from_ref,to_ref) — kind 1=component.
+  must_fail helper logs `why + " -> " + err`: match the REAL err substring ("facet-action registry").
+- Next: 5.10 runtime load path (loadout_load.h).
