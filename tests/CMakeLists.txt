@@ -48,6 +48,7 @@ add_executable(engine_tests
     core/test_math_projection.cpp
     core/test_math_coords.cpp
     tools/test_container.cpp
+    cook/test_toml.cpp
     tools/test_glb.cpp
     tools/test_mikktspace.cpp
     tools/test_incremental.cpp
