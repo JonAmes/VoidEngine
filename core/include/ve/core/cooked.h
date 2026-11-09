@@ -35,9 +35,21 @@ inline constexpr std::uint32_t kUnitDef0 = fourcc("DEF0"); // normalized def
 inline constexpr std::uint32_t kUnitShdr = fourcc("SHDR"); // cooked SPIR-V (2.5)
 inline constexpr std::uint32_t kUnitFont0 = fourcc("FONT0"); // cooked glyph atlas (3.12)
 
+// SOCK payload (5.6, v2 since 5.9a #46a): the hull's ONE named-anchor table —
+// hardpoint sockets AND #30a interior empties (door_/seat_/panel_/counter_/
+// berth_ prefixes), authored local TRS, node-index order (deterministic):
+//   str mesh_unit_id, u32 payload_ver=2, u32 count,
+//   entries: str name, u8 kind [0 hp_* socket / 1 door_ / 2 seat_ / 3 panel_
+//     / 4 counter_ / 5 berth_], u8 category (ratified 0..3; interior anchors
+//     are always 3 utility), 3*f64 translation, 4*f64 quaternion.
+// 5.9b cross-validation SNAPS lattice coordinates into this payload in place
+// (#46b) — runtime sees only perfect lattice coords for anchor positions.
+// The name is the pairing key against def component ids (#46a).
+
 // DEF0 payload (5.8): a .toml def declaring a top-level `class_tag` is a
-// HULL DEF; the payload is the normalized binary v1 (LE, same doctrine):
-//   u32 payload_ver=1, str class_tag,
+// HULL DEF; the payload is the normalized binary v2 (LE, same doctrine;
+// v2 = facet target field + seams, decision #46):
+//   u32 payload_ver=2, str class_tag,
 //   u8 has_hull_mass f64 | u8 has_com 3*f64 | u8 has_inertia_diag 3*f64,
 //   grid {f64 cell_m, u32 subcell_ratio, f64 cell_height_m, f64 tolerance_m},
 //   u32 sections (str name, u32 boxes, box = 6*i32 lo.xyz then hi.xyz, CELL
@@ -45,15 +57,17 @@ inline constexpr std::uint32_t kUnitFont0 = fourcc("FONT0"); // cooked glyph atl
 //   u32 components (str id, str type, u8 category [0 main/1 rcs/2 gun/3
 //     utility = core socket_category encoding], str socket, u32 tags str*,
 //     u32 attrs {str key, f64} in key order, u32 facets {str action,
-//     f64 range_m, u8 manual}),
+//     f64 range_m, u8 manual, u8 has_target [str target]} (#28a cross-ref),)
 //   u32 catalog (str type_id, u8 category; first-seen order),
 //   u32 wires (str id, u8 type [0 power/1 signal/2 power+signal],
 //     u8 has_capacity f64, u8 from_kind [0 socket/1 component] str from_ref,
 //     u8 to_kind str to_ref),
+//   u32 seams (str partner_def_ref, str socket, u8 has_offset 3*f64) (#46d;
+//     partners also ride refs/manifest deps),
 //   u32 refs (authored order; manifest deps resolve them separately).
 // All #42 unit suffixes are already coerced to SI — the runtime never sees
 // TOML. A def WITHOUT class_tag keeps its raw source bytes (non-hull defs).
-inline constexpr std::uint32_t kCookFormat = 5; // v4: .glb cook gained SOCK unit + strict socket_type (#21); v3: MAT0 texture refs (3.8); v2: MESH tan (3.6)
+inline constexpr std::uint32_t kCookFormat = 5; // v5: DEF0 hull-def binary + SOCK v2 one named-anchor table (#46); v4: .glb cook gained SOCK unit + strict socket_type (#21); v3: MAT0 texture refs (3.8); v2: MESH tan (3.6)
 
 // SHDR payload: u32 stage (kShdrStage*) | SPIR-V binary as cooked by
 // glslangValidator at cook time. Runtime never compiles GLSL (decision #13)

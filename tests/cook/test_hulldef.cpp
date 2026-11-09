@@ -1,5 +1,5 @@
 // test: cook_hull_def — 5.8: the sample hull def (assets/defs) cooks with
-// the glb fixture into the normalized DEF0 v1 payload (grid, sections,
+// the glb fixture into the normalized DEF0 v2 payload (grid, sections,
 // components + attrs + facets, catalog, wires, refs; #42 SI coercion), the
 // manifest records the def -> glb dependency edge, and payload bytes are
 // golden-pinned. test: cook_hull_def_gates — schema failures are loud:
@@ -27,7 +27,7 @@
 
 namespace {
 
-// Minimal reader for the DEF0 v1 payload (layout documented in cooked.h).
+// Minimal reader for the DEF0 v2 payload (layout documented in cooked.h).
 struct Reader {
     const ve::cook::Bytes& b;
     std::size_t at = 0;
@@ -86,13 +86,13 @@ TEST_CASE("cook_hull_def") {
     REQUIRE(mf.count("defs/test_ship.def.toml") == 1u);
     CHECK(mf.at("defs/test_ship.def.toml").deps == std::vector<std::string>{"samples/test_ship.glb"});
 
-    // ---- decode DEF0 v1 exactly (layout pinned in cooked.h) ----
+    // ---- decode DEF0 v2 exactly (layout pinned in cooked.h) ----
     ve::cook::Unit du;
     REQUIRE(ve::cook::read_unit_file(out + "/units/defs/test_ship.def.toml.ck", du, &err));
     CHECK(du.id == "defs/test_ship.def.toml");
     CHECK(du.type == ve::core::cooked::kUnitDef0);
     Reader s{du.payload};
-    CHECK(s.u32() == 1u);  // payload version
+    CHECK(s.u32() == 2u);  // payload version (v2: facet targets + seams)
     CHECK(s.str() == "class.light_freighter");
     CHECK(s.u8() == 1); CHECK(s.f64() == 98000.0);           // hull_mass kg (#14)
     CHECK(s.u8() == 1);
@@ -104,16 +104,23 @@ TEST_CASE("cook_hull_def") {
     CHECK(s.u32() == 4u);        // subcell_ratio
     CHECK(s.f64() == 2.2);       // cell_height m
     CHECK(s.f64() == 0.1);       // tolerance m
-    // sections (#19a)
-    CHECK(s.u32() == 2u);
+    // sections (#19a) — four tiling boxes, CELL coords, flat lo then hi
+    CHECK(s.u32() == 4u);
     CHECK(s.str() == "bridge");
     CHECK(s.u32() == 1u);
-    for (const int v : {-1, 0, -2, 1, 1, -1}) CHECK(s.i32() == v);
+    for (const int v : {-1, 0, -2, 1, 1, -2}) CHECK(s.i32() == v);
+    CHECK(s.str() == "midship");
+    CHECK(s.u32() == 1u);
+    for (const int v : {-3, 0, -1, 3, 1, 0}) CHECK(s.i32() == v);
+    CHECK(s.str() == "engine_bay");
+    CHECK(s.u32() == 1u);
+    for (const int v : {-3, 0, -3, 3, 1, -3}) CHECK(s.i32() == v);
     CHECK(s.str() == "engineering");
     CHECK(s.u32() == 1u);
     for (const int v : {-1, 0, 1, 1, 1, 3}) CHECK(s.i32() == v);
-    // components: authored order, 8 rows
-    CHECK(s.u32() == 8u);
+    // components: authored order, 11 rows (7 hp-mounted + 4 interior anchors
+    // whose socket names pair 1:1 with the GLB's named empties, #46a)
+    CHECK(s.u32() == 11u);
     auto expect_comp = [&](const std::string& id, const std::string& type, int cat,
                            const std::string& sock, int tags) {
         CHECK(s.str() == id);
@@ -123,57 +130,64 @@ TEST_CASE("cook_hull_def") {
         CHECK(s.u32() == static_cast<std::uint32_t>(tags));
         for (int t = 0; t < tags; ++t) (void)s.str();
     };
+    auto skip_attr = [&](int n) {
+        CHECK(s.u32() == static_cast<std::uint32_t>(n));
+        for (int a = 0; a < n; ++a) { (void)s.str(); (void)s.f64(); }
+    };
+    auto skip_facet = [&](int n) {
+        CHECK(s.u32() == static_cast<std::uint32_t>(n));
+        for (int f = 0; f < n; ++f) {
+            (void)s.str(); (void)s.f64(); (void)s.u8();
+            CHECK(s.u8() == 0u);  // no target
+        }
+    };
     expect_comp("engine_L", "thruster.main", 0, "hp_engine_L", 1);
-    {  // attrs in key order (std::map) — #42 coercion already applied
+    {  // attrs in key order (std::map) — #42 coercion already applied;
+       // thrust.gimbal_rad authored "15 deg" -> radians cooked (#46e)
         const std::vector<std::pair<std::string, double>> want = {
             {"mass", 900.0}, {"power.draw", 25000.0},
-            {"thrust.force", 320000.0}, {"thrust.isp", 300.0}};
-        CHECK(s.u32() == 4u);
-        for (const auto& [k, v] : want) { CHECK(s.str() == k); CHECK(s.f64() == v); }
+            {"thrust.force", 320000.0},
+            {"thrust.gimbal_rad", 0.26179938779914945}, {"thrust.isp", 300.0}};
+        CHECK(s.u32() == 5u);
+        for (const auto& [k, v] : want) {
+            CHECK(s.str() == k);
+            CHECK(s.f64() == doctest::Approx(v).epsilon(1e-12));
+        }
     }
-    CHECK(s.u32() == 0u);  // no facets
+    skip_facet(0);
     expect_comp("engine_R", "thruster.main", 0, "hp_engine_R", 1);
-    CHECK(s.u32() == 4u);
-    for (int a = 0; a < 4; ++a) { (void)s.str(); (void)s.f64(); }
-    CHECK(s.u32() == 0u);
+    skip_attr(5); skip_facet(0);
     expect_comp("rcs_wt", "thruster.rcs", 1, "hp_wingtip_R", 0);
-    CHECK(s.u32() == 4u);
-    for (int a = 0; a < 4; ++a) { (void)s.str(); (void)s.f64(); }
-    CHECK(s.u32() == 0u);
+    skip_attr(4); skip_facet(0);
     expect_comp("sensor_scan", "sensor.array", 3, "hp_wingtip_L", 0);
-    CHECK(s.u32() == 4u);
-    {  // unit-suffixed range field lands in meters (#42)
-        CHECK(s.str() == "mass"); CHECK(s.f64() == 60.0);
-        CHECK(s.str() == "power.draw"); CHECK(s.f64() == 1500.0);
-        CHECK(s.str() == "sensor.range"); CHECK(s.f64() == 120000.0);
-        CHECK(s.str() == "sensor.res_arcmin"); CHECK(s.f64() == 2.5);
-    }
-    CHECK(s.u32() == 0u);
+    skip_attr(4); skip_facet(0);  // sensor.range "120 km" -> 120000.0 m (#42)
     expect_comp("turret_dorsal", "turret.dorsal", 2, "hp_dorsal_turret", 0);
-    CHECK(s.u32() == 2u);
-    for (int a = 0; a < 2; ++a) { (void)s.str(); (void)s.f64(); }
-    CHECK(s.u32() == 0u);
-    expect_comp("pilot_seat", "seat.pilot", 3, "hp_seat_pilot", 1);
-    CHECK(s.u32() == 0u);  // no attrs
-    CHECK(s.u32() == 1u);  // facet (#28a)
-    CHECK(s.str() == "use.seat"); CHECK(s.f64() == 1.2); CHECK(s.u8() == 0);
-    expect_comp("reactor_1", "power.reactor", 3, "hp_reactor", 0);
-    CHECK(s.u32() == 2u);
-    {
-        CHECK(s.str() == "mass"); CHECK(s.f64() == 400.0);
-        CHECK(s.str() == "power.supply"); CHECK(s.f64() == 120000.0);
+    skip_attr(2); skip_facet(1);
+    expect_comp("seat_pilot", "seat.pilot", 3, "hp_seat_pilot", 1);
+    skip_attr(0); skip_facet(1);  // use.seat 1.2 m (#28a)
+    expect_comp("door_1", "door.hatch", 3, "door_1", 0);
+    skip_attr(0); skip_facet(1);  // interior anchor, socket==name (#46a)
+    expect_comp("panel_main", "panel.dash", 3, "panel_main", 0);
+    skip_attr(0);
+    CHECK(s.u32() == 2u);  // facets: use.panel plain...
+    CHECK(s.str() == "use.panel"); CHECK(s.f64() == 1.2); CHECK(s.u8() == 0); CHECK(s.u8() == 0);
+    {  // ...and repair.target naming a real wire id (#28a; existence gate = 5.9b)
+        CHECK(s.str() == "repair.target"); CHECK(s.f64() == 1.2); CHECK(s.u8() == 0);
+        CHECK(s.u8() == 1u); CHECK(s.str() == "w_engL");
     }
-    CHECK(s.u32() == 0u);
+    expect_comp("berth_1", "berth.crew", 3, "berth_1", 0);
+    skip_attr(0); skip_facet(1);
+    expect_comp("reactor_1", "power.reactor", 3, "hp_reactor", 0);
+    skip_attr(2); skip_facet(0);
     expect_comp("battery_1", "power.battery", 3, "hp_battery", 0);
-    CHECK(s.u32() == 2u);
-    for (int a = 0; a < 2; ++a) { (void)s.str(); (void)s.f64(); }
-    CHECK(s.u32() == 0u);
+    skip_attr(2); skip_facet(0);
     // catalog: type -> category, first-seen order
-    CHECK(s.u32() == 7u);
+    CHECK(s.u32() == 10u);
     {
         const std::vector<std::pair<std::string, int>> want = {
             {"thruster.main", 0}, {"thruster.rcs", 1}, {"sensor.array", 3},
-            {"turret.dorsal", 2}, {"seat.pilot", 3}, {"power.reactor", 3},
+            {"turret.dorsal", 2}, {"seat.pilot", 3}, {"door.hatch", 3},
+            {"panel.dash", 3}, {"berth.crew", 3}, {"power.reactor", 3},
             {"power.battery", 3}};
         for (const auto& [t, c] : want) { CHECK(s.str() == t); CHECK(static_cast<int>(s.u8()) == c); }
     }
@@ -193,7 +207,11 @@ TEST_CASE("cook_hull_def") {
     expect_wire("w_rcs", 0, false, 0.0, 1, "battery_1", 0, "hp_wingtip_R");
     expect_wire("w_sensor", 0, false, 0.0, 1, "battery_1", 0, "hp_wingtip_L");
     expect_wire("w_turret", 0, true, 6000.0, 1, "reactor_1", 0, "hp_dorsal_turret");
-    expect_wire("w_fire_ctrl", 2, false, 0.0, 1, "pilot_seat", 1, "turret_dorsal");
+    expect_wire("w_fire_ctrl", 2, false, 0.0, 1, "seat_pilot", 1, "turret_dorsal");
+    // seams (#46d): parsed between wires and refs; sample has none (5.9b adds
+    // a two-def seam gate). 5.8 payload had no seam field at all, so this
+    // count is v2's new slot.
+    CHECK(s.u32() == 0u);
     // refs ride the payload too (manifest deps resolve them separately)
     CHECK(s.u32() == 1u);
     CHECK(s.str() == "../samples/test_ship.glb");

@@ -81,24 +81,40 @@ for side in (-1, 1):
     e = bpy.context.object; e.name = f"Engine_{'L' if side > 0 else 'R'}"
     add_mesh(e.name, e, m_engine, fuse)
 
-# ---- hardpoint sockets: empties (nodes with no mesh in glTF) ----
+# ---- named anchors: empties (nodes with no mesh in glTF) ----
+# 5.9a (#44/#46a): hardpoint sockets AND #30a interior empties, all authored
+# on the 2 m x 2.2 m lattice (subcell 4: 0.5 m x/z, 0.55 m y) so 5.9b's snap
+# rewrite is an exact no-op on the fixture. Frame matches the glTF directly
+# (the checked-in .glb is re-authored by JSON-chunk edit; see note below).
 socket_defs = {
-    "hp_engine_L": (1.4, 0, -4.5),
-    "hp_engine_R": (-1.4, 0, -4.5),
-    "hp_wingtip_L": (3.5, 0, -0.3),
-    "hp_wingtip_R": (-3.5, 0, -0.3),
-    "hp_dorsal_turret": (0, 0, 1.0),
+    "hp_engine_L": (2.0, 0.0, -6.0),
+    "hp_engine_R": (-2.0, 0.0, -6.0),
+    "hp_wingtip_L": (6.0, 0.0, 0.0),
+    "hp_wingtip_R": (-6.0, 0.0, 0.0),
+    "hp_dorsal_turret": (0.0, 2.2, 0.0),
     # 5.8: utility hardpoints for the sample hull def (seat/reactor/battery).
-    "hp_seat_pilot": (0.0, 1.0, 1.5),
-    "hp_reactor": (-1.2, -1.5, 0.5),
-    "hp_battery": (1.2, -1.5, 0.5),
+    "hp_seat_pilot": (0.0, 0.0, -4.0),
+    "hp_reactor": (-2.0, 0.0, 2.0),
+    "hp_battery": (2.0, 0.0, 2.0),
 }
-for name, loc in socket_defs.items():
+# #30a interior empties: name == def component id (pairing key, #46a); NO
+# socket_type extras (interior anchors are always utility, #46a). Primary
+# anchors (door_/berth_) sit on the cell lattice; furnishings (seat/panel)
+# may sit on the subcell lattice (#46b).
+empty_defs = {
+    "door_1": (0.0, 0.0, 0.0),
+    "seat_pilot": (0.5, 0.55, -4.0),
+    "panel_main": (0.5, 0.0, -3.5),
+    "berth_1": (2.0, 0.0, 4.0),
+}
+for name, loc in {**socket_defs, **empty_defs}.items():
     emp = bpy.data.objects.new(name, None)
     bpy.context.collection.objects.link(emp)
     emp.empty_display_type = "SINGLE_ARROW"
     emp.location = loc
     emp.parent = fuse if name != "hp_dorsal_turret" else root
+    if name in empty_defs:
+        continue  # interior anchors carry no socket_type (cooklet gate, #46a)
     # RATIFIED categories (decision #21): main/rcs/gun/utility. The cooklet
     # FAILS on any other socket_type, so this map is authoritative.
     # NOTE: the checked-in assets/samples/test_ship.glb was re-authored by

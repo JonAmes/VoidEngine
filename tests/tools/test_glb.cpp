@@ -178,25 +178,35 @@ TEST_CASE("glb_cook_poc") {
     CHECK(root_extras.find("mass_t") != std::string::npos);
     CHECK(r2.at == u.payload.size()); // payload fully consumed: layout exact
 
-    // ---- SOCK unit (5.6): the validated hardpoint table ----------------
+    // ---- SOCK unit (5.6, v2 since 5.9a #46a): one named-anchor table —
+    // hardpoint sockets AND #30a interior empties (door_/seat_/panel_/
+    // counter_/berth_), kind byte + ratified category + local TRS. All
+    // fixture anchors are lattice-exact for the sample def's grid (#44) so
+    // 5.9b's snap-rewrite is an exact no-op on this fixture.
     ve::cook::Unit su;
     REQUIRE(ve::cook::read_unit_file(out + "/units/test_ship.glb.sock.ck", su, &err));
     CHECK(su.id == "test_ship.glb.sock");
     CHECK(su.type == ve::cook::kUnitSock);
     Reader s{su.payload};
     CHECK(s.str() == "test_ship.glb");  // content-ID link to the MESH unit
-    CHECK(s.u32() == 8u);
-    struct Want { const char* name; int cat; double x, y, z; };
-    static const Want want[] = {  // node-index order; ratified categories
-        {"hp_engine_L", 0, 1.4, -4.5, 0.0},   {"hp_engine_R", 0, -1.4, -4.5, 0.0},
-        {"hp_wingtip_L", 3, 3.5, -0.3, 0.0},  {"hp_wingtip_R", 1, -3.5, -0.3, 0.0},
-        {"hp_dorsal_turret", 2, 0.0, 1.0, 0.0},
-        {"hp_seat_pilot", 3, 0.0, 1.5, -1.0},   // 5.8 utility hardpoints (#14:
-        {"hp_reactor", 3, -1.2, 0.5, 1.5},      // socket data lives in the glb)
-        {"hp_battery", 3, 1.2, 0.5, 1.5},
+    CHECK(s.u32() == 2u);               // payload_ver v2
+    CHECK(s.u32() == 12u);              // 8 hardpoints + 4 interior empties
+    struct Want { const char* name; int kind, cat; double x, y, z; };
+    static const Want want[] = {  // node-index order
+        {"hp_engine_L", 0, 0, 2.0, 0.0, -6.0},   {"hp_engine_R", 0, 0, -2.0, 0.0, -6.0},
+        {"hp_wingtip_L", 0, 3, 6.0, 0.0, 0.0},   {"hp_wingtip_R", 0, 1, -6.0, 0.0, 0.0},
+        {"hp_dorsal_turret", 0, 2, 0.0, 2.2, 0.0},
+        {"hp_seat_pilot", 0, 3, 0.0, 0.0, -4.0}, // 5.8 utility hardpoints (#14:
+        {"hp_reactor", 0, 3, -2.0, 0.0, 2.0},    // socket data lives in the glb)
+        {"hp_battery", 0, 3, 2.0, 0.0, 2.0},
+        {"door_1", 1, 3, 0.0, 0.0, 0.0},         // 5.9a #30a interior empties
+        {"seat_pilot", 2, 3, 0.5, 0.55, -4.0},   // (name == def component id,
+        {"panel_main", 3, 3, 0.5, 0.0, -3.5},    //  #46a pairing key)
+        {"berth_1", 5, 3, 2.0, 0.0, 4.0},
     };
     for (const auto& w : want) {
         CHECK(s.str() == w.name);
+        CHECK(static_cast<int>(s.u8()) == w.kind);
         CHECK(static_cast<int>(s.u8()) == w.cat);
         CHECK(s.f64() == doctest::Approx(w.x).epsilon(1e-6));
         CHECK(s.f64() == doctest::Approx(w.y).epsilon(1e-6));

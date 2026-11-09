@@ -13,6 +13,9 @@
 //                      (action + range + optional manual) (#28a).
 //   [[wire]]           id/type power|signal|power+signal, optional capacity,
 //                      from/to = "socket.<id>" | "component.<id>" (#26a).
+//   [[seam]]           partner def ref + shared socket + optional offset
+//                      (#46d; partner joins the manifest dep graph).
+//   facet.target       optional str — repair.target cross-ref (#28a).
 //   refs               top-level string array (manifest deps, existing doctrine).
 // Determinism: every emitted sequence is ordered — components/wires/refs in
 // authored array order, attrs in std::map key order, catalog first-seen.
@@ -34,7 +37,7 @@
 namespace ve::cook {
 namespace {
 
-constexpr std::uint32_t kPayloadVersion = 1;  // DEF0 v1 (cooked.h layout)
+constexpr std::uint32_t kPayloadVersion = 2;  // DEF0 v2: facet target + seams (cooked.h layout)
 
 // LE byte writer — same byte doctrine as the SOCK/MESH payloads (cooked.h).
 struct Writer {
@@ -150,6 +153,11 @@ struct Facet {
     std::string action;
     double range_m = 0.0;
     std::uint8_t manual = 0;
+    // #28a cross-ref target: a `repair.target` facet names a real wire /
+    // junction id. Existence is cross-validated at 5.9b; the string rides
+    // here (DEF0 payload v2).
+    std::uint8_t has_target = 0;
+    std::string target;
 };
 struct Attr {
     std::string key;
@@ -227,12 +235,24 @@ bool parse_component(const TomlValue& row, const std::string& where, CompRow& c,
                     return fail(err, fpath + ".manual must be a boolean");
                 fac.manual = man->boolean ? 1 : 0;
             }
+            if (const TomlValue* tgt = at(f.table, "target")) {
+                if (!tgt->is_string())
+                    return fail(err, fpath + ".target must be a string (wire/junction id, #28a)");
+                fac.has_target = 1;
+                fac.target = tgt->str;
+            }
             c.facets.push_back(std::move(fac));
         }
     }
     return true;
 }
 
+struct SeamRow {
+    std::string partner;  // partner def ref (also pushed into refs)
+    std::string socket;   // own shared socket name
+    std::uint8_t has_offset = 0;
+    std::array<double, 3> off{0, 0, 0};  // module transform offset (SI m, #42)
+};
 struct WireRow {
     std::string id;
     std::uint8_t type = 0;  // 0 power, 1 signal, 2 power+signal
@@ -404,7 +424,37 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
         }
     }
 
-    // ---- emit DEF0 v1 (layout pinned in ve/core/cooked.h) ----
+    // seams (#46d): minimal station-mating declarations; geometry/identity
+    // cross-validation rides 5.9b, the lattice-compat rule is the cook gate.
+    std::vector<SeamRow> seams;
+    if (const TomlValue* ss = at(rt, "seam")) {
+        if (ss->kind != TomlValue::kArray) return fail(e, "seams must be [[seam]] rows");
+        for (std::size_t i = 0; i < ss->array.size(); ++i) {
+            const std::string where = "seam[" + std::to_string(i) + "]";
+            const TomlValue& row = ss->array[i];
+            if (!row.is_table()) return fail(e, where + " must be a table");
+            SeamRow s;
+            if (!req_str(row.table, "partner", where + ".", s.partner, e)) return false;
+            if (!req_str(row.table, "socket", where + ".", s.socket, e)) return false;
+            if (const TomlValue* off = at(row.table, "offset")) {
+                if (off->kind != TomlValue::kArray || off->array.size() != 3)
+                    return fail(e, where + ".offset must be an array of 3 unit strings");
+                for (int k = 0; k < 3; ++k)
+                    if (!req_unit(off->array[k], where + ".offset[" + std::to_string(k) + "]", s.off[k], e))
+                        return false;
+                s.has_offset = 1;
+            }
+            seams.push_back(std::move(s));
+        }
+        // The partner def is a dependency like any ref — the manifest edge
+        // makes 5.9b's both-sides check order-independent. Duplicates fold.
+        for (const auto& s : seams) {
+            if (std::find(refs_out.begin(), refs_out.end(), s.partner) == refs_out.end())
+                refs_out.push_back(s.partner);
+        }
+    }
+
+    // ---- emit DEF0 v2 (layout pinned in ve/core/cooked.h) ----
     Writer w;
     w.u32(kPayloadVersion);
     w.str(class_tag);
@@ -435,7 +485,11 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
         w.u32(static_cast<std::uint32_t>(c.attrs.size()));
         for (const auto& a : c.attrs) { w.str(a.key); w.f64(a.value); }
         w.u32(static_cast<std::uint32_t>(c.facets.size()));
-        for (const auto& f : c.facets) { w.str(f.action); w.f64(f.range_m); w.u8(f.manual); }
+        for (const auto& f : c.facets) {
+            w.str(f.action); w.f64(f.range_m); w.u8(f.manual);
+            w.u8(f.has_target);
+            if (f.has_target) w.str(f.target);
+        }
     }
     w.u32(static_cast<std::uint32_t>(catalog.size()));
     for (const auto& [type, cat] : catalog) { w.str(type); w.u8(cat); }
@@ -449,6 +503,13 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
         w.str(wire.from_ref);
         w.u8(wire.to_kind);
         w.str(wire.to_ref);
+    }
+    w.u32(static_cast<std::uint32_t>(seams.size()));
+    for (const auto& s : seams) {
+        w.str(s.partner);
+        w.str(s.socket);
+        w.u8(s.has_offset);
+        if (s.has_offset) for (double v : s.off) w.f64(v);
     }
     w.u32(static_cast<std::uint32_t>(refs_out.size()));
     for (const auto& r : refs_out) w.str(r);
