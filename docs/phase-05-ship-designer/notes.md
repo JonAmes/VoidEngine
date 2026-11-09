@@ -114,3 +114,37 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
   8 components, 2 sections, 6 wires, seat facet; test stages both fixtures
   under one tmp src tree so the ../samples ref resolves inside the cook set.
 - Old parse_def/DefData line-scanner deleted — DEF0 is the only def payload.
+
+## 5.9a — cooklet data plane (6d7e11a, CI GREEN 89/10567)
+- **SOCK payload v2 (#46a):** one named-anchor table for *every* mesh-less named node.
+  Collection loop classifies by name prefix: `hp_*` kind 0 (socket_type gate still
+  strict), `door_`/`seat_`/`panel_`/`counter_`/`berth_` kinds 1-5 (no socket_type;
+  category always 3=utility), other named nodes are free-form art (ignored).
+  Entry: str name, u8 kind, u8 cat, 3xf64 t, 4xf64 q, node-index order. Duplicate
+  names FAIL the cook (`duplicate named anchor '...'`) — name is the #46a pairing key.
+- **MESH socket section stays hp-only *and keeps the name string*.** Gotcha hit in
+  this task: rewriting the emit loop to the Named struct silently dropped
+  `put_str(p, n.name)` from the MESH section; the reader then decoded garbage
+  (~1 GB str length) and ASan aborted *before* doctest could report. Layout changes
+  in the cooklet must be diffed against the golden-decode readers, not just compiled.
+- **DEF0 payload v2:** facet rows gain `u8 has_target [str target]` after `manual`
+  (#28a: repair.target names a wire/junction id; existence validated in 5.9b);
+  `[[seam]]` rows parsed (partner/socket/optional offset, #46d) and emitted between
+  wires and refs — sample def emits 0 seams; 5.9b adds a two-def seam gate. Seam
+  partner refs flow into the manifest dep graph via the normal refs pass.
+- **#46e:** `thrust.gimbal_rad` joins the game attr-key registry (15 keys). Authored
+  `"15 deg"` -> cooked 0.26179938779914945 rad via #42 units, pinned in the decode.
+- **Lattice-exact fixture (#44/#46b):** every anchor in test_ship.glb sits on-grid for
+  the sample def (cell 2 m x 2.2 m, subcell_ratio 4 -> 0.5/0.55 m subcells, tolerance
+  0.1 m) so 5.9b's snap-rewrite is an exact no-op here; off-lattice + beyond-tolerance
+  cases live in cook_hull_validate unit strings in 5.9b. Primary anchors snap to cell
+  lattice, furnishings (seat/panel/counter) to subcell lattice.
+  **glTF authored translations ARE engine-native in the fixture** (HullRoot identity):
+  the (x, z, -y) swap happens in the Blender author script (Blender Z-up -> engine
+  Y-up), not in the cook. Anchor translations must be authored so the *cooked* value
+  lands on lattice; the cook applies the node's TRS-baked world transform.
+- **Sample def rewritten** (lattice/pairing): 4 tiling section boxes, 11 components —
+  7 hp-mounted + 4 interior-anchor components (`seat_pilot`, `door_1`, `panel_main`,
+  `berth_1`) whose socket field is the anchor *name* (pairing key, #46a); panel_main
+  carries the `repair.target = "w_engL"` facet. Goldens re-pinned: DEF0 1639->2113 B,
+  SOCK 8-entries->12-entries 897 B.
