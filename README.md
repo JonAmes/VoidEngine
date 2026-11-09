@@ -29,7 +29,7 @@ Phase 4 (arcade flight & gravity core) **complete** (2026-11-09): `core/sim/` op
 | 2 | Vulkan bring-up | **complete** |
 | 3 | Mini render framework | **complete** |
 | 4 | Arcade flight & gravity core | **complete** |
-| 5 | Ship designer (hull + hardpoints) | not started |
+| 5 | Ship designer (hull + hardpoints) | in progress |
 | 6 | RPG stats & modifier framework | not started |
 | 7 | Atmosphere, landing, contacts | not started |
 | 8 | Time compression & streaming | not started |
