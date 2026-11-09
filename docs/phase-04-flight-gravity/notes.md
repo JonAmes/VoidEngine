@@ -69,6 +69,13 @@ Running design record for the arcade flight & gravity core. Process rules live i
 - `replay_step` is the single shared step for replay AND the 4.10 ghost sim — one codepath, no ghost-vs-live drift by construction.
 - Deterministic-order caveat for future: ReplayLog is indexed by tick; multi-ship iteration must iterate ships in a fixed order (#5) — the log itself carries no order hazard.
 
+### 4.8 — attitude assists (929b205)
+- Assists are torque *functions*, not stateful controllers: `auto_level_torque(accel, state)` / `stabilizer_torque(state)` are pure (header rule) → the shared `replay_step` applies them per-tick under `tick_command.assist_mask`, so ghost preview (4.10) inherits identical assist behavior with zero extra code, and toggles are part of the replay record.
+- Auto-level PD: error = `cross(cur_up, want_up)` where `want_up = -accel/|accel|` (home-well local up; pass the integrator's gravity, never re-derive). Cross of parallel vectors is **exactly 0** → level hold and void (|accel|==0 → exact zero return) are bitwise no-ops, not tolerance tricks.
+- Heading survives auto-level by construction: the D term damps only the tilt-plane ω (`ω − (ω·ŷ)ŷ`, exact decoupling while level). Pin: level ship spinning about body ŷ keeps `omega.y` **bit-identical** for 600 ticks. Stabilizer is the separate bit that kills yaw too — matches Elite's two-toggle split.
+- Gains hand-authored once (`kArcade_assist_gains`, Q6): kp=5e6/kd=2e6 gives ~critically damped ~5 rad/s level loop at I~2e5; stab_kd=1e5 → 2 s rotation time constant. Tests pin consequences (settle ticks ≤900), not the gains themselves.
+- Test gotchas found while pinning (all correct behavior, wrong pins): (1) a free-falling ship passes THROUGH the constant-g core and local up flips 180° at the center — auto-level correctly FOLLOWS the flip, so disturbance-hold/toggle pins need hover thrust; (2) stabilizer against a constant external torque settles at the damping equilibrium ω=τ/kd≈0.022, not 0 — pinned as equilibrium; (3) disturbance-hold equilibrium tilt includes the tilted-hover-thrust weight component → measured 0.037 rad, pinned with margin.
+
 ## Open threads for later phases (do NOT build here)
 - Safe-speed bubbles + warp multiplier (#22) → Phase 8, rides this well math.
 - Swept contacts → Phase 7 (user ruling 2026-11-09, decision #45e; PLAN corrected).
