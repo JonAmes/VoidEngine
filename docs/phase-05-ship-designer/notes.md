@@ -175,3 +175,28 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
   centers; Wire aggregate order is (id,type,from_kind,to_kind,from_ref,to_ref) — kind 1=component.
   must_fail helper logs `why + " -> " + err`: match the REAL err substring ("facet-action registry").
 - Next: 5.10 runtime load path (loadout_load.h).
+## 5.10 — runtime load path (990a18e, CI GREEN 95/10719)
+
+- `core/sim/loadout_load.h`: `load_hull_loadout(def0_unit, sock_unit, mesh_content_id)
+  -> std::expected<loaded_hull, std::string>`. The caller resolves refs -> content
+  ids (manifest job); the loader never opens files. `loaded_hull` carries the
+  assembled `Loadout` + the MESH unit id string (render-side follow).
+- Design: **every named anchor becomes a loadout socket** (hardpoints AND
+  interior empties, kind byte not interpreted). Components mount uniformly onto
+  anchors -> #46a pairing is total (door_1 component -> door_1 anchor works with
+  plain category equality). Kind prefixes are authoring-time cook conventions
+  only; the loader checks no name grammar (concept-free).
+- Loader doctrine: own bounds-checked little-endian Reader (cooklet writers are
+  private to cooked.cpp); decode order byte-identical to hulldef emit; first
+  violation latches; deterministic error strings ("DEF0 payload: ...", "SOCK
+  payload: ...", "loadout: <assemble_kind>"). Version pins (DEF0 v2, SOCK v2),
+  truncation, trailing bytes, category byte range all gated. face/wires/facets/
+  seams decoded-and-skipped (interior graph 5.11+, stats Phase 6, seams later).
+- Assemble stays the runtime second line of defense (cook gates are author-time).
+- `invalid_hull_mass` gate is `!(mass >= 0.0)` -> NaN/negative only; mass 0 is
+  deliberately legal (dry-mass-zero hulls), so the gate test uses mass = -1.
+- GOTCHA (pinned in commit msg): `std::string pat = "\x09\x00...hp_engine"`
+  silently has size 1 — the const char* ctor stops at the first embedded NUL.
+  Byte patterns with NULs must be range-constructed (mklen() helper in the test).
+  Also: C++ hex escapes are greedy — `\x00eng_1` parses as `\x00e` + "ng_1";
+  split literals (`"\x00" "eng_1"`) or build from Bytes.
