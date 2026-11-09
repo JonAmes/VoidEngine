@@ -26,7 +26,7 @@ namespace ve::core::sim {
 struct tick_command {
     math::dvec3 thrust_body{};   // N, ship frame
     math::dvec3 torque_body{};   // N*m, ship frame
-    std::uint32_t assist_mask = 0;
+    std::uint32_t assist_mask = 0;  // kAssist_* bits (assist.h, 4.8)
 };
 
 // Ordered per-tick command stream (#5: vector, indexed by tick offset).

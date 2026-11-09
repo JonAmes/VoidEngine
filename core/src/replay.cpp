@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "ve/core/math/quat.h"
+#include "ve/core/sim/assist.h"
 #include "ve/core/sim/well_blend.h"
 
 namespace ve::core::sim {
@@ -53,11 +54,17 @@ std::uint64_t replay_interval_hash(const std::vector<std::uint64_t>& tick_hashes
 void replay_step(const rail_world& w, const ReplayLog& log, std::size_t i, tick_t tick,
                  const rigid_params& p, rigid_state& s) {
     const tick_command& cmd = log.at(i);
-    // assist_mask: ignored until 4.8 lands the assist loops (shape frozen now).
     const dvec3 thrust_world = math::rotate(s.att, cmd.thrust_body);
     const dvec3 gravity = total_accel(w, s.pos, tick);
     const dvec3 accel_world = gravity + thrust_world * (1.0 / p.mass);
-    integrate_step(s, p, accel_world, cmd.torque_body);
+    dvec3 torque = cmd.torque_body;
+    // Assists (4.8): pure functions of (state, gravity-at-tick); gated by
+    // the command's assist_mask so toggles are part of the replay record.
+    if (cmd.assist_mask & kAssist_stabilizer)
+        torque = torque + stabilizer_torque(s, kArcade_assist_gains);
+    if (cmd.assist_mask & kAssist_auto_level)
+        torque = torque + auto_level_torque(gravity, s, kArcade_assist_gains);
+    integrate_step(s, p, accel_world, torque);
 }
 
 } // namespace ve::core::sim
