@@ -18,3 +18,11 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
 - No .blend->CI dependency: fixtures are committed blobs; Blender runs offline only
   (docs/tests/blender/make_test_ship.py regenerates when art changes; PoC proved
   byte-identical exports).
+
+### 5.1 — loadout data model (00304b1)
+- ONE build model (#24a): Loadout = hull_info + socket table + validated mounts; stations get it for free by being big hulls (5.11 smoke proves it, not a type hierarchy).
+- Concept-free split is executable: type ids/attr keys are opaque std::strings here; category match is pure enum equality; the enum values (main_/rcs_/gun_/utility_) are hull STRUCTURE (#21), affordances live game-side.
+- assemble() is total + FIXED check order -> deterministic loadout_error for multi-broken input (cooklet reports per-entry; runtime reports first violation, enough to reject).
+- Loadout is immutable: mount/unmount builds a NEW one. Cheap at tens of entries; keeps sim-hash identity simple (no delta semantics to replay).
+- Mount attr values are double (feed fp64 inertia/thrust 5.2/5.5); #42 suffix coercion happens at COOK (5.7), loadout only ever sees SI.
+- Test hygiene trap hit: expected::error() on a value-holding expected is UB — tests use err_of() which REQUIREs failure first, so a validation rule that regresses fails as an assertion, not silent UB.
