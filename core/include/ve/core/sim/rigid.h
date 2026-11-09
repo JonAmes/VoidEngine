@@ -55,4 +55,12 @@ bool state_ok(const rigid_state& s);
 void integrate_step(rigid_state& s, const rigid_params& p, const math::dvec3& accel_world,
                     const math::dvec3& torque_body);
 
+// Variable-dt core of integrate_step. SANCTIONED USE ONLY: the 4.10 ghost
+// preview, which rolls the SAME integrator at reduced substep rate with
+// dt = step_divisor*kSim_tick_dt (a rational multiple of the canonical
+// tick, computed — never a free caller-chosen float, #45a). Sim code must
+// always go through integrate_step.
+void integrate_step_dt(rigid_state& s, const rigid_params& p, const math::dvec3& accel_world,
+                       const math::dvec3& torque_body, double dt);
+
 } // namespace ve::core::sim

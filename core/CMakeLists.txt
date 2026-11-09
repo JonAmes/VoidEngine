@@ -9,6 +9,7 @@ add_library(ve_core STATIC
     src/gravity.cpp
     src/rigid.cpp
     src/replay.cpp
+    src/preview.cpp
     src/assist.cpp
     src/well_blend.cpp
 )

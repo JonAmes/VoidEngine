@@ -55,6 +55,15 @@ std::uint64_t state_hash(tick_t tick, const rigid_state& s);
 std::uint64_t replay_interval_hash(const std::vector<std::uint64_t>& tick_hashes,
                                    std::size_t first, std::size_t last);
 
+// Shared per-tick force/torque assembly: gravity from the rail world at
+// `tick`, command thrust (ship->world), and the assist_mask-gated assist
+// terms (4.8/4.9). replay_step AND ghost_preview both call THIS — it is
+// the "no second physics implementation" enforcement point: preview and
+// live differ only in integration rate, never in physics.
+void assemble_tick_inputs(const rail_world& w, const tick_command& cmd, tick_t tick,
+                          const rigid_params& p, const rigid_state& s,
+                          math::dvec3& accel_world, math::dvec3& torque_body);
+
 // Advance the ship one tick with the log's command for index i
 // (thrust/torque in ship frame -> world; gravity from the rail world at
 // that tick). The single replay step all replay/ghost code must share.

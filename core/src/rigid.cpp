@@ -23,7 +23,11 @@ bool state_ok(const rigid_state& s) {
 
 void integrate_step(rigid_state& s, const rigid_params& p, const dvec3& accel_world,
                     const dvec3& torque_body) {
-    constexpr double dt = kSim_tick_dt;
+    integrate_step_dt(s, p, accel_world, torque_body, kSim_tick_dt);
+}
+
+void integrate_step_dt(rigid_state& s, const rigid_params& p, const dvec3& accel_world,
+                       const dvec3& torque_body, double dt) {
     // Linear: semi-implicit Euler — vel first, then pos with the NEW vel.
     s.vel = s.vel + accel_world * dt;
     s.pos = s.pos + s.vel * dt;
