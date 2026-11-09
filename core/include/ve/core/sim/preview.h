@@ -24,6 +24,15 @@ namespace ve::core::sim {
 // caller's horizon AND the log's end are clamped to this many steps.
 inline constexpr std::size_t kGhost_preview_max_steps = 1024;
 
+// Divisor cap: the coarse dt must keep the STIFFEST assist loop inside the
+// integrator's stability region. The autopilot attitude loop (ap_att_kp,
+// critically damped at ~10 rad/s for arcade masses) plus its flip-phase
+// stall kick are hand-authored for the 60 Hz canonical tick; sampled at
+// 4 ticks or coarser, omega diverges (measured: blowup by tick ~600 at
+// dt=1/6, 4.11 notes). Physics-only logs are fine coarser, but the cap is
+// uniform — a preview that would alias is REFUSED (clamped), not run wrong.
+inline constexpr std::size_t kGhost_preview_max_step_divisor = 4;
+
 // Roll a copy of `start` forward over the log's commands starting at
 // command index `first_cmd` / tick `from_tick`. Returns one state per
 // preview step (after that step); at most min(kGhost_preview_max_steps,

@@ -14,8 +14,17 @@ std::vector<rigid_state> ghost_preview(const rail_world& w, const ReplayLog& log
                                        std::size_t horizon_ticks, std::size_t step_divisor) {
     if (step_divisor == 0 || first_cmd >= log.size())
         return {};
+    if (step_divisor > kGhost_preview_max_step_divisor)
+        step_divisor = kGhost_preview_max_step_divisor;  // alias refusal, header comment
+    // Command-index count, not command count: step k reads
+    // log[first_cmd + k*step_divisor], so the log end bounds k by
+    // ceil(remaining/D) — bounding by `remaining` alone reads out of
+    // bounds when a window starts near the end of a short log (4.11 caught
+    // this via a final 912-tick window at stride 4).
+    const std::size_t cmd_stride_count =
+        (log.size() - first_cmd + step_divisor - 1) / step_divisor;
     const std::size_t steps =
-        std::min({horizon_ticks / step_divisor, log.size() - first_cmd, kGhost_preview_max_steps});
+        std::min({horizon_ticks / step_divisor, cmd_stride_count, kGhost_preview_max_steps});
     std::vector<rigid_state> out;
     out.reserve(steps);
     rigid_state s = start;  // the ghost is a COPY; caller's state untouched

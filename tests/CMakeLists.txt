@@ -39,6 +39,7 @@ add_executable(engine_tests
     core/test_sim_assist.cpp
     core/test_sim_assist_translation.cpp
     core/test_sim_ghost.cpp
+    core/test_sim_flight_figure8.cpp
     core/test_math_projection.cpp
     core/test_math_coords.cpp
     tools/test_container.cpp
