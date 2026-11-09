@@ -428,3 +428,13 @@ byte-identical, 3 goldens strict.
   stage. And `gl_ViewportIndex` in a vertex shader needs
   `#extension GL_ARB_shader_viewport_layer_array : require` (3.9 test got
   it from SPIR-V env; cooked GLSL must say it).
+
+
+## 3.16 — Phase 3 evidence pass (this commit)
+Clean tree at `0af7251`, `rm -rf build`, `tools/ci_local.sh` GREEN
+(no display/compositor/headset; ctest 10.00 s). Full suite on the fresh
+binary: 69 cases / 8,377 assertions. Goldens then regenerated
+(`VE_GOLDEN_UPDATE=1`) from that fresh binary: `git status` on
+`tests/gfx/goldens/` showed ZERO diff — byte-exact across a full
+recompile, so cross-rebuild determinism is demonstrated, not assumed.
+Clean rerun green again. Phase 3 DONE.

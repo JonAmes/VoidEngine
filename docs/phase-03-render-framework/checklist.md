@@ -1,5 +1,5 @@
 # Phase 3 — Mini render framework
-Status: in progress (started 2026-11-08)
+Status: DONE (2026-11-09) (started 2026-11-08)
 
 Shaped by: **#6/#3-AGENTS** (passes write render targets, a Presenter presents — never "the backbuffer"), **#37** (Vulkan 1.3 floor), **#35** (ctest gfx on forced lavapipe; strict byte-exact goldens stay Linux/lavapipe-only), **#34** (RH Y-up −Z fwd — the rig frame), **#2** (off-axis asymmetric per-eye projections are first-class, not a retrofit), **#14** (Blender conventions: node-name keys, cook-side MikkTSpace tangent bake, cooklet-owned flags), **#13** (everything gfx loads by content ID through the manifest), **#15/#16** (immediate-mode debug UI rendering into a target list + world-space canvas; its widget layer is the toolkit for every editor panel), **#38** (OS-neutral C++23 in every new TU).
 
@@ -29,7 +29,8 @@ Existing seams this phase builds on (Phase 2): `gfx/instance|device|frame_sync|p
 - [x] 3.14 World-space canvas primitive: canvas = offscreen render target + scene transform; the same immediate-mode draw path fills it; the scene pass composites the quad. Test: `gfx_world_canvas` — canvas target byte-equals the 2D-rendered equivalent; scene readback shows the canvas quad at hand-computed pixels through an off-axis eye. — commit bc7b74b (ci_local GREEN 2026-11-08; vec2-attr-default-fills-z=1->w=-1 vanishing-quad + blends.size() write-nothing gotchas in notes.md 3.14 section)
 - [x] 3.15 Done-when scene: scripted harness — cook → load the `test_ship.glb` hull (mesh + material + texture by content ID), orbit camera rig through the full framework (rig+eyes, depth, PBR, shadow, UI-free baseline). Test: `gfx_scene_orbit` (single centered eye, orbit angles pinned, golden) + `gfx_scene_stereo_offaxis` (**same scene through two asymmetric off-axis frustums**, Q4 layout, per-eye goldens).
   — commit c2af615 (ci_local GREEN 2026-11-09; depth_format-UNDEFINED-drops-all-depth-writes + reversed-Z-clip.z-equals-window-depth + flat-veye gotchas in notes.md 3.15 section; test named gfx_scene_stereo, same Q4 intent)
-- [ ] 3.16 Phase 3 evidence pass: clean-tree `tools/ci_local.sh` GREEN on the final tree; goldens re-rendered from that binary (determinism across rebuilds, not assumed); README + checklist + notes updated; report to user.
+- [x] 3.16 Phase 3 evidence pass: clean-tree `tools/ci_local.sh` GREEN on the final tree; goldens re-rendered from that binary (determinism across rebuilds, not assumed); README + checklist + notes updated; report to user.
+  — clean tree (0af7251) `rm -rf build` + ci_local GREEN 2026-11-09 (10.00 s, 69/69, 8377 assertions); goldens regenerated with the fresh binary — git status showed zero diff (cross-rebuild determinism demonstrated, not assumed); clean rerun 69/69 again; README + this checklist updated in the same commit
 
 ## Done-when (every PLAN.md "Done when" bullet linked to a task; all checked = phase DONE)
 - [x] (a) a .glb hull model in a scene, orbit camera ← 3.15 (`gfx_scene_orbit` on the cooked `assets/samples/test_ship.glb`)
