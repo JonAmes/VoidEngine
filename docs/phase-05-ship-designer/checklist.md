@@ -1,5 +1,5 @@
 # Phase 5 — The ship designer: hull + hardpoints
-Status: not started
+Status: DONE (2026-11-09)
 
 ## Tasks — execute top to bottom, one commit each
 - [x] 5.1 Loadout data model, concept-free (`core/sim/loadout.h`): hull descriptor (mesh content-ID, class tag, grid block #44), socket table (id string, category, local transform), mounted-component record (component id, socket ref, base attribute-key values); mount/unmount with category match enforced (component category must equal socket category), duplicate socket ids and dangling refs rejected at build time — test: `loadout_model` + `loadout_mount_rules` — commit: 00304b1 (CI GREEN 80/9791)
@@ -18,7 +18,7 @@ Status: not started
 - [x] 5.12 Cargo hold + manifest (#20a): capacity attributes + commodity-type gates; manifest of commodity stacks + owned spare gear; ordered containers (deterministic iteration); add/remove/overflow rules — test: `loadout_cargo` — commit: 632a9f1 (CI GREEN 98/10848)
 - [x] 5.12a (inserted from 5.13 work) mass_point/ship_inertia identity-default trap: mat3 default ctor = identity, so `mass_point{}` carried 1 kg*m^2 per diagonal, contradicting the zero=point-mass contract — fix defaults to dmat3::zero() — test: `sim_inertia_point_mass_default` — commit: 74ea8c1 (CI GREEN 100/10941)
 - [x] 5.13 **Done-when harness** (`ship_designer_flight`): headless — fixture hull cooked→loaded→loadout assembled: hull + 2 engines + 2 wings; assert CoM + inertia-tensor numbers against hand computation; misalign one engine's socket off-centerline → asymmetric thrust produces real torque; Phase 4 **stabilizer assist holds attitude straight** (assist gains scale with the derived inertia, not hand-set constants); console printout of the numbers; whole flight inside a replay-hash determinism pin — commit: 03f5ef4 (CI GREEN 100/10941)
-- [ ] 5.14 Phase 5 evidence pass: clean-tree `tools/ci_local.sh` GREEN on the final tree; README + checklist + notes updated; report to user — commit: —
+- [x] 5.14 Phase 5 evidence pass: clean-tree `tools/ci_local.sh` GREEN on the final tree; README + checklist + notes updated; report to user — commit: this docs commit (evidence: `rm -rf build` + fresh configure/build/ctest GREEN, 100 cases / 10,941 assertions, `git status` shows only docs deltas, zero golden drift)
 
 ## Done-when (every PLAN.md "Done when" bullet linked to a task; all checked = phase DONE)
 - [x] (a) a headless test builds hull+2 engines+2 wings and asserts the CoM/inertia numbers ← 5.13 (+5.2 derivation) — `ship_designer_flight` B: mass 110000, com (0, 49/220, 38/275), tensor + principal axes pinned to exact-rational values (03f5ef4)
