@@ -42,6 +42,7 @@ add_executable(engine_tests
     core/test_sim_flight_figure8.cpp
     core/test_loadout.cpp
     core/test_sim_inertia.cpp
+    core/test_sim_tensor.cpp
     core/test_math_projection.cpp
     core/test_math_coords.cpp
     tools/test_container.cpp
