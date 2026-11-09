@@ -245,9 +245,15 @@ TEST_CASE("gfx_ui_immediate") {
         CHECK(f.verts[7].y == 60.f);                               // body bottom
         CHECK(f.verts[0].r == doctest::Approx(ch8(50)).epsilon(1e-6));
         // Button row: cur = (10,26); width = advances("Go") + 2*pad.
-        int tw = 0;
+        // Engine layout rule (gfx/src/ui.cpp:148-153): the f32 advances are summed as
+        // float and truncated ONCE for the rect width. The previous `int tw += advance`
+        // truncated per glyph (MSVC /WX rejects that implicit narrowing; GCC's wall,
+        // which has no -Wconversion, let it through) and only coincidentally matched:
+        // the cooked advance is 8.27515 px, so 2 glyphs give sum 16.5503 -> int 16,
+        // while per-glyph truncation gives 8 + 8 = 16. Assert the engine's value.
+        float tw = 0.f;
         for (const char* p = "Go"; *p; ++p) tw += font.glyph(static_cast<unsigned char>(*p))->advance;
-        CHECK(tw == 16); // DejaVu Mono 16px: 8 px advance per cp (cook test pins it)
+        CHECK(static_cast<int>(tw) == 16); // DejaVu Mono 16px: 8.27515 advance/cp -> int(sum)
         // (solid run may also include the button rect; locate it by its x span)
         // A glyph-text command exists (title text) on slot 1:
         bool saw_text_cmd = false;
@@ -510,13 +516,18 @@ TEST_CASE("gfx_ui_immediate") {
     exact(44, 8, 50, 55, 70);   // title bar (bare: after the 3 title glyphs, before the close btn)
     exact(32, 46, 38, 42, 55);  // body (gap row between button bottom 44 and checkbox top 50)
     exact(16, 57, 110, 200, 130); // checkbox inner square (checked)
-    int pen = 2 + ve::gfx::ui_context::kPad;
+    // Layout mirrors the engine exactly (gfx/src/ui.cpp:126-135): pen is a float
+    // summed from f32 advances, and the glyph box origin is int(pen) — truncation
+    // is the documented rule, so it gets an explicit cast rather than a silent
+    // narrowing (MSVC /WX rejects the implicit one; advances here are whole
+    // pixels, so int(pen) equals the previous int pen arithmetic bit for bit).
+    float pen = 2.f + ve::gfx::ui_context::kPad;
     const int base = 2 + (16 - (font.ascent - font.descent)) / 2 + font.ascent;
     for (const char* s = "Sys"; *s; ++s) {
         const auto* g = font.glyph(static_cast<unsigned char>(*s));
         REQUIRE(g);
         if (g->w == 0) continue;
-        const int l = pen;
+        const int l = static_cast<int>(pen);
         for (int yy = 0; yy < g->h; ++yy) {
             for (int xx = 0; xx < g->w; ++xx) {
                 const auto cov = font.atlas[(static_cast<std::size_t>(g->y + yy) * font.atlas_w +
