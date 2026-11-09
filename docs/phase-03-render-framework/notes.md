@@ -393,3 +393,38 @@ Evidence committed at `docs/phase-02-vulkan/evidence/windows-nvidia-1080p/` (dev
   rows — both agree with the GPU to the byte, all sampled interior pixels
   byte-exact (NEAREST at texel centers keeps raster jitter under the half-texel
   margin; quad ~28 px per 32 texels).
+
+
+## 3.15 — done-when scene harness (commit c2af615)
+`tests/gfx/test_scene_orbit.cpp` — `gfx_scene_orbit` (centered eye) +
+`gfx_scene_stereo` (checklist said `gfx_scene_stereo_offaxis`; same intent,
+Q4 converged off-axis pair, per-eye goldens `scene_stereo_l/r_64.png`).
+PoC hull `assets/samples/test_ship.glb` cooked with a 64x64 RGBA checker
+TEX0 + hand-authored 12x12 deck quad at hull-floor height; one
+`render_scene(yaw)` closure runs the whole framework per frame: shadow pass
+(3.11 rig + expose) then scene pass Q4-style (3.9 viewportIndex, 3.10 PBR
+frags, 3.11 shadow sample). Pins: silhouette center painted at 4 yaws,
+yaw0 vs yaw90 captures differ, deck depth == CPU reversed-Z unproject
+(2e-3), deck color == CPU GGX mirror w/ checker texel + GPU shadow vis
+(2/255 — matched exactly, BGR(90,86,85) both sides), determinism frame
+byte-identical, 3 goldens strict.
+- Engine side (this commit): MESH payloads now SURFACE their embedded MAT0
+  blocks (`cooked_material` + `parse_mesh_materials` +
+  `load_materials_by_id` in gfx/mesh) and `load_texture_by_id(cooked_dir,
+  id)` in gfx/texture goes through the manifest — an id the manifest does
+  not list is not loadable even if a matching .ck sits on disk (decision
+  #13 authority pattern).
+- **GOTCHA: `pipeline_desc::depth_format` defaults UNDEFINED and rides into
+  `VkPipelineDepthStencilStateCreateInfo::depthStencilFormat` — every depth
+  write is silently dropped (depth buffer reads all-zero in captures, color
+  fine). Any pipeline drawn over a depth attachment MUST set
+  `depth_format = VK_FORMAT_D32_SFLOAT`.** 3.11 set it via its helper;
+  3.3 built pipelines by hand — only a from-scratch cache desc hits this.
+- **GOTCHA: with `depth_range::reversed_1_to_0`, `clip.z/clip.w` IS the
+  window depth** (near 1, far 0) — a CPU-side `0.5*(z+1)` remap makes every
+  depth pin fail with values like win_z 0.503 vs captured 0.0066.
+- **GOTCHA: fragment shaders cannot read `gl_InstanceIndex` for per-eye
+  data** — pass `layout(location=4) flat out vec3 veye` from the vertex
+  stage. And `gl_ViewportIndex` in a vertex shader needs
+  `#extension GL_ARB_shader_viewport_layer_array : require` (3.9 test got
+  it from SPIR-V env; cooked GLSL must say it).
