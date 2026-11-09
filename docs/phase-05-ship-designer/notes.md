@@ -89,3 +89,28 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
   cut inserted everything at root (duplicate-key false positives).
 - gotcha: local TomlValue shadowing a table pointer compiled into
   `ptr->emplace` on a value — renamed fresh/tbl.
+
+## 5.8 — hull def TOML -> DEF0 (aab8de0)
+- Discriminator: top-level `class_tag` in a .toml def => hull def, cooked to
+  normalized DEF0 v1; defs WITHOUT class_tag keep raw-bytes passthrough
+  (ok/bad.toml tests unaffected). Refs extracted either way for manifest deps.
+- DEF0 v1 layout documented in cooked.h; kCookFormat 4->5 (payload semantics).
+- #42 scope interpretation (flagged): length/time/angle authored as
+  unit-suffixed strings; kg/N/W/dimensionless as bare SI numbers; unknown
+  suffixes and bare unit fields are cook errors.
+- TOML gotchas found building this: (1) array-table law — after [[a]],
+  [a.b]/[[a.c]] must descend into the MOST RECENT a entry (parser fixed +
+  regression subcase in cook_toml); (2) dotted keys nest — [component.attrs]
+  + `power.draw = 1` creates a `power` SUB-table, so hulldef flattens nested
+  tables to dot-joined registry keys; (3) root bare keys must precede ALL
+  table headers (parser inserts into last-opened table).
+- Section boxes are FLAT 6-int [lo3 hi3] arrays in CELL coords; nested
+  [lo,hi] pair form rejected (error pins the shape).
+- attrs keys must be in the ratified 14-key registry (5.4). GIMBAL-LIMIT key
+  is NOT in that set — deliberately deferred, decide before 5.13 (5.5 gimbal
+  inputs are runtime-side, not def-side today).
+- Fixture: test_ship.glb +hp_seat_pilot/hp_reactor/hp_battery (all utility);
+  SOCK golden + Blender script synced. Sample assets/defs/test_ship.def.toml:
+  8 components, 2 sections, 6 wires, seat facet; test stages both fixtures
+  under one tmp src tree so the ../samples ref resolves inside the cook set.
+- Old parse_def/DefData line-scanner deleted — DEF0 is the only def payload.
