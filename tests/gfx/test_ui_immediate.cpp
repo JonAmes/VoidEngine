@@ -173,7 +173,12 @@ bool frames_equal(const ve::gfx::ui_frame& a, const ve::gfx::ui_frame& b) {
 } // namespace
 
 TEST_CASE("gfx_ui_immediate") {
-    // ---- 1. cook the font + UI shaders; load font through the RUNTIME loader --
+    // ---- 1. cook the font (no external tool) + UI shaders (GLSL tool) --------
+    // Font cooking needs nothing external; the shaders need a GLSL compiler, and
+    // its absence is an environment gap rather than a gfx fault — the same
+    // tiering the cook golden already uses (tests/tools/test_shader_cook.cpp,
+    // #36). Cooking the font FIRST keeps the CPU half of this case running on a
+    // box without a compiler instead of silently losing that coverage.
     const auto font_src =
         std::filesystem::path(VE_SOURCE_DIR) / "assets/fonts/DejaVuSansMono.ttf";
     REQUIRE(std::filesystem::exists(font_src));
@@ -181,10 +186,24 @@ TEST_CASE("gfx_ui_immediate") {
     const std::string out = tmp_root("out");
     std::string err;
     std::filesystem::copy_file(font_src, std::filesystem::path(src) / "DejaVuSansMono.ttf");
-    write_file(std::filesystem::path(src) / "ui.vert", kUiVert);
-    write_file(std::filesystem::path(src) / "ui.frag", kUiFrag);
-    auto cook = ve::cook::cook_incremental(src, out);
-    REQUIRE_MESSAGE(cook.ok, cook.error);
+    auto font_cook = ve::cook::cook_incremental(src, out);
+    REQUIRE_MESSAGE(font_cook.ok, font_cook.error);
+
+    // The shader cook is the only step that shells out, so it is probed rather
+    // than assumed (probe semantics in ve_test::tool_on_path; VE_GLSLANG may
+    // name a PATH entry or an absolute path). Cooked before broken.ck is written
+    // below, so the source walk only ever sees real sources.
+    const std::string glslang = [] {
+        const char* v = std::getenv("VE_GLSLANG");
+        return (v != nullptr && *v != '\0') ? std::string(v) : std::string("glslangValidator");
+    }();
+    const bool have_glslang = ve_test::tool_on_path(glslang);
+    if (have_glslang) {
+        write_file(std::filesystem::path(src) / "ui.vert", kUiVert);
+        write_file(std::filesystem::path(src) / "ui.frag", kUiFrag);
+        auto shader_cook = ve::cook::cook_incremental(src, out);
+        REQUIRE_MESSAGE(shader_cook.ok, shader_cook.error);
+    }
 
     ve::gfx::font0 font;
     REQUIRE_MESSAGE(ve::gfx::load_cooked_font_file(out + "/units/DejaVuSansMono.ttf.ck",
@@ -349,6 +368,11 @@ TEST_CASE("gfx_ui_immediate") {
     // ---- 5. GPU half (Tier 2, lavapipe only) ---------------------------------
     if (!gfx_test::force_lvp_icd()) {
         MESSAGE("no lavapipe ICD on this box — Tier-2 UI draw skipped");
+        return;
+    }
+    if (!have_glslang) {
+        MESSAGE("no GLSL compiler reachable ('" << glslang
+                << "') — Tier-2 UI draw skipped; install glslang-tools or point VE_GLSLANG at one");
         return;
     }
 

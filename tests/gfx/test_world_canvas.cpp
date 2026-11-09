@@ -17,6 +17,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib> // getenv (VE_GLSLANG probe)
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -210,7 +211,12 @@ void draw_ui_frame(const ve::gfx::device& dev, ve::gfx::offscreen_presenter& pre
 } // namespace
 
 TEST_CASE("gfx_world_canvas") {
-    // ---- 1. cook font + all four shaders; load font via the runtime loader ---
+    // ---- 1. cook the font (no external tool), then the shaders ----------------
+    // Font cooking needs nothing external; the four shader units need a GLSL
+    // compiler, and its absence is an environment gap rather than a gfx fault —
+    // same tiering as tests/tools/test_shader_cook.cpp (#36). Cooking the font
+    // FIRST keeps the FONT0-loader assertions alive on a box with no compiler
+    // instead of silently losing them along with the GPU half.
     const auto font_src =
         std::filesystem::path(VE_SOURCE_DIR) / "assets/fonts/DejaVuSansMono.ttf";
     REQUIRE(std::filesystem::exists(font_src));
@@ -218,20 +224,39 @@ TEST_CASE("gfx_world_canvas") {
     const std::string out = tmp_root("out");
     std::string err;
     std::filesystem::copy_file(font_src, std::filesystem::path(src) / "DejaVuSansMono.ttf");
-    write_file(std::filesystem::path(src) / "ui.vert", kUiVert);
-    write_file(std::filesystem::path(src) / "ui.frag", kUiFrag);
-    write_file(std::filesystem::path(src) / "canvas.vert", kCanVert);
-    write_file(std::filesystem::path(src) / "canvas.frag", kCanFrag);
-    auto cook = ve::cook::cook_incremental(src, out);
-    REQUIRE_MESSAGE(cook.ok, cook.error);
+    auto font_cook = ve::cook::cook_incremental(src, out);
+    REQUIRE_MESSAGE(font_cook.ok, font_cook.error);
 
     ve::gfx::font0 font;
     REQUIRE_MESSAGE(ve::gfx::load_cooked_font_file(out + "/units/DejaVuSansMono.ttf.ck",
                                                    font, &err),
                     err);
 
+    // The shader cook is the only step that shells out, so it is probed rather
+    // than assumed (semantics in ve_test::tool_on_path; VE_GLSLANG may name a
+    // PATH entry or an absolute path). Sources are written only when the tool is
+    // present, so a compiler-less box never leaves .glsl sources for the cooker.
+    const std::string glslang = [] {
+        const char* v = std::getenv("VE_GLSLANG");
+        return (v != nullptr && *v != '\0') ? std::string(v) : std::string("glslangValidator");
+    }();
+    const bool have_glslang = ve_test::tool_on_path(glslang);
+    if (have_glslang) {
+        write_file(std::filesystem::path(src) / "ui.vert", kUiVert);
+        write_file(std::filesystem::path(src) / "ui.frag", kUiFrag);
+        write_file(std::filesystem::path(src) / "canvas.vert", kCanVert);
+        write_file(std::filesystem::path(src) / "canvas.frag", kCanFrag);
+        auto shader_cook = ve::cook::cook_incremental(src, out);
+        REQUIRE_MESSAGE(shader_cook.ok, shader_cook.error);
+    }
+
     if (!gfx_test::force_lvp_icd()) { // Tier 2 needs lavapipe
         MESSAGE("no lavapipe ICD on this box — Tier-2 canvas test skipped");
+        return;
+    }
+    if (!have_glslang) {
+        MESSAGE("no GLSL compiler reachable ('" << glslang
+                << "') — Tier-2 canvas draw skipped; install glslang-tools or point VE_GLSLANG at one");
         return;
     }
 
