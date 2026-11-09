@@ -7,6 +7,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "internal.h" // resolve_ref — texture URIs resolve like def refs (3.8)
@@ -22,6 +23,11 @@ void put_f32(Bytes& p, float v) {
     std::uint8_t b[4];
     std::memcpy(b, &v, 4);
     p.insert(p.end(), b, b + 4);
+}
+void put_f64(Bytes& p, double v) {
+    std::uint8_t b[8];
+    std::memcpy(b, &v, 8);
+    p.insert(p.end(), b, b + 8);
 }
 void put_str(Bytes& p, const std::string& s) {
     put32(p, static_cast<std::uint32_t>(s.size()));
@@ -177,7 +183,7 @@ const json::Value* attr_of(const json::Value& prim, const char* key) {
 
 } // namespace
 
-bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out,
+bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& mesh_out, Unit& sock_out,
                    std::vector<std::string>& tex_deps, std::string* err) {
     auto fail = [&](const std::string& msg) {
         if (err) *err = id + ": " + msg;
@@ -240,11 +246,12 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out,
         if (!walk(r, root)) return fail("bad node child index");
 
     // ---- emit --------------------------------------------------------------
-    out = {};
-    out.type = kUnitMesh;
-    Bytes& p = out.payload;
+    mesh_out = {};
+    mesh_out.type = kUnitMesh;
+    Bytes& p = mesh_out.payload;
 
-    std::vector<std::pair<std::string, int>> socket_list; // node idx
+    // (name, node idx, ratified category 0..3) — node-index order (deterministic).
+    std::vector<std::tuple<std::string, int, int>> socket_list;
     std::string root_extras_json;
 
     std::uint32_t mesh_count = 0;
@@ -255,7 +262,22 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out,
         const bool is_socket = name.rfind("hp_", 0) == 0;
         const auto* extras = node.find("extras");
         if (is_socket) {
-            socket_list.emplace_back(name, static_cast<int>(ni));
+            // 5.6: socket_type must be a ratified category (#21). A typo'd
+            // hardpoint failing LOUD at cook time beats a runtime loadout
+            // that silently can't be mounted into.
+            int cat = -1;
+            const auto* st = extras ? extras->find("socket_type") : nullptr;
+            if (st && st->is_str()) {
+                const std::string s = st->s();
+                if (s == "main") cat = 0;
+                else if (s == "rcs") cat = 1;
+                else if (s == "gun") cat = 2;
+                else if (s == "utility") cat = 3;
+            }
+            if (cat < 0)
+                return fail("socket '" + name +
+                            "': extras.socket_type must be main|rcs|gun|utility (decision #21)");
+            socket_list.emplace_back(name, static_cast<int>(ni), cat);
             continue;
         }
         if (extras && extras->is_obj()) {
@@ -446,7 +468,8 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out,
     put32(p, mat_count);
     p.insert(p.end(), mat_body.begin(), mat_body.end());
     put32(p, static_cast<std::uint32_t>(socket_list.size()));
-    for (const auto& [name, ni] : socket_list) {
+    for (const auto& [name, ni, cat] : socket_list) {
+        (void)cat;  // SOCK carries the category; MESH keeps verbatim extras
         put_str(p, name);
         const auto& m = world[static_cast<std::size_t>(ni)];
         const double zero[3] = {0, 0, 0};
@@ -458,6 +481,21 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out,
         put_str(p, ex);
     }
     put_str(p, root_extras_json);
+
+    // ---- SOCK unit (5.6): validated table, fp64 transforms -------------
+    sock_out.type = kUnitSock;
+    Bytes& sp = sock_out.payload;
+    put_str(sp, id);  // content-ID link to the MESH unit
+    put32(sp, static_cast<std::uint32_t>(socket_list.size()));
+    for (const auto& [name, ni, cat] : socket_list) {
+        put_str(sp, name);
+        sp.push_back(static_cast<std::uint8_t>(cat));
+        const auto& m = world[static_cast<std::size_t>(ni)];
+        // TRS-baked world transform of the node; baked translation for a
+        // point at the local origin IS m.t (rotate of scaled zero = 0).
+        for (double v : m.t) put_f64(sp, v);
+        for (double v : m.q) put_f64(sp, v);
+    }
 
     return true;
 }

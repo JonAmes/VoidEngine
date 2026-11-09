@@ -1,6 +1,8 @@
 // test: glb_cook_poc — the Blender PoC hull (docs/tests/blender/report.md,
 // copied to assets/samples/test_ship.glb) cooks into mesh + material +
-// 5 socket records with socket names + extras preserved.
+// 5 socket records with socket names + extras preserved + the 5.6 SOCK
+// unit (ratified categories, fp64 transforms, golden payload bytes) and
+// the socket_type cook gate.
 // Also: a def referencing an EXISTING texture records the dependency edge
 // in the manifest (0.8 dep wiring); a def referencing a MISSING texture
 // fails the cook cleanly (0.10 done-when bullet).
@@ -54,6 +56,13 @@ struct Reader {
         std::string s(reinterpret_cast<const char*>(&b[at]), n);
         at += n;
         return s;
+    }
+    std::uint8_t u8() { return b[at++]; }
+    double f64() {
+        double v = 0;
+        std::memcpy(&v, &b[at], 8);
+        at += 8;
+        return v;
     }
 };
 
@@ -153,9 +162,9 @@ TEST_CASE("glb_cook_poc") {
         const auto extras = r2.str();
         CHECK(extras.find("socket_type") != std::string::npos);
         if (names.back() == "hp_dorsal_turret")
-            CHECK(extras.find("dorsal") != std::string::npos);
+            CHECK(extras.find("gun") != std::string::npos);      // re-authored (#21)
         if (names.back() == "hp_engine_L")
-            CHECK(extras.find("engine") != std::string::npos);
+            CHECK(extras.find("main") != std::string::npos);     // re-authored (#21)
     }
     std::sort(names.begin(), names.end());
     CHECK(names == std::vector<std::string>{"hp_dorsal_turret", "hp_engine_L",
@@ -167,7 +176,86 @@ TEST_CASE("glb_cook_poc") {
     CHECK(root_extras.find("mass_t") != std::string::npos);
     CHECK(r2.at == u.payload.size()); // payload fully consumed: layout exact
 
+    // ---- SOCK unit (5.6): the validated hardpoint table ----------------
+    ve::cook::Unit su;
+    REQUIRE(ve::cook::read_unit_file(out + "/units/test_ship.glb.sock.ck", su, &err));
+    CHECK(su.id == "test_ship.glb.sock");
+    CHECK(su.type == ve::cook::kUnitSock);
+    Reader s{su.payload};
+    CHECK(s.str() == "test_ship.glb");  // content-ID link to the MESH unit
+    CHECK(s.u32() == 5u);
+    struct Want { const char* name; int cat; double x, y, z; };
+    static const Want want[] = {  // node-index order; ratified categories
+        {"hp_engine_L", 0, 1.4, -4.5, 0.0},   {"hp_engine_R", 0, -1.4, -4.5, 0.0},
+        {"hp_wingtip_L", 3, 3.5, -0.3, 0.0},  {"hp_wingtip_R", 1, -3.5, -0.3, 0.0},
+        {"hp_dorsal_turret", 2, 0.0, 1.0, 0.0},
+    };
+    for (const auto& w : want) {
+        CHECK(s.str() == w.name);
+        CHECK(static_cast<int>(s.u8()) == w.cat);
+        CHECK(s.f64() == doctest::Approx(w.x).epsilon(1e-6));
+        CHECK(s.f64() == doctest::Approx(w.y).epsilon(1e-6));
+        CHECK(s.f64() == doctest::Approx(w.z).epsilon(1e-6));
+        CHECK(s.f64() == 0.0); CHECK(s.f64() == 0.0);  // unrotated empties:
+        CHECK(s.f64() == 0.0); CHECK(s.f64() == 1.0);  // exact identity quat
+    }
+    CHECK(s.at == su.payload.size());
+
+    // golden: SOCK payload bytes are byte-exact pinned (fixture is static;
+    // regenerate with VE_GOLDEN_UPDATE=1 only if the cook format changes).
+    const auto golden = std::filesystem::path(VE_SOURCE_DIR) /
+                        "tests" / "cook" / "fixtures" / "test_ship.sock.golden";
+    if (const char* upd = std::getenv("VE_GOLDEN_UPDATE"); upd && *upd) {
+        ve::core::cooked::write_file_bytes(golden.string(), su.payload, &err);
+        MESSAGE("SOCK golden updated: " << golden.string());
+    } else {
+        ve::cook::Bytes g;
+        REQUIRE_MESSAGE(ve::core::cooked::read_file_bytes(golden.string(), g, &err),
+                        "missing " << golden.string() << " (VE_GOLDEN_UPDATE=1 once, commit it)");
+        CHECK_MESSAGE(g == su.payload, "SOCK payload bytes differ from golden");
+    }
+
+    // manifest edge: sock -> mesh content ID (load-closure pulls the mesh).
+    ve::core::cooked::Manifest mf;
+    REQUIRE(ve::core::cooked::read_manifest(out + "/manifest.bin", mf, &err));
+    REQUIRE(mf.count("test_ship.glb.sock") == 1u);
+    CHECK(mf.at("test_ship.glb.sock").deps == std::vector<std::string>{"test_ship.glb"});
+
     std::filesystem::remove_all(out);
+}
+
+TEST_CASE("cook_socket_type_gate") {
+    // 5.6 done-when: unknown / missing socket_type FAILS the cook (ratified
+    // categories main|rcs|gun|utility, #21). Byte-patch the sample's JSON
+    // chunk in place (equal-length replacements keep chunk lengths valid).
+    ve::cook::Bytes base;
+    std::string err;
+    const std::string sample = std::string(VE_SOURCE_DIR) + "/assets/samples/test_ship.glb";
+    REQUIRE(ve::core::cooked::read_file_bytes(sample, base, &err));
+
+    auto patched = [&](const std::string& from, const std::string& to) {
+        std::string s(base.begin(), base.end());
+        const auto pos = s.find(from);
+        REQUIRE(pos != std::string::npos);
+        REQUIRE(from.size() == to.size());
+        std::copy(to.begin(), to.end(), s.begin() + static_cast<std::ptrdiff_t>(pos));
+        return ve::cook::Bytes(s.begin(), s.end());
+    };
+
+    const std::string q = "\"";
+    std::vector<ve::cook::Bytes> bads;
+    bads.push_back(patched(q + "main" + q, q + "warp" + q));          // unknown category
+    bads.push_back(patched("socket_type", "socket_tylx"));            // missing key
+    for (const auto& bad : bads) {
+        const std::string src = tmp_root("badsock_src");
+        const std::string out = tmp_root("badsock_out");
+        ve::core::cooked::write_file_bytes(src + "/test_ship.glb", bad, &err);
+        auto res = ve::cook::cook_incremental(src, out);
+        CHECK_FALSE(res.ok);
+        CHECK(res.error.find("socket_type") != std::string::npos);
+        std::filesystem::remove_all(src);
+        std::filesystem::remove_all(out);
+    }
 }
 
 TEST_CASE("def_dep_edge") {

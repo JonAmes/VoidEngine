@@ -163,6 +163,8 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         unit.id = id;
         unit.type = unit_type_for(id);
         std::vector<std::string> mesh_tex_deps; // filled by the .glb cook (3.8)
+        Unit sock_unit;                 // 5.6: companion SOCK unit for .glb sources
+        bool has_sock = false;
 
         if (unit.type == kUnitTex0) {
             // PNG -> TEX0: one-time decode to RGBA8 at cook time. Payload:
@@ -191,13 +193,15 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
             // .glb -> MESH: hand-rolled GLB parse, TRS-baked meshes,
             // materials (texture refs -> content IDs, 3.8), hp_* socket
             // records (decision #14).
-            Unit g;
-            if (!cook_glb_unit(source, id, g, mesh_tex_deps, &err)) {
+            Unit g, sk;
+            if (!cook_glb_unit(source, id, g, sk, mesh_tex_deps, &err)) {
                 result.error = "glb '" + id + "': " + err;
                 ++result.counts.failures;
                 continue;
             }
             unit.payload = std::move(g.payload);
+            sock_unit = std::move(sk);  // 5.6: hull .glb also produces a SOCK unit
+            has_sock = true;
         } else if (unit.type == kUnitFont0) {
             // .ttf -> FONT0: stb_truetype rasterization once at cook time
             // (#15: the runtime never parses fonts).
@@ -289,6 +293,22 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
             continue;
         }
         manifest[id] = std::move(entry);
+        if (has_sock) {
+            // Companion SOCK unit (5.6): same source hash (its lifecycle is
+            // tied to the mesh cook), manifest edge sock -> mesh content ID.
+            const std::string sid = id + ".sock";
+            sock_unit.id = sid;
+            if (!write_unit_file(unit_path(out_dir, sid), sock_unit, &err)) {
+                result.error = err;
+                ++result.counts.failures;
+                continue;
+            }
+            ManifestEntry se;
+            se.id = sid;
+            se.source_sha = sha;
+            se.deps = {id};
+            manifest[sid] = std::move(se);
+        }
         manifest_changed = true;
         ++result.counts.cooked;
     }
