@@ -72,3 +72,20 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
 - The checked-in fixture was re-authored by direct JSON-chunk edit (no
   Blender here); make_test_ship.py now carries the same SOCKET_TYPES map —
   keep in sync if regenerated.
+
+### 5.7 — TOML subset parser (354249a)
+
+- tools/cook/src/toml.cpp + include/ve/cook/toml.h. Subset documented in the
+  header; NOT supported (yet): multi-line strings, raw strings, datetimes,
+  inline tables. ve_cooklet now links ve_game (#42 table used at cook time —
+  unit math stays out of core/runtime, #42).
+- DETERMINISM: tables are std::map -> KEY-ORDER iteration, never insertion
+  order. Every def consumer (5.8+) must iterate, not rely on file order.
+- si_from_string("5 km") -> 5000.0; bare / unknown-suffix / inf-nan
+  (from_chars accepts them for doubles! — isfinite gate) / multi-token all
+  hard errors. def numeric-with-unit fields are STRINGS in TOML.
+- gotcha: key insertion must target the CURRENT table (last header opened),
+  and [[arr]] must repoint current-table to the fresh array entry — first
+  cut inserted everything at root (duplicate-key false positives).
+- gotcha: local TomlValue shadowing a table pointer compiled into
+  `ptr->emplace` on a value — renamed fresh/tbl.
