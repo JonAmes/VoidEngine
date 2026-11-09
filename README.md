@@ -32,7 +32,7 @@ Phase 5 (ship designer core) **complete** (2026-11-09): the design-to-flight dat
 | 3 | Mini render framework | **complete** |
 | 4 | Arcade flight & gravity core | **complete** |
 | 5 | Ship designer (hull + hardpoints) | **complete** |
-| 6 | RPG stats & modifier framework | not started |
+| 6 | RPG stats & modifier framework | in progress |
 | 7 | Atmosphere, landing, contacts | not started |
 | 8 | Time compression & streaming | not started |
 | 9 | Combat: weapons, shields, damage | not started |
