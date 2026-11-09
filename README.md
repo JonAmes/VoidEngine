@@ -26,7 +26,7 @@ Phase 3 (mini render framework) **complete** (2026-11-09): the render-framework 
 | 1 | Math & headless core | **complete** |
 | 2 | Vulkan bring-up | **complete** |
 | 3 | Mini render framework | **complete** |
-| 4 | Arcade flight & gravity core | not started |
+| 4 | Arcade flight & gravity core | in progress |
 | 5 | Ship designer (hull + hardpoints) | not started |
 | 6 | RPG stats & modifier framework | not started |
 | 7 | Atmosphere, landing, contacts | not started |
