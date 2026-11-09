@@ -1,0 +1,62 @@
+#pragma once
+// core/sim kinematic rails (decision #17a, #45c): every body's position is
+// an ANALYTIC function of the integer sim tick — no stored state, no
+// integration, evaluable at any tick (replay scrubber, ghost sim, time
+// compression), zero drift, deterministic by construction. The gravity well
+// (#4.4) rides with the body. Rails are circular and coplanar: the local
+// offset spins in the parent's XZ plane, mathematically positive about +Y
+// (#34), so rail motion agrees with the pinned quat_yaw rotation sense.
+// Eccentricity/inclination are later *data*, not code (#45c).
+
+#include <cstdint>
+#include <optional>
+#include <vector>
+
+#include "ve/core/math/vec.h"
+#include "ve/core/sim/time.h"
+
+namespace ve::core::sim {
+
+// All lengths SI (m) and rates SI (s, rad) — #42 puts human units in defs,
+// the runtime only ever sees cooked/hand-authored SI.
+struct body_def {
+    double surface_radius = 0.0;   // m, > 0
+    // Well parameters (consumed by the field math in 4.4; they ride here):
+    double well_radius = 0.0;      // m; 0 = no well, else > surface_radius
+    double surface_g = 0.0;        // m/s^2 inside the well (constant near surface)
+    double well_taper_start = 0.0; // m; field ramps to 0 over [taper_start, well_radius]
+    // Kinematic rail (#17a). parent = -1 pins the body to the static root
+    // anchor (world origin); otherwise a circular orbit about the parent.
+    std::int32_t parent = -1;
+    double orbit_period_s = 0.0;    // > 0 when parent >= 0
+    double orbit_radius_m = 0.0;    // >= 0
+    double orbit_phase_rad = 0.0;   // angle at tick 0, positive about +Y (#34)
+};
+
+// Ordered world (#5): body id == index into the body vector, and a body may
+// only reference a parent added BEFORE it (parent < id). add_body enforces
+// that, which makes parent cycles impossible by construction and lookup
+// O(chain depth). Deterministic iteration = vector order.
+class rail_world {
+public:
+    // Validates and appends; returns the new body id, or nullopt (and
+    // changes nothing) on invalid input — core is exception-free.
+    std::optional<std::int32_t> add_body(body_def def);
+
+    std::size_t body_count() const { return m_bodies.size(); }
+    const body_def* body(std::int32_t id) const;
+
+    // Local orbit offset in the parent's frame at tick t (zero for a root
+    // body). Pure: same inputs => bit-identical dvec3.
+    static math::dvec3 local_rail_offset(const body_def& body, tick_t t);
+
+    // World position at tick t: local offsets summed up the parent chain
+    // (moon rides its planet). nullopt on bad id. Stores nothing — calling
+    // it never advances or perturbs anything.
+    std::optional<math::dvec3> position(std::int32_t id, tick_t t) const;
+
+private:
+    std::vector<body_def> m_bodies;
+};
+
+} // namespace ve::core::sim

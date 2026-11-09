@@ -5,6 +5,11 @@ add_library(ve_core STATIC
     src/log.cpp
     src/assert.cpp
     src/cooked.cpp
+    src/rails.cpp
+    src/gravity.cpp
+    src/rigid.cpp
+    src/replay.cpp
+    src/well_blend.cpp
 )
 # The crash handler is POSIX by construction (sigaction + backtrace_symbols_fd +
 # execinfo.h, and it re-raises so the kernel reports the death). MSVC has no
