@@ -17,6 +17,7 @@ add_library(ve_core STATIC
     src/occupancy.cpp
     src/cargo.cpp
     src/stats.cpp
+    src/tags.cpp
     src/inertia.cpp
     src/thruster.cpp
 )

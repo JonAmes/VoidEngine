@@ -45,6 +45,7 @@ add_executable(engine_tests
     core/test_occupancy.cpp
     core/test_cargo.cpp
     core/test_stats_set.cpp
+    core/test_gameplay_tags.cpp
     core/test_ship_designer_flight.cpp
     core/test_sim_inertia.cpp
     core/test_sim_tensor.cpp
