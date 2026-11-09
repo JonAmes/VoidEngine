@@ -200,3 +200,32 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
   Byte patterns with NULs must be range-constructed (mklen() helper in the test).
   Also: C++ hex escapes are greedy — `\x00eng_1` parses as `\x00e` + "ng_1";
   split literals (`"\x00" "eng_1"`) or build from Bytes.
+
+## 5.11 — seats + occupancy (7a469c7, CI GREEN 97/10785)
+
+- **Seat = tagged mount, core never knows it.** `Loadout` now carries opaque
+  `tags` per mount (`mount_request`/`mounted_component`); `loadout_load`
+  preserves DEF0 tag rows verbatim in def order. `Occupancy` (new
+  `core/sim/occupancy.h/cpp`) seeds a seat for every mount whose tags
+  intersect the *caller-supplied* role registry — the roster itself lives in
+  `game/role_tags.h` (#18c five stations), so AGENTS rule 1 holds.
+- **Set semantics:** duplicate tag in one mount = authoring bug →
+  `loadout_error::duplicate_tag` (assemble-time, after duplicate_attr_key).
+- **Atomicity + determinism:** `sit()` MOVES an already-seated occupant in
+  one call (detach+attach), `seat_busy` refuses without touching anything;
+  seat order = mount order, role_tags order = mount tag order (#5). Errors:
+  unknown_seat > seat_busy/not_seated first-cause order.
+- **#18d dark-not-dead:** `set_dark(seat, bool)` is the health transition
+  stand-in — it NEVER changes occupancy, only availability. `manned(role)` =
+  first non-dark seated seat carrying the role; gunner-KO'd → gun silent
+  with the body still in the chair.
+- **#18a seam to Phase 6:** sitting/standing/dark are the ONLY signals;
+  attaching the StatsSet modifier stack "as a unit" subscribes to these
+  transitions. No stats machinery in core/sim/occupancy.
+- **#24a smoke:** station loadout (dock.port x2 + counter.market + trader
+  seat) assembles like any hull; `trade.counter` is a *facet* tag, not a
+  role, so the counter is not a seat — only `station.trader` is.
+- **Gotcha:** adding a vector field to an aggregate struct trips
+  `-Werror=missing-field-initializers` in EVERY positional brace-init of it
+  (same lesson as 5.3 `optional inertia_tensor`); test_loadout.cpp needed
+  `, {}` on ~14 mount inits.
