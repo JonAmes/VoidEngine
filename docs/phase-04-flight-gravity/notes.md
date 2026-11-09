@@ -54,6 +54,14 @@ Running design record for the arcade flight & gravity core. Process rules live i
 - Caught by the clean-tree pass (`rm -rf build`, fresh configure): 1/1 ctest failure exposed it. Fixed with an explicit `using ve::core::math::dvec3;` in both sim test TUs; 4.4's checkbox now names both commits (3ab9532 carries the repair).
 - AGENTS rule honored post-hoc, but the correct order is: edit -> gate -> commit. Any patch after a green gate invalidates the claim.
 
+### 4.6 — rigid body + integrator (7612315)
+- Angular integration is EXPLICIT MIDPOINT (RK2), not forward Euler — deviation from the checklist's blanket "semi-implicit Euler", inserted as part of the task because plain Euler is *wrong at any dt* for the free top: the linearized Euler equations have imaginary eigenvalues and |1+i·λ·dt| > 1, so ω amplitude pumps exp((λdt)²/2) per tick → NaN within minutes (caught by the |I·ω|-conservation canary, ω=(3,4,5) exploded). Linear (flight-feel) part stays plain semi-implicit Euler. Midpoint amplitude error is O((λdt)⁴)/tick: bounded for arcade spin rates; Phase 5 should revisit if full-tensor inertia + high rates appear (Lie-Poisson integrator if needed).
+- Bit-exact coast trick: pick vel so vel·dt is exactly dyadic — 15 m/s · fl(1/60): fl(1/60) is within half-ulp of 1/60, so 15·fl(1/60) rounds to exactly 0.25; every 0.25 accumulation is exact ⇒ pos.x == 60.0 bitwise after 240 ticks. (0.25 m/s vel does NOT work: 0.25·fl(1/60) is not dyadic.)
+- Semi-implicit position bias under constant accel is exactly +½·a·t·dt (discrete sum dt²·N(N+1)/2); pinned (+1/12 m over 10 s at a=1) rather than hidden — feel tuning rides this exact curve.
+- Torque-free near-major testbed at λ≈2 rad/s keeps midpoint's pump under the 0.1%·L² band over 10 s; near-INTERMEDIATE-axis initial conditions are separatrix-unstable in exact flow too — never use as an integrator invariant.
+- ω = 0 short-circuits to bitwise-unchanged attitude/omega (alpha=0 exactly) — the coast/trim cases stay bit-exact, which 4.7's replay hashes depend on.
+- Gate discipline: this task ran ci_local as the LAST command before `git add` (4.4 incident rule).
+
 ## Open threads for later phases (do NOT build here)
 - Safe-speed bubbles + warp multiplier (#22) → Phase 8, rides this well math.
 - Swept contacts → Phase 7 (user ruling 2026-11-09, decision #45e; PLAN corrected).
