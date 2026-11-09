@@ -9,6 +9,7 @@
 #include "ve/core/sim/gravity.h"
 
 using namespace ve::core;
+using ve::core::math::dvec3;  // nested-namespace names don't leak via using namespace ve::core
 using sim::body_def;
 using sim::rail_world;
 using sim::tick_t;
