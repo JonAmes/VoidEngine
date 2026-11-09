@@ -20,7 +20,12 @@ Running design record for the arcade flight & gravity core. Process rules live i
 - "Down" is a query, not a force: the home-well selection decides framing/assists; the accel is the crossfaded field sum. (Keeps "stand on the moon" and free-fall coherent.)
 
 ## Findings / gotchas (fill as tasks land)
-- (pending 4.2+)
+### 4.2 — fp64 attitude surface (f48f593)
+- `quat<T>`/`mat4<T>` were templated from Phase 1, so `dquat`/`dmat4` needed **zero header changes** — the gap was purely test coverage (27 asserts). No fp64-only surprises: template code behaves identically at double; epsilons simply move to the 1e-12..1e-15 band.
+- `integrate_angular` normalize-every-step keeps |q|−1 < 1e-12 after 10k steps at 1/60 s (closed-form yaw match at 1e-11) — this bound is the replay-hash stability argument for 4.6/4.7.
+- `operator==` on `quat`/doubles is the bitwise-determinism contract used by the pin — 4.7's FNV hash will ride the same raw-bit assumption.
+- `rigid_frame<PosT>` ("rig frame") keeps its **fp32** rotation (render/stats width, documented in `quat.h`) — untouched deliberately. Sim attitude lives in the new `core/sim` rigid body (4.6) as `dquat`; conversion to `drig`/fp32 happens only at render boundaries.
+- `dmat3` NOT added (#45b diagonal principal-axis inertia: ω̇ = I⁻¹(τ − ω×(Iω)) is pure dvec3 algebra). Full tensors get their own math + tests when Phase 5 derives them from mounted parts.
 
 ## Open threads for later phases (do NOT build here)
 - Safe-speed bubbles + warp multiplier (#22) → Phase 8, rides this well math.
