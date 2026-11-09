@@ -118,8 +118,33 @@ Evidence committed at `docs/phase-02-vulkan/evidence/windows-nvidia-1080p/` (dev
   640x360. It stretches horizontally with the wider aspect because the demo's MVP carries no
   aspect term — 2.6/2.9's existing push-constant contract, not a regression.
 - Frame timing at this resolution: median `present_ms` sub-millisecond, occasional 141-149 ms
-  spikes (the implicit overlay layers this box injects into every instance). `ve_demo` logs loader
-  notes without gating on them; only correctness is asserted, so `>=55 fps` holds on average.
+  spikes. `ve_demo` logs loader notes without gating on them; only correctness is asserted, so
+  `>=55 fps` held on average for every run taken on 2026-11-08 (this box was on its physical
+  1920x1080 panel then).
+
+**Present pacing is a property of the desktop, not the engine (measured 2026-11-09).** Overnight
+the box's active desktop changed from the physical panel to a *virtual* display: `Screen::AllScreens`
+now reports a single primary `\\.\DISPLAY23` at **1536x864**, and four VR/virtual adapters are
+enumerated (vorpX Virtual Display, Meta Virtual Monitor, SudoMaker Virtual Display Adapter, Virtual
+Desktop Monitor) while `Win32_VideoController` still shows the NVIDIA part at 1920x1080@**144 Hz**.
+Median `present_ms` went sub-ms -> ~38 ms (a ~26 Hz effective compositor cadence) and `ve_demo`
+began exiting **5** (avg fps < 55) at every resolution. A/B on the same desktop, interleaved
+rounds, identical configure flags (`Debug`, `VE_TRACY=OFF`, `VE_SANITIZERS=OFF`, same
+`-DFETCHCONTENT_SOURCE_DIR_*` seeds, same `VE_GLSLANG`/`VK_LAYER_PATH`):
+
+| binary | median `present_ms` (r1 / r2) | avg fps | exit |
+|---|---|---|---|
+| HEAD `61fc3dc` | 38.01 / 38.58 | 22.45 / 22.91 | 5 / 5 |
+| `f1f669e` (pre-3.8 — the binary that measured **60.21 fps** on 2026-11-08) | 38.31 / 39.30 | 22.97 / 22.92 | 5 / 5 |
+
+So no Phase 3.8 change moved frame pacing. Two other suspects were eliminated independently:
+implicit overlay layers (deny-all `VK_LOADER_*` run: 39.9 ms vs 37.7 ms, and the demo itself
+reports only the Khronos layer active in both runs) and WSL2 pressure (7.6 GB free before and
+after, identical 38 ms). **Reading `summary.txt`:** 2.9's fps gate is a *display* assertion. Before
+treating an exit 5 as a regression, check desktop topology first. Through the entire investigation
+the correctness half stayed green — 120/120 presented, 0 acquire refusals, 2 swapchain rebuilds,
+3 distinct images, 120 distinct push-constant signatures, 18/18 distinct probe hashes, capture diff
+mean_abs 10.70 over 921600 bytes, **0 validation problems**.
 
 - `VE_GLSLANG` with an absolute `glslangValidator.exe` path: without it `cook_shader_golden`
   prints its skip and `ve_demo` fails the cook at exit 2 (its message names the env var).
