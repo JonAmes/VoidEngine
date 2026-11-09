@@ -16,6 +16,7 @@ add_library(ve_core STATIC
     src/loadout_load.cpp
     src/occupancy.cpp
     src/cargo.cpp
+    src/stats.cpp
     src/inertia.cpp
     src/thruster.cpp
 )
