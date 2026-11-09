@@ -148,3 +148,33 @@ TEST_CASE("sim_inertia") {
     const dvec3 u(1.5, -2.0, 0.25), v(0.1, 7.0, -3.0);
     CHECK(dot(u, t * v) == doctest::Approx(dot(transpose(t) * u, v)).epsilon(1e-12));
 }
+
+// mass_point's documented contract: default local_tensor = ZERO matrix =
+// point mass. mat3's default constructor is the identity (correct for
+// transforms), so mass_point{} must NOT value-init local_tensor via it —
+// a default-constructed part was silently carrying 1 kg*m^2 per diagonal
+// (5.13 harness caught this as a +4.0 tensor offset from 4 point parts).
+TEST_CASE("sim_inertia_point_mass_default") {
+    mass_point p{};
+    p.mass = 10.0;
+    p.pos = dvec3(2.0, 0.0, 0.0);
+    for (int i = 0; i < 9; ++i)
+        CHECK(p.local_tensor.m[i] == 0.0);
+    // Pure point mass: tensor equals the parallel-axis term alone —
+    // identical to the explicit-zero spelling.
+    const std::array<mass_point, 2> implicit_parts{p, mass_point{5.0, dvec3(0.0, 3.0, 0.0), dmat3::zero()}};
+    const std::array<mass_point, 2> explicit_parts{
+        mass_point{10.0, dvec3(2.0, 0.0, 0.0), dmat3::zero()},
+        mass_point{5.0, dvec3(0.0, 3.0, 0.0), dmat3::zero()}};
+    auto a = inertia_from_parts(implicit_parts);
+    auto b = inertia_from_parts(explicit_parts);
+    REQUIRE(a.has_value());
+    REQUIRE(b.has_value());
+    CHECK(a->total_mass == b->total_mass);
+    CHECK(a->com_local == b->com_local);
+    for (int i = 0; i < 9; ++i)
+        CHECK(a->tensor.m[i] == b->tensor.m[i]);
+    // Hand pin: m=15, com=(4/3, 1, 0); Ixx = sum m*(dy^2+dz^2) = 10*1 + 5*4 = 30.
+    CHECK(a->com_local.x == doctest::Approx(4.0 / 3.0).epsilon(1e-12));
+    CHECK(a->tensor.m[0] == 30.0);
+}
