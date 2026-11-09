@@ -9,7 +9,12 @@ add_library(ve_core STATIC
     src/gravity.cpp
     src/rigid.cpp
     src/replay.cpp
+    src/preview.cpp
+    src/assist.cpp
     src/well_blend.cpp
+    src/loadout.cpp
+    src/inertia.cpp
+    src/thruster.cpp
 )
 # The crash handler is POSIX by construction (sigaction + backtrace_symbols_fd +
 # execinfo.h, and it re-raises so the kernel reports the death). MSVC has no

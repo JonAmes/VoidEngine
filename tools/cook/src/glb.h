@@ -15,7 +15,10 @@ namespace ve::cook {
 // tex_deps receives the material texture content IDs (3.8); cook.cpp
 // validates them against the scanned source set and records manifest
 // dependency edges (mesh -> texture, decision #13).
-bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& out,
+// Produces TWO units (5.6): MESH (geometry/materials/socket verbatim
+// records) and SOCK (validated hardpoint table, ratified categories
+// main/rcs/gun/utility — unknown/missing socket_type fails the cook).
+bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& mesh, Unit& sock,
                    std::vector<std::string>& tex_deps, std::string* err);
 
 } // namespace ve::cook

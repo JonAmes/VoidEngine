@@ -20,14 +20,16 @@ Phase 2 (Vulkan right of passage) **complete** (2026-11-08): instance/device/que
 
 Phase 3 (mini render framework) **complete** (2026-11-09): the render-framework pieces a real scene needs, each on the headless lavapipe gate with committed byte-exact goldens — depth buffers + reversed-Z conventions (3.3), GPU textures + mipchains (3.7), cooked material/texture dependency graph through the manifest (3.8), one instanced pass rasterizing **per-eye viewports** — desktop `E=1` and stereo through the same path (3.9) — forward PBR-lite (Cook-Torrance GGX, one directional light, UBO/push-constant plumbing) with CPU-reference pins (3.10), a directional-light **shadow map** sampled by the main pass (3.11), cooked text: `.ttf` rasterized once at cook time into FONT0, zero font parsing at runtime (3.12), an immediate-mode UI core that is pure CPU — Vulkan-free by design — plus its render pass (3.13), world-space canvases = presenter targets sampled by the scene (3.14), and the **done-when scene harness** (3.15): the cooked `test_ship.glb` hull with embedded materials + checker texture loaded by content ID, orbiting camera through the full framework (rig+eyes, depth, PBR, shadow), deck pixels pinned against a CPU GGX/reversed-Z mirror to the byte, per-eye off-axis stereo goldens (decision #34 conventions exercised end to end). 69 test cases / 8,377 assertions, goldens re-rendered byte-identical from a fresh-compiled binary (3.16 evidence).
 
+Phase 4 (arcade flight & gravity core) **complete** (2026-11-09): `core/sim/` opens as the sim's first resident, pure Tier 1 / headless — canonical **60 Hz integer-tick time** (decision #45) and fp64 attitude (`dquat`); analytic **kinematic rails** (parent chains, zero stored state, wells sampled at any tick); arcade **C1 gravity wells** with soft-dominance **overlap crossfade** (the moon-in-planet design case: stand on the moon, its gravity wins against the planet in its sky); a **rigid body + fixed-tick integrator** (linear semi-implicit Euler; angular explicit-midpoint RK2 — forward Euler on the free top is provably unstable) with **bitwise-deterministic replay** (command-only logs, FNV-1a-64 raw-bit state hashes); toggleable **arcade assists** — auto-level (zero yaw authority), stabilizer, air-brake (home-well rail frame, pinned `g/k` equilibrium floor), and a **stopping-distance autopilot** that parks on moving rail waypoints (a plain position PD overshoots by kilometres); and **trajectory preview** — the ghost sim rolls a state copy through the *same* assembled physics as replay at a reduced rational rate, with a hard 1024-step budget and a divisor cap where the assist loops would alias. The done-when harness (`sim_flight_figure8`) flies a 4-leg autopilot figure-8 across a 2-planet + 1-moon testbed: every leg parks within 10 m of its waypoint, windowed ghost previews track live to 23 m worst-case across the whole flight, and assist-off ballistics replay bit-identically. 79 test cases / 9,742 assertions; clean-tree rebuild evidence pass (4.12).
+
 | Phase | Area | Status |
 |---|---|---|
 | 0 | Toolchain & skeleton | **complete** |
 | 1 | Math & headless core | **complete** |
 | 2 | Vulkan bring-up | **complete** |
 | 3 | Mini render framework | **complete** |
-| 4 | Arcade flight & gravity core | in progress |
-| 5 | Ship designer (hull + hardpoints) | not started |
+| 4 | Arcade flight & gravity core | **complete** |
+| 5 | Ship designer (hull + hardpoints) | in progress |
 | 6 | RPG stats & modifier framework | not started |
 | 7 | Atmosphere, landing, contacts | not started |
 | 8 | Time compression & streaming | not started |

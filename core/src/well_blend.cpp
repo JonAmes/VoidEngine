@@ -41,6 +41,17 @@ dvec3 total_accel(const rail_world& world, const dvec3& pos, tick_t t, double do
     return acc;
 }
 
+std::optional<std::int32_t> dominant_well_at(const rail_world& world, const dvec3& pos, tick_t t) {
+    std::int32_t best = -1;
+    double best_a = 0.0;
+    for (std::int32_t i = 0, n = static_cast<std::int32_t>(world.body_count()); i < n; ++i) {
+        const double a = length(well_accel(world, i, pos, t));
+        if (a > best_a) { best_a = a; best = i; }  // strict >: ties keep lower id
+    }
+    if (best < 0) return std::nullopt;
+    return best;
+}
+
 std::optional<std::int32_t> home_well_tracker::update(const rail_world& world, const dvec3& pos, tick_t t) {
     std::int32_t best = -1;
     double best_a = 0.0;

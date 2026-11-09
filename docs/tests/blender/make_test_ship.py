@@ -95,7 +95,14 @@ for name, loc in socket_defs.items():
     emp.empty_display_type = "SINGLE_ARROW"
     emp.location = loc
     emp.parent = fuse if name != "hp_dorsal_turret" else root
-    emp["socket_type"] = name.split("_")[1]   # -> glTF extras per socket
+    # RATIFIED categories (decision #21): main/rcs/gun/utility. The cooklet
+    # FAILS on any other socket_type, so this map is authoritative.
+    # NOTE: the checked-in assets/samples/test_ship.glb was re-authored by
+    # direct JSON-chunk edit (no Blender on the CI box); keep in sync.
+    SOCKET_TYPES = {"hp_engine_L": "main", "hp_engine_R": "main",
+                    "hp_wingtip_L": "utility", "hp_wingtip_R": "rcs",
+                    "hp_dorsal_turret": "gun"}
+    emp["socket_type"] = SOCKET_TYPES[name]   # -> glTF extras per socket
 
 # ---- simple UVs on fuselage so TEX_COORD_0 exists in the export ----
 bpy.context.view_layer.objects.active = fuse

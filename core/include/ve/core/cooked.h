@@ -29,12 +29,13 @@ constexpr std::uint32_t fourcc(const char* s) {
 inline constexpr std::uint32_t kUnitRawD = fourcc("RAWD"); // raw passthrough bytes
 inline constexpr std::uint32_t kUnitTex0 = fourcc("TEX0"); // decoded texture (0.7)
 inline constexpr std::uint32_t kUnitMesh = fourcc("MESH"); // cooked mesh (0.8)
+inline constexpr std::uint32_t kUnitSock = fourcc("SOCK"); // cooked socket table (5.6)
 inline constexpr std::uint32_t kUnitMat0 = fourcc("MAT0"); // cooked material (0.8)
 inline constexpr std::uint32_t kUnitDef0 = fourcc("DEF0"); // normalized def
 inline constexpr std::uint32_t kUnitShdr = fourcc("SHDR"); // cooked SPIR-V (2.5)
 inline constexpr std::uint32_t kUnitFont0 = fourcc("FONT0"); // cooked glyph atlas (3.12)
 
-inline constexpr std::uint32_t kCookFormat = 3; // v3: MAT0 gained texture content-ID refs (3.8); v2: MESH gained tan[vc*4] (3.6)
+inline constexpr std::uint32_t kCookFormat = 4; // v4: .glb cook gained SOCK unit + strict socket_type (#21); v3: MAT0 texture refs (3.8); v2: MESH tan (3.6)
 
 // SHDR payload: u32 stage (kShdrStage*) | SPIR-V binary as cooked by
 // glslangValidator at cook time. Runtime never compiles GLSL (decision #13)
@@ -79,6 +80,16 @@ inline constexpr std::uint32_t kTexFmtRgba8 = 0;
 //     u32 name_len, name | f32 translation[3] (world, TRS-baked)
 //     u32 extras_len, extras as stable JSON bytes (keys sorted)
 //   u32 root_extras_len, root-node extras JSON bytes (hull_class, mass_t...)
+
+// SOCK payload (5.6; one per hull .glb, unit id = <glb id>.sock; the
+// runtime hardpoint table — the MESH socket section above is debug/author
+// verbatim, SOCK is authoritative). Categories are the RATIFIED set
+// (decision #21): 0=main, 1=rcs, 2=gun, 3=utility; anything else fails
+// the cook. All little-endian:
+//   str mesh_content_id (link back to the MESH unit) | u32 socket_count,
+//   then per socket (node index order — deterministic):
+//     str id (hp_* node name) | u8 category
+//     f64 position[3] (world, TRS-baked) | f64 orientation[4] (x,y,z,w)
 
 // ---- cooked unit: self-contained, independently loadable ------------------
 // 'VECK' | u32 format | u32 type | u32 id_len | id bytes | u64 payload_len |

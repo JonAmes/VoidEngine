@@ -10,9 +10,10 @@ add_library(ve_cooklet STATIC
     src/mikktspace.cpp
     src/png.cpp
     src/shader.cpp
+    src/toml.cpp
 )
 target_include_directories(ve_cooklet PUBLIC include)
-target_link_libraries(ve_cooklet PUBLIC ve_core stb_headers)
+target_link_libraries(ve_cooklet PUBLIC ve_core ve_game stb_headers)  # ve_game: #42 units table at cook time
 
 # stb is third-party single-header code compiled as C++: the warning wall
 # (-Wall -Wextra -Wpedantic -Werror) governs OUR code. Scoped suppressions
