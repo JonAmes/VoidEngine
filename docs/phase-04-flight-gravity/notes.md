@@ -9,7 +9,7 @@ Running design record for the arcade flight & gravity core. Process rules live i
 
 ## Known gaps this phase closes
 - `core/` has zero sim code — `core/sim/` (include/`ve/core/sim/`) opens here: rails, well field, home-well/crossfade, rigid body, integrator, replay hash, assists, ghost sim.
-- No fp64 attitude math (`quatf` is fp32 only) → task 4.2.
+- No test coverage on fp64 attitude math (`quat<T>`/`mat4<T>` templates give `dquat`/`dmat4` but Phase 1 never pinned them) → task 4.2.
 - No command/replay/hash machinery → 4.7; Phase 6's scrubber and Phase 8's warp determinism both consume its shape.
 
 ## Conventions this phase sets
