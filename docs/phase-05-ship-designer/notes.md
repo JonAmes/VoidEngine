@@ -251,3 +251,45 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
   through the normal `Loadout::assemble` mount path, not this module.
 - Interpretation logged: cargo MASS aggregation into the ship is Phase 6
   (component mass flows into stats aggregation like every other component).
+
+## 5.12a — mass_point identity-default trap (74ea8c1, CI GREEN 100/10941)
+
+`math::mat3`'s default constructor is the **identity** (right for transforms).
+`mass_point::local_tensor{}` and `ship_inertia::tensor{}` value-init through
+it, so every default-constructed part silently carried 1 kg*m^2 per diagonal
+while the header comment promised "zero matrix = point mass". The 5.13
+harness hit it as a purely isotropic +4.0 tensor offset (four point-mass
+mounts), which is what made it findable: off-diagonals and mass/com stayed
+exact. Defaults are now `= math::dmat3::zero()` with trap comments. If a
+future struct pairs a concept-y zero default with mat3, spell the NSDMI —
+`T x{}` on mat3 means identity, always.
+
+## 5.13 — ship_designer_flight done-when harness (03f5ef4, CI GREEN 100/10941)
+
+Whole Phase 5 chain in one headless test: `cook_incremental` fixture copies ->
+DEF0+SOCK -> `load_hull_loadout` (mesh identity + 12 anchors as sockets) ->
+designer `Loadout` (hull + 2 engines + 2 wings) assembled **on loaded socket
+anchors** -> full-tensor mass properties -> thruster torque -> derived-gain
+stabilizer flight -> replay-hash determinism.
+
+Pins are **exact rationals** pre-computed (Python Fraction) from the
+lattice-exact fixture anchors, so the test proves the engine's arithmetic,
+not self-consistency: mass 110000; com (0, 49/220, 38/275); tensor diag
+(6360726/11, 15857376/11, 15671350/11) with yz couple -70560/11 as the only
+off-diagonal (symmetric-x layout cancels xy/xz exactly — a real regression
+tripwire: an x-asymmetry would light those up); principal axes
+(578247.818, 1422510.44, 1443737.38) from the yz 2x2 quadratic.
+
+Flight: empty `rail_world` (no gravity). Spin decay through the replay_step
+assist path: w_after_spin = tau*(I^-1)_yy*decay_ticks exactly; after 90 more
+ticks w < 1e-8, drift 0.0836 rad matches the first-order
+w0/(kd/I)=w0*I/(5*I)=0.2*I envelope. Burn: quasi-steady w = T/kd
+(0.0612 pinned, |wy|,|wz| < 0.05); contrast run WITHOUT assist veers to
+w=0.308 with 2.4x lateral velocity — that contrast IS the done-when claim
+("assist gains scale with derived inertia"). Determinism: per-tick FNV state
+hash, 690-tick interval hash pin-free (byte identity across reruns), 1-ULP
+command mutation canary diverges.
+
+Gotchas hit: doctest `CHECK(a && b)` hides which side failed — split; and
+`grep`-filtered test runs mask exit status — check the doctest summary line
+explicitly before calling anything green.
