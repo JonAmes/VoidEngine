@@ -88,6 +88,10 @@ socket_defs = {
     "hp_wingtip_L": (3.5, 0, -0.3),
     "hp_wingtip_R": (-3.5, 0, -0.3),
     "hp_dorsal_turret": (0, 0, 1.0),
+    # 5.8: utility hardpoints for the sample hull def (seat/reactor/battery).
+    "hp_seat_pilot": (0.0, 1.0, 1.5),
+    "hp_reactor": (-1.2, -1.5, 0.5),
+    "hp_battery": (1.2, -1.5, 0.5),
 }
 for name, loc in socket_defs.items():
     emp = bpy.data.objects.new(name, None)
@@ -101,7 +105,9 @@ for name, loc in socket_defs.items():
     # direct JSON-chunk edit (no Blender on the CI box); keep in sync.
     SOCKET_TYPES = {"hp_engine_L": "main", "hp_engine_R": "main",
                     "hp_wingtip_L": "utility", "hp_wingtip_R": "rcs",
-                    "hp_dorsal_turret": "gun"}
+                    "hp_dorsal_turret": "gun",
+                    "hp_seat_pilot": "utility", "hp_reactor": "utility",
+                    "hp_battery": "utility"}
     emp["socket_type"] = SOCKET_TYPES[name]   # -> glTF extras per socket
 
 # ---- simple UVs on fuselage so TEX_COORD_0 exists in the export ----

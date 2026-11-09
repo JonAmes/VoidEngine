@@ -8,6 +8,7 @@
 #include <thread>
 
 #include "internal.h"
+#include "ve/cook/hulldef.h"
 #include "font.h"
 #include "glb.h"
 #include "png.h"
@@ -84,52 +85,6 @@ bool resolve_ref(const std::string& def_id, const std::string& ref, std::string&
     return true;
 }
 
-bool parse_def(const Bytes& data, DefData& out, std::string* err) {
-    std::string text(data.begin(), data.end());
-    std::size_t pos = 0;
-    int line_no = 0;
-    while (pos <= text.size()) {
-        std::size_t nl = text.find('\n', pos);
-        std::string line = text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
-        pos = (nl == std::string::npos) ? text.size() + 1 : nl + 1;
-        ++line_no;
-        bool in_quote = false;
-        for (std::size_t i = 0; i < line.size(); ++i) {
-            if (line[i] == '"') in_quote = !in_quote;
-            else if (line[i] == '#' && !in_quote) { line.resize(i); break; }
-        }
-        auto eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        auto trim = [](std::string s) {
-            auto issp = [](unsigned char c) { return std::isspace(c) != 0; };
-            while (!s.empty() && issp(s.front())) s.erase(s.begin());
-            while (!s.empty() && issp(s.back())) s.pop_back();
-            return s;
-        };
-        std::string key = trim(line.substr(0, eq));
-        std::string val = trim(line.substr(eq + 1));
-        if (key != "refs") continue;
-        if (val.size() >= 2 && val.front() == '[' && val.back() == ']') {
-            // collect every quoted string in the array
-            std::size_t i = 1;
-            while (i < val.size()) {
-                auto q1 = val.find('"', i);
-                if (q1 == std::string::npos) break;
-                auto q2 = val.find('"', q1 + 1);
-                if (q2 == std::string::npos) {
-                    if (err) *err = "unterminated string in refs array (line " + std::to_string(line_no) + ")";
-                    return false;
-                }
-                out.refs.push_back(val.substr(q1 + 1, q2 - q1 - 1));
-                i = q2 + 1;
-            }
-        } else {
-            if (err) *err = "refs must be a string array (line " + std::to_string(line_no) + ")";
-            return false;
-        }
-    }
-    return true;
-}
 
 CookResult cook_incremental(const std::string& src_dir, const std::string& out_dir) {
     CookResult result;
@@ -258,15 +213,19 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         }
 
         if (unit.type == kUnitDef0) {
-            DefData def;
-            bool def_ok = parse_def(unit.payload, def, &err);
-            if (!def_ok) {
-                result.error = "def '" + id + "': " + err;
+            // 5.8: hull defs compile to the normalized DEF0 v1 payload
+            // (cooked.h); plain defs keep raw bytes; refs -> manifest deps.
+            const std::string text(unit.payload.begin(), unit.payload.end());
+            std::vector<std::string> def_refs;
+            std::string def_err;
+            if (!cook_hulldef_unit(text, unit.payload, def_refs, &def_err)) {
+                result.error = "def '" + id + "': " + def_err;
                 ++result.counts.failures;
                 continue;
             }
+            bool def_ok = true;
             std::set<std::string> id_set(ids.begin(), ids.end());
-            for (const auto& ref : def.refs) {
+            for (const auto& ref : def_refs) {
                 std::string dep_id;
                 if (!resolve_ref(id, ref, dep_id)) {
                     result.error = "def '" + id + "' ref '" + ref + "' escapes the source root";

@@ -220,6 +220,13 @@ struct Parser {
                     if (it == tbl->end()) {
                         TomlValue fresh; fresh.kind = TomlValue::kTable;
                         it = tbl->emplace(path[d], std::move(fresh)).first;
+                    } else if (it->second.kind == TomlValue::kArray) {
+                        // [a.b] after [[a]]: sub-table of the most recent entry
+                        if (it->second.array.empty() ||
+                            it->second.array.back().kind != TomlValue::kTable)
+                            return fail("cannot descend into array '" + path[d] + "'");
+                        tbl = &it->second.array.back().table;
+                        continue;
                     } else if (it->second.kind != TomlValue::kTable) {
                         return fail("cannot redefine '" + path[d] + "' as table");
                     }
@@ -270,6 +277,12 @@ struct Parser {
                 if (it == parent->end()) {
                     TomlValue t; t.kind = TomlValue::kTable;
                     it = parent->emplace(path[d], std::move(t)).first;
+                } else if (it->second.kind == TomlValue::kArray) {
+                    if (it->second.array.empty() ||
+                        it->second.array.back().kind != TomlValue::kTable)
+                        return fail("cannot descend into array '" + path[d] + "'");
+                    parent = &it->second.array.back().table;
+                    continue;
                 } else if (it->second.kind != TomlValue::kTable) {
                     return fail("cannot descend into non-table '" + path[d] + "'");
                 }

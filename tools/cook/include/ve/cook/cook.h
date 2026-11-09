@@ -44,9 +44,5 @@ bool resolve_ref(const std::string& def_id, const std::string& ref,
 
 // Parse the minimal def subset we support in Phase 0 (key = "string" /
 // key = ["a", "b"] lines; '#' comments). Expands with the defs phase.
-struct DefData {
-    std::vector<std::string> refs;
-};
-bool parse_def(const Bytes& data, DefData& out, std::string* err);
 
 } // namespace ve::cook

@@ -1,6 +1,6 @@
 // test: glb_cook_poc — the Blender PoC hull (docs/tests/blender/report.md,
 // copied to assets/samples/test_ship.glb) cooks into mesh + material +
-// 5 socket records with socket names + extras preserved + the 5.6 SOCK
+// 8 socket records with socket names + extras preserved + the 5.6 SOCK
 // unit (ratified categories, fp64 transforms, golden payload bytes) and
 // the socket_type cook gate.
 // Also: a def referencing an EXISTING texture records the dependency edge
@@ -152,9 +152,10 @@ TEST_CASE("glb_cook_poc") {
     }
     CHECK(found_folded_emissive);
 
-    // sockets: exactly the 5 authored hp_* empties, names + extras preserved.
+    // sockets: exactly the 8 authored hp_* empties (5.6 five + 5.8 three
+    // utility hardpoints for seat/reactor/battery), names + extras preserved.
     const auto socket_count = r2.u32();
-    CHECK(socket_count == 5);
+    CHECK(socket_count == 8);
     std::vector<std::string> names;
     for (std::uint32_t s = 0; s < socket_count; ++s) {
         names.push_back(r2.str());
@@ -167,8 +168,9 @@ TEST_CASE("glb_cook_poc") {
             CHECK(extras.find("main") != std::string::npos);     // re-authored (#21)
     }
     std::sort(names.begin(), names.end());
-    CHECK(names == std::vector<std::string>{"hp_dorsal_turret", "hp_engine_L",
-                                           "hp_engine_R", "hp_wingtip_L", "hp_wingtip_R"});
+    CHECK(names == std::vector<std::string>{"hp_battery", "hp_dorsal_turret",
+                                           "hp_engine_L", "hp_engine_R", "hp_reactor",
+                                           "hp_seat_pilot", "hp_wingtip_L", "hp_wingtip_R"});
 
     // hull-level extras ride the root node.
     const auto root_extras = r2.str(); // str() consumes its own length prefix
@@ -183,12 +185,15 @@ TEST_CASE("glb_cook_poc") {
     CHECK(su.type == ve::cook::kUnitSock);
     Reader s{su.payload};
     CHECK(s.str() == "test_ship.glb");  // content-ID link to the MESH unit
-    CHECK(s.u32() == 5u);
+    CHECK(s.u32() == 8u);
     struct Want { const char* name; int cat; double x, y, z; };
     static const Want want[] = {  // node-index order; ratified categories
         {"hp_engine_L", 0, 1.4, -4.5, 0.0},   {"hp_engine_R", 0, -1.4, -4.5, 0.0},
         {"hp_wingtip_L", 3, 3.5, -0.3, 0.0},  {"hp_wingtip_R", 1, -3.5, -0.3, 0.0},
         {"hp_dorsal_turret", 2, 0.0, 1.0, 0.0},
+        {"hp_seat_pilot", 3, 0.0, 1.5, -1.0},   // 5.8 utility hardpoints (#14:
+        {"hp_reactor", 3, -1.2, 0.5, 1.5},      // socket data lives in the glb)
+        {"hp_battery", 3, 1.2, 0.5, 1.5},
     };
     for (const auto& w : want) {
         CHECK(s.str() == w.name);
