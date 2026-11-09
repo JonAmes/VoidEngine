@@ -38,3 +38,9 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
 - Closed-form anchor that makes the tensor branch trustworthy: torque-free axisymmetric top with the symmetry axis TILTED 30 deg in body axes -> body-frame omega precesses about the symmetry axis at Omega = w3*(I3-I1)/I1, Rodrigues closed form (tilting about the SYMMETRY axis itself would be a no-op tensor - test authoring trap).
 - Positive-definiteness gate = Sylvester leading principal minors (m00>0, 2x2 minor>0, det>0). Non-symmetric tensors are NOT rejected (physics would change); authorship guarantee: only 5.2's parallel-axis output feeds the tensor, and that is exactly symmetric.
 - I^-1 recomputed per integrate call (adjugate, 9 mults; tens of bodies) - caching it would add a staleness class for no measurable win. Revisit only if profiling says otherwise.
+
+### 5.4 — attribute keys + #42 units (153674c)
+- Keys live in game/ (AGENTS rule 1); core keeps treating them as opaque. The kPhase5_attr_keys array is the registry: adding a key without registering it fails the completeness check; duplicates/uniqueness caught in-suite.
+- units.h is the ONLY unit-math home outside the cooklet itself (cooklet will call it in 5.7). Suffix set is exactly #42-ratified and case-sensitive: m km AU s day rad deg deg/day. Bare suffix ("") is its own error kind so cook errors can distinguish 'forgot the unit' from 'invented a unit'.
+- AU pinned to the IAU-2012 nominal value 149597870700 m (exact integer in double).
+- engine_tests already linked ve_game (since early gfx-era CMake), so header-only game constants needed zero link changes - test registered, include dir came free.
