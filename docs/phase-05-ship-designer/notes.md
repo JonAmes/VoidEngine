@@ -26,3 +26,9 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
 - Loadout is immutable: mount/unmount builds a NEW one. Cheap at tens of entries; keeps sim-hash identity simple (no delta semantics to replay).
 - Mount attr values are double (feed fp64 inertia/thrust 5.2/5.5); #42 suffix coercion happens at COOK (5.7), loadout only ever sees SI.
 - Test hygiene trap hit: expected::error() on a value-holding expected is UB — tests use err_of() which REQUIREs failure first, so a validation rule that regresses fails as an assertion, not silent UB.
+
+### 5.2 — full-tensor inertia (879b24d)
+- mat3 follows the Phase-1 mat4 contract: default-construct = IDENTITY. Footgun found while testing: mass_point{...,{}} gives an IDENTITY local tensor, not zero - point masses must pass dmat3::zero(). Kept the convention (matches mat4) rather than special-casing mat3.
+- Jacobi: fixed 12 sweeps x fixed pair order -> bitwise-deterministic diagonalization (pinned: same input twice, bitwise). Ascending eigenvalues + largest-|component| positive axes + RH fixup (flip axis of SMALLEST principal value if det<0) - all choices fixed, no data-dependent branching beyond zero-pivot skip.
+- Real bug caught: the eigenvector accumulator V must receive the rotation for ALL rows including p/q (the A update excludes those rows - easy to copy wrong). Reconstruction pin (axes*diag*axes^T == input) is what caught it; an eigenvalue-only test would have passed with garbage axes.
+- Translation invariance of the tensor is exact-arithmetic only: fp rounding of com differs per origin, so compare with tight Approx, never bitwise.
