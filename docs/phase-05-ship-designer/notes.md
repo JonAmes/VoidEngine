@@ -51,3 +51,24 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
 - Gimbal semantics pinned: (pitch,yaw) ANGLE pair scaled into the cone FIRST, then fixed-order pitch-about-mount-X then yaw-about-mount-Y. Composition of two axes makes the composed angle match the cone half-angle only to O(theta^3) (pin loosened accordingly for the 2-axis case); single-axis deflection is exact.
 - limit==0 means FIXED MOUNT and the gimbal input is ignored (not 'cone of zero angle that would deflect by whatever' - first implementation got this wrong, test caught it).
 - applied-force record skips zero-throttle and degenerate-axis thrusters; impulse = force_local * kSim_tick_dt at drain time (Phase 6).
+
+### 5.6 — cooklet hardpoints (4ffb7ea)
+
+- One .glb source now yields TWO cooked units: MESH (unchanged, socket
+  records stay verbatim/debug) + SOCK unit id `<glb id>.sock` (authoritative
+  hardpoint table: mesh content-ID link, ratified u8 cats main|rcs|gun|
+  utility, fp64 TRS-baked world transforms, node-index order). Cook format
+  v4. Manifest edge sock -> mesh = load closure pulls the mesh for free.
+- Cook GATE: missing/unknown socket_type fails loudly (byte-patched-fixture
+  tests prove both variants). #21 categories ratified at the cook boundary,
+  not at runtime.
+- Golden: SOCK payload bytes pinned (tests/cook/fixtures/test_ship.sock.
+  golden, VE_GOLDEN_UPDATE=1 regenerates — gfx goldens convention reused).
+- gotcha (fixture surgery): when splicing a JSON chunk into a GLB in python,
+  the BIN chunk slice must START AT the old 8-byte BIN header — counting the
+  header twice silently corrupts every accessor past the chunk end
+  (symptom: bogus "index 65534 >= vertex_count"). Verify total length ==
+  header total_length after rewriting.
+- The checked-in fixture was re-authored by direct JSON-chunk edit (no
+  Blender here); make_test_ship.py now carries the same SOCKET_TYPES map —
+  keep in sync if regenerated.
