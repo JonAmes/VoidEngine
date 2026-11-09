@@ -89,3 +89,12 @@ Running design record for the arcade flight & gravity core. Process rules live i
 - Safe-speed bubbles + warp multiplier (#22) → Phase 8, rides this well math.
 - Swept contacts → Phase 7 (user ruling 2026-11-09, decision #45e; PLAN corrected).
 - Thrust/torque numbers as attribute keys → Phase 5/6 declare them; Phase 4 keeps hand-authored gains (Q6).
+
+### 4.10 — trajectory preview / ghost sim (e26db73)
+- **No-second-physics is structural, not a promise**: `replay_step` was split so the per-tick gravity+thrust+assist assembly lives in `assemble_tick_inputs(...)`; replay AND `ghost_preview` both call it, then differ only in which integrator entry they use. Divisor-1 ghost is therefore BITWISE the live sim (pinned via per-tick state hashes over the whole budget window). If someone forks physics, that pin dies first.
+- `integrate_step_dt(s,p,a,tau,dt)` exists ONLY for the ghost: `dt = step_divisor*kSim_tick_dt` — computed rational multiple of the canonical tick, never a free float (#45a). `integrate_step` is a one-line wrapper at `kSim_tick_dt`; sim code must not call the `_dt` form.
+- Command sampling drops with physics rate: the ghost reads `log[first_cmd + k*step_divisor]` — HUD honesty ("if I keep holding what I hold now"), not a re-optimized pilot.
+- Coarse-rate error has a CLOSED FORM in void: semi-implicit Euler under constant a has pos = a·dt²·N(N+1)/2, so ghost-vs-live gap = 0.5·a·T·(D−1)·dt exactly (15 m for a=10, T=60, D=4 — pinned to 1e-6). Velocity error is EXACTLY zero there (semi-implicit vel is rate-invariant under constant accel).
+- **Gravity-world previews must not cross the surface/taper boundary**: a 60 s fall from y=6000 traverses the core, and the step-phase error at crossing events (~v·D·dt, accumulating per crossing) blew a 1.5 km gap past any constant-accel hand bound. Pin previews to monotone, non-crossing trajectories: taper-band fall 25 s from y=7000, error inside hand bound 0.5·g·T·(D−1)·dt + 0.5·jerk·T²·(D−1)·dt × 3 → <20 m, <2% of path.
+- Budget `kGhost_preview_max_steps = 1024` is a hard clamp on BOTH horizon and log end: a 60 s preview at divisor 4 is 900 steps (fits); at divisor 3 it silently clamps to 1024 — check `out.size()`, don't assume `horizon/divisor`.
+- Ghost never touches the caller's state (copy-in), is bit-deterministic run-to-run (hash-equal streams), and inherits the FULL assist stack for free — an autopilot ghost at D=4 closes to <500 m on the moving station at t=60 s without the caller passing assist state.
