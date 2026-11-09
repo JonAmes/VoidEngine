@@ -27,7 +27,14 @@ Running design record for the arcade flight & gravity core. Process rules live i
 - `rigid_frame<PosT>` ("rig frame") keeps its **fp32** rotation (render/stats width, documented in `quat.h`) — untouched deliberately. Sim attitude lives in the new `core/sim` rigid body (4.6) as `dquat`; conversion to `drig`/fp32 happens only at render boundaries.
 - `dmat3` NOT added (#45b diagonal principal-axis inertia: ω̇ = I⁻¹(τ − ω×(Iω)) is pure dvec3 algebra). Full tensors get their own math + tests when Phase 5 derives them from mounted parts.
 
+### 4.3 — kinematic rails open core/sim (d9d618b)
+- `sim/time.h`: `tick_to_seconds` **divides by 60.0** instead of multiplying by the non-representable 1/60 — division is correctly rounded, so tick-aligned durations (600 ticks = 10.0 s) are exact and rail phase hits hand-pins at exact tick multiples (t=300 of a 1200-tick period lands quarter-orbit to ~1e-13, not ~1e-6).
+- `rail_world` invariant: body id == index, and `add_body` only accepts `parent < id` — parent cycles impossible by construction, lookup is O(chain depth), iteration is vector order (#5 discipline). Every reject is validated BEFORE push_back so ids never shift.
+- Rail offset = `cos/sin(phase + tau·elapsed_periods)`, coplanar XZ, +X→−Z (positive about +Y, #34). Sense pinned **across two independent code paths**: rail cos/sin == `rotate(quat_yaw(θ),(R,0,0))` at θ=π/4. No pre-wrapping of the angle — libm argument reduction is exact for finite doubles and skipping the wrap keeps results bit-identical across calls.
+- Purity contract pinned as bitwise `==` (same tick twice; interleaved other-tick calls cannot perturb — there is no state). Nested pin: moon world == planet world + moon local is **bit-exact**, since `position()` sums the same two offsets with IEEE-commutative adds.
+- Well params (well_radius/surface_g/taper_start) ride `body_def` now with shape sanity at insert; the field math itself is 4.4.
+
 ## Open threads for later phases (do NOT build here)
 - Safe-speed bubbles + warp multiplier (#22) → Phase 8, rides this well math.
-- Swept contacts → Phase 7 per assumption (PLAN contradiction logged in `checklist.md`; awaiting user ruling).
+- Swept contacts → Phase 7 (user ruling 2026-11-09, decision #45e; PLAN corrected).
 - Thrust/torque numbers as attribute keys → Phase 5/6 declare them; Phase 4 keeps hand-authored gains (Q6).
