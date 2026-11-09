@@ -229,3 +229,25 @@ Findings and gotchas as tasks land. One section per task, titled by box number.
   `-Werror=missing-field-initializers` in EVERY positional brace-init of it
   (same lesson as 5.3 `optional inertia_tensor`); test_loadout.cpp needed
   `, {}` on ~14 mount inits.
+
+## 5.12 — cargo hold + manifest (632a9f1, CI GREEN 98/10848)
+
+- **Holds are ordinary tagged mounts** — same pattern as 5.11 seats:
+  `CargoManifest(loadout, hold_tag, capacity_key, gate_prefix)`; all three
+  names arrive from `game/cargo_tags.h` (`cargo.hold`, `commodity.` prefix)
+  + `kAttr_cargo_capacity` (already ratified in the 5.4 registry). Commodity
+  ids are the gate tags' suffixes — opaque cooked market data (#20b).
+- **Capacity is per-hold, first-fit in mount order:** add splits across
+  accepting holds (bulk→tank→open order), remove drains placements in
+  REVERSE mount order, so add/remove pairs cancel exactly at any tick —
+  scrubber-safe (#20b "price evaluated at any tick" depends on this).
+- **Gate rules pinned:** no gate tags = open hold accepts everything; a
+  commodity no hold gates is `no_gate`, distinct from `overflow`; a non-gate
+  tag (`repair.target`) on a hold mount is simply ignored.
+- **Atomicity:** overflow/insufficient store nothing; errors are
+  first-cause ordered (quantity/id → gate → capacity).
+- **Spares (#20a/#24c):** roster entries only (instance+type id, unique id,
+  ordered); they never occupy commodity capacity; bolting one on later goes
+  through the normal `Loadout::assemble` mount path, not this module.
+- Interpretation logged: cargo MASS aggregation into the ship is Phase 6
+  (component mass flows into stats aggregation like every other component).
