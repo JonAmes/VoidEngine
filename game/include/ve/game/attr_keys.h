@@ -30,16 +30,25 @@ inline constexpr std::string_view kAttr_sensor_res      = "sensor.res_arcmin"; /
 inline constexpr std::string_view kAttr_cargo_capacity  = "cargo.capacity";   // #20a
 inline constexpr std::string_view kAttr_interact_range  = "interact.range";   // #28a
 
+// Phase 7 (#47b): atmosphere + docking attrs. Membership + cook-gate only
+// this phase; consumers land in 7.6 (drag/heat in the atmosphere model) and
+// 7.10 (docking_clamp strength). Plain SI bare numbers like every attr (#42).
+inline constexpr std::string_view kAttr_drag_coeff      = "drag.coeff";       // #47b
+inline constexpr std::string_view kAttr_heat_tolerance  = "heat.tolerance";   // #47b
+inline constexpr std::string_view kAttr_dock_clamp_strength = "dock.clamp_strength"; // #47b
+
 // Every Phase 5 key, declaration order. Tooling iterates THIS for
 // validation; adding a key means adding it here (duplicate/format gates in
-// tests catch mistakes at build time).
-inline constexpr std::array<std::string_view, 15> kPhase5_attr_keys = {
+// tests catch mistakes at build time). The name marks the set's Phase 5
+// origin; #46e-style additions (see #47b above) ride the same ratified set.
+inline constexpr std::array<std::string_view, 18> kPhase5_attr_keys = {
     kAttr_thrust_force,       kAttr_thrust_isp,       kAttr_thrust_gimbal,
     kAttr_power_supply,
     kAttr_power_draw,         kAttr_mass,             kAttr_lift_coeff,
     kAttr_shield_capacity,    kAttr_ftl_speed_mult,   kAttr_ftl_spool_s,
     kAttr_ftl_flow,           kAttr_sensor_range,     kAttr_sensor_res,
     kAttr_cargo_capacity,     kAttr_interact_range,
+    kAttr_drag_coeff,         kAttr_heat_tolerance,   kAttr_dock_clamp_strength,
 };
 
 // Key grammar check: segments [a-z][a-z0-9_]* joined by single '.'.

@@ -116,7 +116,13 @@ bool decode_def_payload(const Bytes& payload, DefView& out, std::string* err) {
         const std::uint32_t ntag = r.u32();
         for (std::uint32_t t = 0; t < ntag && !r.bad; ++t) r.str();  // tags: not gated in Phase 5
         const std::uint32_t nattr = r.u32();
-        for (std::uint32_t a = 0; a < nattr && !r.bad; ++a) { r.str(); r.f64(); }
+        for (std::uint32_t a = 0; a < nattr && !r.bad; ++a) {
+            // Separate statements: argument evaluation order in one call is
+            // unspecified, and the Reader is stateful (right-to-left GCC
+            // would consume the f64 before the str).
+            std::string key = r.str();
+            comp.attrs.emplace_back(std::move(key), r.f64());  // #47b: gated by G10
+        }
         const std::uint32_t nfac = r.u32();
         for (std::uint32_t f = 0; f < nfac && !r.bad; ++f) {
             DefView::Facet fac;
@@ -383,6 +389,37 @@ bool cook_hull_validate(const HullInputs& hull,
             if (pid2 == hull.def_id) { back = true; break; }
         if (!back)
             return fail("partner '" + pid + "' declares no seam back to this def (#46d)");
+    }
+
+    // ---- G10 (#47b): dock port component contract ----------------------
+    // Dock gear is a ship component like everything else: utility-socket
+    // mount, positive clamp strength + mass, and the undock verb. A
+    // destroyed port stays dark-not-dead at RUNTIME (7.10); cook at least
+    // refuses to author a port that could not physically hold on.
+    for (const auto& c : d.comps) {
+        if (c.type.compare(0, 5, "dock.") != 0) continue;
+        if (c.category != 3)
+            return fail("dock port '" + c.id + "' must mount a utility socket (#47b)");
+        const auto ait = anchor_of.find(c.socket);
+        if (ait != anchor_of.end() && ait->second->category != 3)
+            return fail("dock port '" + c.id + "' socket '" + c.socket +
+                        "' is not a utility anchor (#47b)");
+        double clamp = 0.0, mass = 0.0;
+        bool have_clamp = false, have_mass = false;
+        for (const auto& [key, val] : c.attrs) {
+            if (key == "dock.clamp_strength") { clamp = val; have_clamp = true; }
+            else if (key == "mass") { mass = val; have_mass = true; }
+        }
+        if (!have_clamp || !(clamp > 0.0))
+            return fail("dock port '" + c.id +
+                        "' needs a positive dock.clamp_strength (#47b)");
+        if (!have_mass || !(mass > 0.0))
+            return fail("dock port '" + c.id + "' needs a positive mass attr (#47b)");
+        bool undock = false;
+        for (const auto& f : c.facets)
+            if (f.action == "port.undock") { undock = true; break; }
+        if (!undock)
+            return fail("dock port '" + c.id + "' needs a port.undock facet (#47b)");
     }
     return true;
 }
