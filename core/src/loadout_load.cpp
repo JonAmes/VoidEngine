@@ -148,13 +148,24 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
         ct.category = cat_or_bad(r.u8(), r.bad);
         catalog.push_back(std::move(ct));
     }
+    std::vector<wire_entry> wires;
     const std::uint32_t nwire = r.u32();
-    for (std::uint32_t i = 0; i < nwire && !r.bad; ++i) {  // wires skipped:
-        r.str();                                          // Phase 6 stats
-        r.u8();
-        if (r.u8()) r.f64();
-        r.u8(); r.str();
-        r.u8(); r.str();
+    for (std::uint32_t i = 0; i < nwire && !r.bad; ++i) {  // wires carried (6.12)
+        wire_entry w;
+        w.id = r.str();
+        const std::uint8_t k = r.u8();
+        if (k > 2)
+            r.bad = true;  // flow type out of DEF0 range
+        w.kind = static_cast<wire_kind>(k);
+        if (r.u8())
+            w.capacity = r.f64();
+        w.from.kind = r.u8();
+        w.from.ref = r.str();
+        w.to.kind = r.u8();
+        w.to.ref = r.str();
+        if (w.from.kind > 1 || w.to.kind > 1)
+            r.bad = true;  // endpoint kind out of DEF0 range
+        wires.push_back(std::move(w));
     }
     const std::uint32_t nseam = r.u32();
     for (std::uint32_t i = 0; i < nseam && !r.bad; ++i) {  // seams skipped.
@@ -171,6 +182,7 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
     // ---- SOCK payload v2: every named anchor becomes a socket ----
     Reader s{sock.payload};
     loaded_hull out{};
+    out.wires = std::move(wires);
     out.mesh_unit_id = s.str();
     if (s.u32() != 2)
         return std::unexpected("SOCK payload: version must be 2");

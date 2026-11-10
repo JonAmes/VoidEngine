@@ -57,6 +57,8 @@ add_executable(engine_tests
     core/test_reservoir.cpp
     core/test_power_pool.cpp
     core/test_propellant_burn.cpp
+    core/test_wiring_reach.cpp
+    core/test_wiring_dark_set.cpp
     core/test_ship_designer_flight.cpp
     core/test_sim_inertia.cpp
     core/test_sim_tensor.cpp

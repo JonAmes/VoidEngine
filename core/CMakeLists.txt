@@ -27,6 +27,7 @@ add_library(ve_core STATIC
     src/seat_link.cpp
     src/reservoir.cpp
     src/power.cpp
+    src/wiring.cpp
     src/inertia.cpp
     src/thruster.cpp
 )
