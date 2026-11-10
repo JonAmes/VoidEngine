@@ -198,3 +198,19 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
   flip at EXACTLY ticks 40/70/95 under scripted strike/accord/forgive;
   hysteresis-free so friendly flips the same tick hostile drops; ancestor
   `faction` query rides 6.2 for free.
+
+## 6.14 — faction power = one more reservoir, done-when (g) pt 2 (db7f17c, CI GREEN 118/15121)
+
+- No new core code: `faction_power_bands` composes 6.9 reservoir + 6.13
+  bands + modifier-fed supply/load attrs exactly like propellant/market.
+  #25c's "one more reservoir instance" claim validated literally.
+- Scripted war/escalation/peace/rebuild with dyadic nets (+2/−1/−3/0/+3
+  per tick): watch (<=320) ON at EXACT tick 127 (v==320, inclusive
+  boundary pinned), declining (<=200) ON 182 / OFF 237, watch OFF 277
+  (319@276 still tagged), surge (>=400) never (scripted peak 384).
+  Peace = `remove_source(war)`; annexed lane = new supply source — same
+  add/remove_source pattern as 6.13 rep nudges.
+- Pitfall (ancestor queries on band tags): the band TagSet is transient —
+  all bands cleared by t=299, so post-run `tags.contains("faction...")`
+  queries FAIL. Record per-tick query vectors during the run; don't
+  inspect the final TagSet state.
