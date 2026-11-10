@@ -66,3 +66,28 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
 - Hysteresis-free band eval = re-evaluate ALL bands every tick: tag add is idempotent (unique set), remove is exact. Consequence tested: ancestor query `tank` answers exactly while some `tank.*` band tag is live.
 - Pipeline must be NON-const for the reservoir: StatsPipeline::derived() is recompute-on-read (mutates dirty stamps). "Pure function of aggregated attrs at the tick" refers to VALUES, not constness.
 - Refill/set_value evaluates bands immediately (market refills, authoring); construction too, so cold-start state is tagged at tick 0 without a warmup step.
+## 6.10 — power pool (dc1a37d, CI GREEN 112/11680)
+
+- PowerPool holds NO state: lit/dark is recomputed from the pipeline on every
+  `rebalance()`, so the pool can never desync from stats. Call it every tick
+  (linear in systems) or after any mutation — idempotent.
+- Priority/draw/function/supply are opaque attr keys; priority being an attr
+  means a damage event can re-rank who sheds, live (pinned).
+- Shed order: priority DESC, ties by registration index (stable_sort over a
+  copy; `m_sys` stays registration order). Drops take the order TAIL.
+- **Trial-lift restoration**: a dark system's own draw reads 0.0 (its ×0 mod
+  is live), so the headroom test cannot be done from the draw alone — lift
+  for real, measure, re-dark if over. One pass highest-first is the fixed
+  point (lifts only consume headroom; skipped systems stay dark until the
+  next call — no backfill past a richer system).
+- Shed bundle = ONE source per system: `{draw.X ×0, function.X ×0}` — draw
+  zero takes load off the pool, function zero is what the sim sees (#26
+  dark-not-dead). remove_source returns aggregates bit-exact to baseline.
+- Source-id range: `kDefaultBase = 0xF000'0000'0000'0000`, one id per system
+  by registration index; collision with a caller's own ids = deterministic
+  refusal at add_source.
+- **6.4 dirty-clock bug found here**: the old `max(set_rev, mod_rev)` stamp
+  freezes once base revisions run ahead of stack revisions — every power
+  modifier landed INVISIBLE. Staleness is now per-SIDE (revision PAIR).
+  Regression subcase in `stats_aggregation` pins the exact old failure
+  (base rev 51, stack-only flat_add served stale 10.0).
