@@ -43,3 +43,10 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
 - condition attr tests read DERIVED (pipeline view), never base — the gate sees what the sim sees. Missing attribute = gate closed (fail-safe default).
 - binary32 gotcha pinned in test: 0.1f+0.2f == 0.3f exactly (unlike doubles); ULP discriminators must use nextafter.
 - rail_event payloads: two opaque u64s; flip events carry NEW STATE in b so the log alone answers "what state is it now" for scrubbing. Bus cannot distinguish seated vs on-foot verbs — that IS decision #28's identity claim, pinned as a shape-equality test.
+
+## 6.7 — seat<->stats linkage (219419c, CI GREEN 109/11334)
+- The affordance = 6.6 effect bundles keyed by ROLE TAG: occupant_grant lands on the occupant's stack as one source; when_unmanned lands on the SHIP stack while empty (#18b zeroing). Roles stay game-side; core keys on opaque tag strings.
+- Source-id reservation: seat index i owns kSeatGrantBase+i / kSeatUnmannedBase+i. Caller sources must stay out of these ranges; a squat is refused (stack_conflict) BEFORE occupancy changes — never a half-applied sit.
+- sit() MOVE semantics: occupancy already moves atomically; the link must reverse the OLD seat (grant drop + zeroing re-arm) and apply the NEW one around that single occ.sit call — order: busy-check, conflict pre-check, occ.sit, reverse old, apply new, rail events (drop then attach for a move).
+- Initial when_unmanned state: seats start empty, so wiring a ship stack means scripting needs the zeroing live; tested honestly via sit/stand so the unit property itself is the assertion. If a phase-8 sim needs cold-start unmanned state, call sit+stand once at wiring or add a sync pass then.
+- drop() = KO (#18d): ejects WHOEVER holds the seat; caller passes the victim's stack (sim knows the victim; the claimant id is decorative).
