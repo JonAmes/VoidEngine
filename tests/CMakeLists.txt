@@ -32,6 +32,7 @@ add_executable(engine_tests
     core/test_math_quat.cpp
     core/test_math_dquat.cpp
     core/test_sim_rails.cpp
+    core/test_sim_spin.cpp
     core/test_sim_gravity.cpp
     core/test_sim_well_blend.cpp
     core/test_sim_integrator.cpp

@@ -12,6 +12,7 @@
 #include <optional>
 #include <vector>
 
+#include "ve/core/math/quat.h"
 #include "ve/core/math/vec.h"
 #include "ve/core/sim/time.h"
 
@@ -31,6 +32,16 @@ struct body_def {
     double orbit_period_s = 0.0;    // > 0 when parent >= 0
     double orbit_radius_m = 0.0;    // >= 0
     double orbit_phase_rad = 0.0;   // angle at tick 0, positive about +Y (#34)
+    // Body spin (#41): angular velocity about the body's own center. The
+    // axis is authored in the PARENT rail frame and defaults to local +Y
+    // (coplanar rails #45c keep spin and orbit sharing the +Y sense until
+    // eccentric rails exist); rate is rad/s — cooked/hand-authored defs are
+    // SI only (#42: human °/day stays in TOML). Orientation joins position
+    // as an ANALYTIC function of the tick: no stored state, evaluable at
+    // any tick. add_body stores the axis normalized (normalize ONCE at add,
+    // never per call, so evals stay bit-stable).
+    math::dvec3 spin_axis{0.0, 1.0, 0.0};
+    double spin_rate_rad_s = 0.0;
 };
 
 // Ordered world (#5): body id == index into the body vector, and a body may
@@ -59,6 +70,21 @@ public:
     // (exact for the static root; chord-vs-tangent error ~ (2*pi*dt/P)^2/24,
     // ~1e-9 rel for authored periods >= 60 s). Deterministic by construction.
     std::optional<math::dvec3> velocity(std::int32_t id, tick_t t) const;
+
+    // The body's OWN spin rotation at tick t, expressed in the parent rail
+    // frame (identity when the rate is 0). Pure: same inputs => bit-identical
+    // dquat. Angle is authored-rate * elapsed seconds, pre-wrapping-free
+    // (same bit-identity discipline as local_rail_offset).
+    static math::dquat local_spin_orient(const body_def& body, tick_t t);
+
+    // World attitude of the body frame at tick t: spin composed up the
+    // parent chain, orientation(child) = orientation(parent) * local_spin —
+    // so a surface coordinate rides the spin and a moon inherits its
+    // planet's rotation (#41). position()/velocity() read NONE of this:
+    // spin moves surface points, never rail centers — the gravity well and
+    // safe bubbles stay position-only ("centers move, normals don't").
+    // nullopt on bad id; stores nothing.
+    std::optional<math::dquat> orientation(std::int32_t id, tick_t t) const;
 
 private:
     std::vector<body_def> m_bodies;
