@@ -6,7 +6,7 @@ Status: in progress
 - [x] 6.2 Hierarchical gameplay tags (#28a glue): tag set type with ancestor matching (`pilot.stunned` answers queries for `pilot`, `pilot.stunned`), add/remove/query in deterministic iteration order; the universal glue for conditions/effects/AI/UI queries; concept-free — tests: `gameplay_tags` + existing `game_facet_actions` stays green — commit: d383ada (CI GREEN 102/11013)
 - [x] 6.3 Modifier sources + stack: `modifier` = {source id (entity/component/effect/seat), tags, target attr keys, magnitude, stacking policy replace/refresh/stack-N/exclusive, expiry tick}; sources are ordered containers; **cycle/dependent-chain rejection by construction** (a modifier can only target base attributes, never other modifiers) — test: `modifier_stack` — commit: ec632fc (CI GREEN 103/11071)
 - [x] 6.4 Aggregation pipeline + dirty flags: per-attribute recompute **base → flat add → percent → multiplier → clamp** with per-attribute clamp ranges; recompute-on-read with dirty flags (a full-recompute counter asserts never-per-tick); hand-computed suites: stack caps, exclusivity, clamp order, policy mix — test: `stats_aggregation` (done-when (a)) — commit: ca777aa (CI GREEN 104/11130)
-- [ ] 6.5 Change-event bus: attribute-change notifications ordered by (tick, insertion seq); stats state FNV-hashes into a canonical byte form compatible with the replay-hash machinery; hash stability across recompute orders — test: `stats_event_bus` + `stats_hash` — commit: —
+- [x] 6.5 Change-event bus: attribute-change notifications ordered by (tick, insertion seq); stats state FNV-hashes into a canonical byte form compatible with the replay-hash machinery; hash stability across recompute orders — test: `stats_event_bus` + `stats_hash` — commit: 15d27fc (CI GREEN 106/11176)
 - [x] 6.6 Effects + conditions: effect = timed/instant bundle of modifiers applied as one atomic source; condition = tag gate over attributes/functions; damage/heal/shield-drain express as pure data (no combat words in `core/`); tick-stamped effect-bus event shapes for the #28b rails (seat attach/drop, door/airlock flip, wire/junction swap) with hand-computed replay checks — tests: `effects_conditions` + `effect_bus_rails` — commit: 02b6ca2 (CI GREEN 108/11263)
 - [ ] Q9419c (CI GREEN 109/11334)
 - [x] 6.8 Pilot stats change flight (#18 done-when seam): game-side glue maps aggregated ship stats (assist authority, turn response) into the Phase 4 `assist_gains`/rigid params; a pilot stat delta (mount/unmount occupant) measurably changes the flight-model numbers through the seat path — test: `flight_stats_linkage` (done-when (b)) — commit: 4e85acf (CI GREEN 110/11394)
@@ -22,11 +22,11 @@ Status: in progress
 - [ ] 6.18 Phase 6 evidence pass: clean-tree `tools/ci_local.sh` GREEN on the final tree; README + checklist + notes updated; report to user — commit: —
 
 ## Done-when (every PLAN.md "Done when" bullet linked to a task; all checked = phase DONE)
-- [ ] (a) hand-computed aggregation suites (stack caps, exclusivity, clamp order) pass ← 6.4
+- [x] (a) hand-computed aggregation suites (stack caps, exclusivity, clamp order) pass ← 6.4
 - [x] (b) a pilot-stat change measurably changes the Phase 4 flight model's numbers through the seat linkage ← 6.7 + 6.8
-- [ ] (c) any seat's occupant stack (in/out/KO) attaches and drops atomically; ship aggregates return exactly to baseline ← 6.7
+- [x] (c) any seat's occupant stack (in/out/KO) attaches and drops atomically; ship aggregates return exactly to baseline ← 6.7
 - [ ] (d) a reservoir drains/refills/throws threshold tags at hand-computed ticks; a power-oversubscribe test drops the lowest-priority system first ← 6.9 + 6.10
-- [x] (e) ) a wiring test destroys a scripted junction, asserts the exact hand-computed downstream dark set at a known tick; repair-from-spare restores baseline exactly, inside the same replay hash ← 6.12
+- [ ] (e) a wiring test destroys a scripted junction, asserts the exact hand-computed downstream dark set at a known tick; repair-from-spare restores baseline exactly, inside the same replay hash ← 6.12
 - [ ] (f) a scripted burn drains the propellant reservoir exactly `force·t/Isp`; empty tank throws `propellant.empty` and function-zeros thrust until a market refill restores it, all inside one replay hash ← 6.11 (+6.6)
 - [ ] (g) a scripted market test drives lane-flow + player transactions to hand-computed stock/price values with a reputation nudge flipping a faction tag at a known tick; a faction-power drain/escalation flips a `faction.pressure` band tag at hand-computed ticks ← 6.13 + 6.14
 - [ ] (h) a scripted 10-min combat-style scenario replays with identical stats-state hash; the scrubber API steps that replay to any tick with matching hash ← 6.15 + 6.17

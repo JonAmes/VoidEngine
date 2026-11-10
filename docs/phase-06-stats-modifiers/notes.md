@@ -56,3 +56,7 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
 - Crew-ship stack wiring: seat grants for SHIP functions ride the ship's own ModifierStack (occupant stack == ship stack). Occupant-personal attrs (pilot.reflex) keep per-entity stacks; both patterns coexist (6.7 vs 6.8).
 - Control law must SAMPLE gains per tick from the pipeline (pre-tick state), so a mid-flight sit/stand bends the trajectory at exactly that tick — decay pins are the geometric law omega_n*(1-kd*dt/Iy)^n, doubles-exact to 1e-12.
 - Stabilizer gain zero = assist silently off (tau = -kd*omega). Unmanned zeroing IS "assist authority requires a pilot" — no engine bool for "assist enabled".
+
+## 6.5/6.6 docs catch-up + done-when audit
+- 6.5 = 15d27fc (CI 106/11176), 6.6 = 02b6ca2 (CI 108/11263) — both were committed+pushed with docs earlier but the 6.5 checklist box replacement silently no-oped (regex miss); now fixed.
+- Done-when audit vs PLAN: 6d9814b checked "(e)" believing 6.5's commit label; but the spine maps (e) = junction-dark-set wiring test ← 6.12. Unchecked again. 6.5's commit-message "(done-when (e))" tag is a mislabel; the (e) bullet stays with 6.12. (a) <- 6.4 ca777aa and (c) <- 6.7 219419c now properly checked.
