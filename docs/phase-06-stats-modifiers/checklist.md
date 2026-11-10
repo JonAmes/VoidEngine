@@ -1,5 +1,5 @@
 # Phase 6 — RPG stats & modifier framework
-Status: in progress
+Status: DONE (2026-11-10)
 
 ## Tasks — execute top to bottom, one commit each
 - [x] 6.1 `StatsSet` (#16 spine): sparse tagged-attribute → {base, derived} fp32 values; one structure shared by pilots/NPCs/ships; attribute keys are opaque cooked/game strings (reuse the 5.4 registry grammar, no new names in `core/`); read APIs total, no hardcoded stat names — test: `stats_set` — commit: 450ec46 (CI GREEN 101/10978)
@@ -19,7 +19,7 @@ Status: in progress
 - [x] 6.15 Replay scrubber API (#16, Tier 1): replays stored as fixed-step state records (command log + state checkpoints); load / step-frame / jump-to-tick API; scrubbed-to-tick state hashes equal live-run hashes at the same ticks; state-diff extraction between ticks — test: `replay_scrubber` (174 assertions) — commit: 7ee0912 (CI GREEN 119/15295)
 - [x] 6.16 Scrubber panel (#16 formal deliverable): debug-UI panel wrapping the scrubber API on the Phase 3 pure-CPU imgui core — timeline, entity/stat inspector, state diff between ticks; panel logic headless-testable (widget geometry + interaction state only) — test: `scrubber_panel` (52 assertions) — commit: 8aa96ae (CI GREEN 120/15347)
 - [x] 6.17 **Done-when harness** (`stats_combat_scenario`): scripted 10-min combat-style scenario (crew mount/unmount/KO, damage effects, power drops, wiring cut + repair, burn + market refill, market transactions + reputation flip) replays with identical **stats-state hash**; the scrubber API steps that replay to any tick with matching hash — test: `stats_combat_scenario` (7,920,521 assertions) — commit: 0040c5f (CI GREEN 121/7935868)
-- [ ] 6.18 Phase 6 evidence pass: clean-tree `tools/ci_local.sh` GREEN on the final tree; README + checklist + notes updated; report to user — commit: —
+- [x] 6.18 Phase 6 evidence pass: clean-tree `tools/ci_local.sh` GREEN on the final tree; README + checklist + notes updated; report to user — commit: this docs commit (evidence: `rm -rf build` + fresh configure/build/ctest GREEN, 121 cases / 7,935,868 assertions, `git status` clean after run, zero golden drift)
 
 ## Done-when (every PLAN.md "Done when" bullet linked to a task; all checked = phase DONE)
 - [x] (a) hand-computed aggregation suites (stack caps, exclusivity, clamp order) pass ← 6.4

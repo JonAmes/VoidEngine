@@ -283,3 +283,9 @@ Gotchas pinned the run:
 - No-pilot-KO variant: first hash divergence lands EXACTLY on the KO tick in both
   streams — scenario-level proof the seat→assist→flight path is the physics seam
   (6.8's claim, at scale).
+
+## 6.18 — evidence pass (clean-tree, 2026-11-10)
+`rm -rf build` + fresh configure/build/ctest via `tools/ci_local.sh` (ASan+UBSan,
+no `$DISPLAY`, no compositor, no headset): **GREEN**, 299s, 100% ctest. Fresh
+binary: 121 test cases / 7,935,868 assertions, 0 failed. `git status` clean after
+the run — no golden drift (Phase 6 touched no gfx outputs). Phase 6 DONE.
