@@ -18,7 +18,7 @@ Status: in progress
 - [x] 6.14 Faction power (#25c): one more reservoir instance (supply = production + held lanes, load = losses + contested); band threshold tags (`faction.pressure.<band>`) flip at hand-computed ticks under scripted drain/escalation — test: `faction_power_bands` (1830 assertions) — commit: db7f17c (CI GREEN 118/15121)
 - [x] 6.15 Replay scrubber API (#16, Tier 1): replays stored as fixed-step state records (command log + state checkpoints); load / step-frame / jump-to-tick API; scrubbed-to-tick state hashes equal live-run hashes at the same ticks; state-diff extraction between ticks — test: `replay_scrubber` (174 assertions) — commit: 7ee0912 (CI GREEN 119/15295)
 - [x] 6.16 Scrubber panel (#16 formal deliverable): debug-UI panel wrapping the scrubber API on the Phase 3 pure-CPU imgui core — timeline, entity/stat inspector, state diff between ticks; panel logic headless-testable (widget geometry + interaction state only) — test: `scrubber_panel` (52 assertions) — commit: 8aa96ae (CI GREEN 120/15347)
-- [ ] 6.17 **Done-when harness** (`stats_combat_scenario`): scripted 10-min combat-style scenario (crew mount/unmount/KO, damage effects, power drops, wiring cut + repair, burn + market refill, market transactions + reputation flip) replays with identical **stats-state hash**; the scrubber API steps that replay to any tick with matching hash — commit: —
+- [x] 6.17 **Done-when harness** (`stats_combat_scenario`): scripted 10-min combat-style scenario (crew mount/unmount/KO, damage effects, power drops, wiring cut + repair, burn + market refill, market transactions + reputation flip) replays with identical **stats-state hash**; the scrubber API steps that replay to any tick with matching hash — test: `stats_combat_scenario` (7,920,521 assertions) — commit: 0040c5f (CI GREEN 121/7935868)
 - [ ] 6.18 Phase 6 evidence pass: clean-tree `tools/ci_local.sh` GREEN on the final tree; README + checklist + notes updated; report to user — commit: —
 
 ## Done-when (every PLAN.md "Done when" bullet linked to a task; all checked = phase DONE)
@@ -29,7 +29,7 @@ Status: in progress
 - [x] (e) a wiring test destroys a scripted junction, asserts the exact hand-computed downstream dark set at a known tick; repair-from-spare restores baseline exactly, inside the same replay hash ← 6.12
 - [x] (f) a scripted burn drains the propellant reservoir exactly `force·t/Isp`; empty tank throws `propellant.empty` and function-zeros thrust until a market refill restores it, all inside one replay hash ← 6.11 (+6.6)
 - [x] (g) a scripted market test drives lane-flow + player transactions to hand-computed stock/price values with a reputation nudge flipping a faction tag at a known tick; a faction-power drain/escalation flips a `faction.pressure` band tag at hand-computed ticks ← 6.13 + 6.14
-- [ ] (h) a scripted 10-min combat-style scenario replays with identical stats-state hash; the scrubber API steps that replay to any tick with matching hash ← 6.15 + 6.17
+- [x] (h) a scripted 10-min combat-style scenario replays with identical stats-state hash; the scrubber API steps that replay to any tick with matching hash ← 6.15 + 6.17 (0040c5f)
 
 ## Notes
 - Precision split (AGENTS rule 5 + PLAN): StatsSet attr values are **fp32** ("stats" class); reservoir *state* is fp64 sim state (propellant drain must hit `force·t/Isp` hand-exactly; fp32 accumulation over 36k ticks would not).

@@ -255,3 +255,31 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
   cursors is meaningless — grow at cursor, exact-restore at same cursor.
 - Diff view fail-closed: diff_between(cursor-100, cursor) under -1 ->
   "diff n/a" row (view grows, no bogus deltas).
+
+## 6.17 — done-when (h) harness: stats_combat_scenario (0040c5f, CI GREEN 121/7935868)
+Composition only — NO new core code. One 36,000-tick scenario (10 min at 1/60) wires
+every Phase-6 subsystem per tick in a fixed order: expire_due → scripted events →
+pool.rebalance (idempotent) → empty-gate sync → propellant glue (load = force/Isp,
+replace policy) → reservoir steps → market stock/price attrs → reputation bands
+(re-evaluated every tick) → read-all derived pass (recompute-on-read cache before
+the canonical hash) → flight command + replay_step + per-tick stats/sim hash capture.
+Every rate dyadic (force 1200 N / Isp 20 → 1.0 unit/tick; lane +60/s → +1/tick) so
+dry ticks, market levels, and the price-curve ceiling bit (0x3f000000 = 0.5f) land
+hand-exact.
+
+Gotchas pinned the run:
+- **Killed ungated relay is not a dark-set member.** dark_set() lists only components
+  whose GATES fail (`gate_power && !reach_p || gate_signal && !reach_s`). A pure relay
+  (bus: no gates, not a source) killed mid-network stops relaying — downstream gated
+  consumers cascade into the dark set — but the relay itself reports nothing. Killing
+  a GATED component (6.12's engines) DOES list it. Expected sets authored accordingly.
+- **Empty-tank gate is tag-synced, not churned.** One exclusive-policy x0 source armed
+  while `propellant.empty` is set; sync runs right after the reservoir steps, so the
+  tick that drains the last unit still thrusts at full force and the NEXT tick is
+  zeroed (draw and thrust stay consistent at the dry tick).
+- Determinism subcase re-runs the whole scenario fresh: run == run bit-exact across
+  stats hash, sim hash, propellant/market value streams, and boolean marker rows.
+  Scrubber jump_to over arbitrary + boundary ticks reproduces the live sim hash.
+- No-pilot-KO variant: first hash divergence lands EXACTLY on the KO tick in both
+  streams — scenario-level proof the seat→assist→flight path is the physics seam
+  (6.8's claim, at scale).
