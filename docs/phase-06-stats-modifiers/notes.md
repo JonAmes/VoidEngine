@@ -29,3 +29,10 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
 - Overflow policy: inputs finite by construction (6.1/6.3), so only arithmetic overflow leaves the range -> saturate to +/-FLT_MAX; NaN/inf never reach consumers, clamps, or the state hash. Test forces stage-1 inf then *0 (the only NaN route).
 - Dirty clock is coarse-global (max of the two revisions): any mutation re-dirties every attribute. Deliberate: tens of attrs; fine-grained per-attr dirtying would cost more than it saves. Cold-attr reads are the only extra walks.
 - set_base's derived-mirror stays for stack-free StatsSets; once a pipeline stamps an attr, the stamp is authority. clear() bumps revision only when non-empty (no-op clears must not re-dirty pipelines).
+
+## 6.5 — event bus + canonical hash (15d27fc, CI GREEN 106/11176)
+- FNV-1a-64 was duplicated-by-necessity in replay.cpp; now ve/core/fnv.h is the single primitive ("compatible with the replay-hash machinery" == same mixing, bit-for-bit). Existing replay hash pins proved the refactor free.
+- Bus emission is bit-compare (std::bit_cast u32), NOT ==: shared raw-bit policy with the state hash means the event stream and hash never disagree about "changed" (-0.0 vs +0.0 both change).
+- Events fire at RECOMPUTE time, not mutation time (recompute-on-read model): "when did a consumer see it" = which tick's drain. begin_tick tags; seq is bus-wide monotonic.
+- Canonical stats form: insertion order IS state (never re-sort keys); what done-when (e) guarantees is recompute-ORDER independence, pinned with forward/reverse/scrambled/recompute_all equality.
+- test_stats_hash carries an independent test-local FNV loop on purpose: a shared impl could not pin the byte format (bugs would cancel).
