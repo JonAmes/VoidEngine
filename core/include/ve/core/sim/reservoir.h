@@ -30,6 +30,7 @@
 #include <string>
 #include <vector>
 
+#include "ve/core/sim/bands.h"  // band_dir / reservoir_band (6.13: shared with reputation)
 #include "ve/core/sim/stats_pipeline.h"
 #include "ve/core/sim/tags.h"
 #include "ve/core/sim/time.h"  // tick_t
@@ -38,17 +39,6 @@ namespace ve::core::sim {
 
 // Fixed sim tick length (AGENTS: fixed timestep; replay uses the same 1/60).
 inline constexpr double kSim_dt = 1.0 / 60.0;
-
-enum class band_dir : std::uint8_t {
-    at_or_below,  // tag live while value <= threshold (scarcity, low air)
-    at_or_above,  // tag live while value >= threshold (overload, fullness)
-};
-
-struct reservoir_band {
-    double threshold = 0.0;
-    std::string tag;  // opaque ancestor-queryable tag (6.2 semantics)
-    band_dir dir = band_dir::at_or_below;
-};
 
 // Which aggregated attrs feed this reservoir. Missing attributes read as 0
 // (a stat nobody wrote contributes nothing — fail-open for flows, the

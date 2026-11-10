@@ -28,6 +28,8 @@ add_library(ve_core STATIC
     src/reservoir.cpp
     src/power.cpp
     src/wiring.cpp
+    src/bands.cpp
+    src/curve.cpp
     src/inertia.cpp
     src/thruster.cpp
 )

@@ -62,16 +62,9 @@ void Reservoir::step() {
 void Reservoir::evaluate_bands() {
     if (!m_tags)
         return;
-    // Hysteresis-free: re-evaluate EVERY band against the post-step value,
-    // in registration order (deterministic TagSet insertion order).
-    for (const auto& b : m_bands) {
-        const bool live = (b.dir == band_dir::at_or_below) ? (m_value <= b.threshold)
-                                                           : (m_value >= b.threshold);
-        if (live)
-            m_tags->add(b.tag);
-        else
-            m_tags->remove(b.tag);
-    }
+    // 6.13: ONE threshold machinery everywhere (bands.h) — the reservoir
+    // just points it at its own fp64 state.
+    apply_bands(m_value, m_bands, *m_tags);
 }
 
 }  // namespace ve::core::sim
