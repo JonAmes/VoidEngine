@@ -36,3 +36,10 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
 - Events fire at RECOMPUTE time, not mutation time (recompute-on-read model): "when did a consumer see it" = which tick's drain. begin_tick tags; seq is bus-wide monotonic.
 - Canonical stats form: insertion order IS state (never re-sort keys); what done-when (e) guarantees is recompute-ORDER independence, pinned with forward/reverse/scrambled/recompute_all equality.
 - test_stats_hash carries an independent test-local FNV loop on purpose: a shared impl could not pin the byte format (bugs would cancel).
+
+## 6.6 — effects + conditions + rails (02b6ca2, CI GREEN 108/11263)
+- Effect atomicity has TWO halves: pre-validate the whole bundle BEFORE add_source, AND roll back (remove_source) if any member policy-rejects mid-bundle. A taken source id is refused without touching anything.
+- Timed effects: effect_desc::expire_tick STAMPS OVER each member's own expiry — the bundle is one life-clock. Dispel-by-tag still works (member tags carry into the stack).
+- condition attr tests read DERIVED (pipeline view), never base — the gate sees what the sim sees. Missing attribute = gate closed (fail-safe default).
+- binary32 gotcha pinned in test: 0.1f+0.2f == 0.3f exactly (unlike doubles); ULP discriminators must use nextafter.
+- rail_event payloads: two opaque u64s; flip events carry NEW STATE in b so the log alone answers "what state is it now" for scrubbing. Bus cannot distinguish seated vs on-foot verbs — that IS decision #28's identity claim, pinned as a shape-equality test.
