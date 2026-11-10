@@ -46,3 +46,14 @@ Design notes, findings, and gotchas worth keeping. One section per task number a
 - Gate-order pins (G1 fails before G2 etc.) + `run_pass` full-hull pattern make new gates cheap: mk_hull gained `hp_dockport` + `dockport_1` carrying the full contract, so every existing PASS test now also proves G10 doesn't over-fire; 7 G10 blocks cover each clause + a `coupling.kin` non-dock pass-through.
 - Cook-fixture policy honored: dock parse cases are inline TOML strings (zero golden drift); static `test_ship.def.toml` untouched, both `.golden` files byte-identical.
 - Registry typo case: `dock.clamp_strengths` (plural) must fail `registry` — membership is exact-match, no prefix leniency.
+
+## 7.6 — arcade atmosphere/aero (sim_aero, 208cfb)
+- Model is hand-computable end-to-end: `rho = rho0*exp(-alt/H)`, `q = ½ρ|v_rel|²`, `F = q*A*(CL*u_hat - CD*v_hat)`; atmosphere lives on `body_def` as `atm_rho0_kg_m3` / `atm_scale_height_m` (hand-authored SI this phase, cooked world schema stays Phase 8 per #45d).
+- `add_body` gates: finite atm fields, `rho0 >= 0`; `rho0 > 0` additionally requires `H > 0` and `well_radius > 0` — an airless moon simply authors `rho0 = 0`.
+- `#17` zero-force gates live inside `aero_forces` (no-atmo / no-well / outside-well => zero structurally) — both the outside-well gate and the CL dead-zone (`aoa >= 2*a_max`) were mutation-killed.
+- Forgiving stall: `CL(a) = lift_coeff * sin(pi*a/(2*a_max))` for `a < 2*a_max`, exactly 0 past — peaks at exactly `lift_coeff` at authored `a_max`, never negative, no cliff. `a_max < pi/2` is a hard param gate so the dead zone is guaranteed to exist.
+- Spin co-air: `air_vel = omega x (pos - center)` rides `v_rel` — pinned with the moon spinning at 1 rad/s.
+- Terminal-velocity gotcha (real physics, not a bug): with the 7.14-scale fixture (H=1e9, 24 km fall) the Euler attractor is the LOCAL `vt_eff(y)` — the body sinks into denser air and trails the surface vt by ~1.6e-3. Test uses near-uniform H=1e12 for the attractor proof (residual 1.6e-6 = the H=1e12 vt_eff lag, port-verified); the density *curve* is pinned by direct `atmosphere_density` calls at H=1000 instead.
+- fp64 sink at the attractor jitters +-ulp (upward jumps ~40% of ticks near vt): speed-monotonicity assertion carries a 1e-9 dip allowance (measured max dip 1.6e-10); the hard assertions are never-overshoot and final convergence.
+- Glide trim: `tan(gamma) = CD/CL`, `v_g = sqrt(2mg*cos(gamma)/(rho*A*CL))`; attitude construction must tilt body -Z INTO the flow direction — a rotation about Z does nothing while fwd is -Z (first test version pinned aoa = pi/2 by exactly that bug). Phugoid tail after 10 s settles ~1e-5 (speed) / ~1e-7 (descent angle).
+- Test-harness traps hit: doctest rejects `CHECK(a && b)` ("Expression Too Complex") — one binary comparison per CHECK; `math::kPi_d` (there is no `kPi`); TEST_CASE takes one arg in this doctest config; include is `<doctest/doctest.h>`.
