@@ -214,3 +214,23 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
   all bands cleared by t=299, so post-run `tags.contains("faction...")`
   queries FAIL. Record per-tick query vectors during the run; don't
   inspect the final TagSet state.
+
+## 6.15 — replay scrubber API (7ee0912, CI GREEN 119/15295)
+
+- `scrubber.h`: replay RECORD = ReplayLog + `sim_checkpoint` snapshots
+  (tick = post-step state; tick -1 = initial pre-step — tick_t is signed,
+  use it). `ReplayScrubber` owns copies; stepping ONLY via 4.7
+  `replay_step`, so scrubbed hash == live hash by construction, pinned
+  bit-exact at cp boundaries, exact-hit ticks, and 37/437 mid-legs.
+- Semantics pinned: `jump_to` re-replays from nearest cp <= target
+  (backward scrub is just a forward re-replay — no step-back op); exact
+  cp hit = 0 `replay_ops`, gap cost observable; `load` all-or-nothing
+  (refused load keeps old record AND cursor — pin that the survivor still
+  scrubs to live hashes, do NOT pin refusal-to-jump); oldest-cp rule:
+  ticks below the oldest cp fail closed.
+- `diff_between(a,b)` never moves the cursor (pinned by re-hashing);
+  one-step diff from tick -1 is hand-exact `accel*kSim_tick_dt` mirroring
+  replay_step's op order (`thrust * (1/m)` then `* dt`).
+- doctest traps: `CHECK(a->x == 1 && ...)` = "Expression Too Complex"
+  (arrow + &&); `CHECK(*opt == v)` too — split / use `.value()`. Mixed
+  `tick_t{-1}, 0, ...` braced range-for won't deduce — `std::vector<tick_t>{...}`.
