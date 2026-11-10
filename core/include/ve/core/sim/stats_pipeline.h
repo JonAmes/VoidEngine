@@ -37,6 +37,9 @@
 
 namespace ve::core {
 
+class StatsEventBus;  // 6.5; declared here to keep the dependency one-way
+                      // (bus does not know the pipeline exists)
+
 struct clamp_range {
     float lo = 0.0f;
     float hi = 0.0f;
@@ -71,6 +74,11 @@ public:
     // Total per-attribute recomputes performed (every re-walk counts 1).
     [[nodiscard]] std::uint64_t recompute_count() const { return m_count; }
 
+    // 6.5 event bus: when attached, every recompute whose derived BITS
+    // changed records a stat_change on the bus (raw-bit policy: -0.0 ->
+    // +0.0 counts, matching the state hash exactly). Null detaches.
+    void attach_bus(StatsEventBus* bus) { m_bus = bus; }
+
 private:
     [[nodiscard]] float resolve(std::string_view attr, float base) const;
     [[nodiscard]] const clamp_range* find_clamp(std::string_view attr) const;
@@ -81,6 +89,7 @@ private:
 
     StatsSet& m_stats;
     ModifierStack& m_mods;
+    StatsEventBus* m_bus = nullptr;  // 6.5; not owned
     std::vector<std::pair<std::string, clamp_range>> m_clamps;   // insertion order
     std::vector<std::pair<std::string, std::uint64_t>> m_stamps;  // insertion order
     std::uint64_t m_count = 0;

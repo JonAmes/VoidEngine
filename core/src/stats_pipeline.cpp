@@ -2,8 +2,11 @@
 #include "ve/core/sim/stats_pipeline.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <limits>
+
+#include "ve/core/sim/stats_bus.h"
 
 namespace ve::core {
 
@@ -106,9 +109,14 @@ void StatsPipeline::set_stamp(std::string_view attr, std::uint64_t stamp) {
 void StatsPipeline::recompute(std::string_view attr) {
     for (const auto& e : m_stats.entries())
         if (e.key == attr) {
-            m_stats.set_derived(attr, resolve(attr, e.value.base));
+            const float old_v = e.value.derived;
+            const float new_v = resolve(attr, e.value.base);
+            m_stats.set_derived(attr, new_v);
             set_stamp(attr, current_clock());
             ++m_count;
+            if (m_bus && std::bit_cast<std::uint32_t>(old_v) !=
+                            std::bit_cast<std::uint32_t>(new_v))
+                m_bus->record(attr, old_v, new_v);  // 6.5: bits changed
             return;
         }
 }
