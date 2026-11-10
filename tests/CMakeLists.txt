@@ -52,6 +52,7 @@ add_executable(engine_tests
     core/test_stats_hash.cpp
     core/test_effects_conditions.cpp
     core/test_effect_bus_rails.cpp
+    core/test_seat_stats_linkage.cpp
     core/test_ship_designer_flight.cpp
     core/test_sim_inertia.cpp
     core/test_sim_tensor.cpp
