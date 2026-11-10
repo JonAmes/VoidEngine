@@ -146,4 +146,27 @@ name = "Keel \u2014 \"slipknot\"\n"   # escapes incl. \uXXXX -> UTF-8
         REQUIRE_FALSE(three.has_value());
         CHECK(three.error().find("too many tokens") != std::string::npos);
     }
+    SUBCASE("array-table law: sub-headers land on the LAST entry") {
+        // TOML rule the hull-def grammar leans on (5.8): after [[a]],
+        // [a.b] opens a sub-table and [[a.c]] opens a sub-array on the most
+        // recent a entry — never on earlier ones.
+        TomlValue root;
+        std::string err;
+        REQUIRE_MESSAGE(parse_toml(
+            "[[a]]\nk = 1\n"
+            "[[a]]\nk = 2\n"
+            "[a.b]\nj = 3\n"
+            "[[a.c]]\nz = 4\n"
+            "[[a]]\nk = 5\n", root, &err), err);
+        const auto& a = root.table.at("a").array;
+        REQUIRE(a.size() == 3);
+        CHECK(a[0].table.at("k").integer == 1);
+        CHECK(a[0].table.count("b") == 0);   // b/c landed on entry 1, not 0
+        CHECK(a[1].table.at("k").integer == 2);
+        CHECK(a[1].table.at("b").table.at("j").integer == 3);
+        REQUIRE(a[1].table.at("c").array.size() == 1);
+        CHECK(a[1].table.at("c").array[0].table.at("z").integer == 4);
+        CHECK(a[2].table.at("k").integer == 5);
+        CHECK(a[2].table.count("b") == 0);
+    }
 }

@@ -24,13 +24,20 @@ namespace ve::core::sim {
 struct mass_point {
     double mass = 0.0;
     math::dvec3 pos{};
-    math::dmat3 local_tensor{};  // zero matrix = point mass
+    // MUST default via dmat3::zero(), not {}: mat3's default constructor is
+    // the identity (right for transforms, wrong for an inertia part). The
+    // documented contract is zero = point mass; identity would silently add
+    // 1 kg*m^2 per diagonal to every default-constructed part.
+    math::dmat3 local_tensor = math::dmat3::zero();
 };
 
 struct ship_inertia {
     double total_mass = 0.0;
     math::dvec3 com_local{};
-    math::dmat3 tensor{};  // about com_local, hull-local axes (symmetric)
+    math::dmat3 tensor = math::dmat3::zero();  // about com_local, hull-local
+                                               // axes (symmetric); zero not
+                                               // identity: same trap as
+                                               // mass_point::local_tensor
 };
 
 enum class inertia_error { non_positive_total_mass };

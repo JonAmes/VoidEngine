@@ -53,6 +53,10 @@ std::expected<Loadout, loadout_error> Loadout::assemble(
             for (std::size_t j = 0; j < i; ++j)
                 if (mr.attrs[j].key == mr.attrs[i].key)
                     return std::unexpected(loadout_error::duplicate_attr_key);
+        for (std::size_t i = 0; i < mr.tags.size(); ++i)
+            for (std::size_t j = 0; j < i; ++j)
+                if (mr.tags[j] == mr.tags[i])
+                    return std::unexpected(loadout_error::duplicate_tag);
 
         mounted_component mc;
         mc.instance_id = mr.instance_id;
@@ -60,6 +64,7 @@ std::expected<Loadout, loadout_error> Loadout::assemble(
         mc.socket_id = mr.socket_id;
         mc.category = out.m_sockets[si].category;  // == type category (checked)
         mc.attrs = mr.attrs;                       // insertion order kept
+        mc.tags = mr.tags;
         out.m_mounts.push_back(std::move(mc));
     }
 

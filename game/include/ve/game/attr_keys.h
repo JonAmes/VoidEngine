@@ -16,6 +16,7 @@ namespace ve::game {
 
 inline constexpr std::string_view kAttr_thrust_force    = "thrust.force";
 inline constexpr std::string_view kAttr_thrust_isp      = "thrust.isp";
+inline constexpr std::string_view kAttr_thrust_gimbal   = "thrust.gimbal_rad"; // #46e (def-side cone limit, radians)
 inline constexpr std::string_view kAttr_power_supply    = "power.supply";
 inline constexpr std::string_view kAttr_power_draw      = "power.draw";
 inline constexpr std::string_view kAttr_mass            = "mass";
@@ -32,8 +33,9 @@ inline constexpr std::string_view kAttr_interact_range  = "interact.range";   //
 // Every Phase 5 key, declaration order. Tooling iterates THIS for
 // validation; adding a key means adding it here (duplicate/format gates in
 // tests catch mistakes at build time).
-inline constexpr std::array<std::string_view, 14> kPhase5_attr_keys = {
-    kAttr_thrust_force,       kAttr_thrust_isp,       kAttr_power_supply,
+inline constexpr std::array<std::string_view, 15> kPhase5_attr_keys = {
+    kAttr_thrust_force,       kAttr_thrust_isp,       kAttr_thrust_gimbal,
+    kAttr_power_supply,
     kAttr_power_draw,         kAttr_mass,             kAttr_lift_coeff,
     kAttr_shield_capacity,    kAttr_ftl_speed_mult,   kAttr_ftl_spool_s,
     kAttr_ftl_flow,           kAttr_sensor_range,     kAttr_sensor_res,

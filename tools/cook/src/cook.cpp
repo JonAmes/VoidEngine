@@ -8,6 +8,8 @@
 #include <thread>
 
 #include "internal.h"
+#include "ve/cook/hulldef.h"
+#include "ve/cook/hullvalidate.h"
 #include "font.h"
 #include "glb.h"
 #include "png.h"
@@ -84,52 +86,6 @@ bool resolve_ref(const std::string& def_id, const std::string& ref, std::string&
     return true;
 }
 
-bool parse_def(const Bytes& data, DefData& out, std::string* err) {
-    std::string text(data.begin(), data.end());
-    std::size_t pos = 0;
-    int line_no = 0;
-    while (pos <= text.size()) {
-        std::size_t nl = text.find('\n', pos);
-        std::string line = text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
-        pos = (nl == std::string::npos) ? text.size() + 1 : nl + 1;
-        ++line_no;
-        bool in_quote = false;
-        for (std::size_t i = 0; i < line.size(); ++i) {
-            if (line[i] == '"') in_quote = !in_quote;
-            else if (line[i] == '#' && !in_quote) { line.resize(i); break; }
-        }
-        auto eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        auto trim = [](std::string s) {
-            auto issp = [](unsigned char c) { return std::isspace(c) != 0; };
-            while (!s.empty() && issp(s.front())) s.erase(s.begin());
-            while (!s.empty() && issp(s.back())) s.pop_back();
-            return s;
-        };
-        std::string key = trim(line.substr(0, eq));
-        std::string val = trim(line.substr(eq + 1));
-        if (key != "refs") continue;
-        if (val.size() >= 2 && val.front() == '[' && val.back() == ']') {
-            // collect every quoted string in the array
-            std::size_t i = 1;
-            while (i < val.size()) {
-                auto q1 = val.find('"', i);
-                if (q1 == std::string::npos) break;
-                auto q2 = val.find('"', q1 + 1);
-                if (q2 == std::string::npos) {
-                    if (err) *err = "unterminated string in refs array (line " + std::to_string(line_no) + ")";
-                    return false;
-                }
-                out.refs.push_back(val.substr(q1 + 1, q2 - q1 - 1));
-                i = q2 + 1;
-            }
-        } else {
-            if (err) *err = "refs must be a string array (line " + std::to_string(line_no) + ")";
-            return false;
-        }
-    }
-    return true;
-}
 
 CookResult cook_incremental(const std::string& src_dir, const std::string& out_dir) {
     CookResult result;
@@ -142,6 +98,7 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
     result.unit_ids = ids;
 
     bool manifest_changed = false;
+    std::set<std::string> cooked_ids;  // units (re)written this run; 5.9b trigger
     for (const auto& id : ids) {
         std::string src = (std::filesystem::path(src_dir) / id).string();
         Bytes source;
@@ -258,15 +215,19 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         }
 
         if (unit.type == kUnitDef0) {
-            DefData def;
-            bool def_ok = parse_def(unit.payload, def, &err);
-            if (!def_ok) {
-                result.error = "def '" + id + "': " + err;
+            // 5.8: hull defs compile to the normalized DEF0 v1 payload
+            // (cooked.h); plain defs keep raw bytes; refs -> manifest deps.
+            const std::string text(unit.payload.begin(), unit.payload.end());
+            std::vector<std::string> def_refs;
+            std::string def_err;
+            if (!cook_hulldef_unit(text, unit.payload, def_refs, &def_err)) {
+                result.error = "def '" + id + "': " + def_err;
                 ++result.counts.failures;
                 continue;
             }
+            bool def_ok = true;
             std::set<std::string> id_set(ids.begin(), ids.end());
-            for (const auto& ref : def.refs) {
+            for (const auto& ref : def_refs) {
                 std::string dep_id;
                 if (!resolve_ref(id, ref, dep_id)) {
                     result.error = "def '" + id + "' ref '" + ref + "' escapes the source root";
@@ -310,7 +271,112 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
             manifest[sid] = std::move(se);
         }
         manifest_changed = true;
+        cooked_ids.insert(id);
+        if (has_sock) cooked_ids.insert(id + ".sock");
         ++result.counts.cooked;
+    }
+
+    // ---- 5.9b hull cross-validation (#44 gate list, #46 conventions) ----
+    // Run for every DEF0 whose own or input units were (re)cooked this run;
+    // reused units were validated in the run that cooked them. Gate order is
+    // fixed inside cook_hull_validate (deterministic first-error). #46b: a
+    // lattice snap that rewrote coords rewrites the affected SOCK unit.
+    if (result.counts.failures == 0 && !cooked_ids.empty()) {
+        // A cooked hull def is a DEF0 unit whose payload begins with the
+        // payload-version u32 (2). Plain defs are the SAME unit type with raw
+        // TOML bytes (5.8 passthrough) -- their first 4 bytes can never be
+        // 0x00000002, so this peeks without parsing.
+        auto is_hull_payload = [](const Bytes& p) {
+            return p.size() >= 4 && p[0] == 2 && p[1] == 0 && p[2] == 0 && p[3] == 0;
+        };
+        auto load_hull = [&](const std::string& did, HullInputs& h, std::string* e) -> bool {
+            Unit du;
+            if (!read_unit_file(unit_path(out_dir, did), du, e) || du.type != kUnitDef0 ||
+                !is_hull_payload(du.payload)) {
+                *e = "def unit missing or not a cooked hull (DEF0 v2): " + did;
+                return false;
+            }
+            h.def_id = did;
+            if (!decode_def_payload(du.payload, h.def, e)) return false;
+            for (const auto& dep : manifest[did].deps) {
+                if (dep.size() < 4 || dep.compare(dep.size() - 4, 4, ".glb") != 0) continue;
+                Unit su;
+                if (!read_unit_file(unit_path(out_dir, dep + ".sock"), su, e) ||
+                    su.type != kUnitSock) {
+                    *e = "SOCK unit missing for mesh dep '" + dep + "' of '" + did + "'";
+                    return false;
+                }
+                SockView sv;
+                if (!decode_sock_payload(su.payload, sv, e)) return false;
+                h.socks.push_back(std::move(sv));
+            }
+            for (const auto& seam : h.def.seams) {
+                std::string pid;  // authored ref was validated at cook time
+                resolve_ref(did, seam.partner_ref, pid);
+                h.seam_partner_ids.push_back(pid);
+            }
+            return true;
+        };
+        // Hulls to validate, in manifest (content-ID) order.
+        std::vector<std::string> hull_ids;
+        for (const auto& m : manifest) {
+            Unit du;
+            std::string e;
+            if (!read_unit_file(unit_path(out_dir, m.first), du, &e) || du.type != kUnitDef0 ||
+                !is_hull_payload(du.payload))
+                continue;  // plain passthrough def: no hull gates (#46)
+            bool touched = cooked_ids.count(m.first) != 0;
+            if (!touched)
+                for (const auto& dep : m.second.deps)
+                    if (cooked_ids.count(dep) || cooked_ids.count(dep + ".sock")) {
+                        touched = true;
+                        break;
+                    }
+            if (touched) hull_ids.push_back(m.first);
+        }
+        for (const auto& did : hull_ids) {
+            HullInputs h;
+            std::string verr;
+            if (!load_hull(did, h, &verr)) {
+                result.error = verr;
+                ++result.counts.failures;
+                break;
+            }
+            std::map<std::string, HullInputs> partners;
+            bool load_ok = true;
+            for (const std::string& pid : h.seam_partner_ids) {
+                if (pid.empty() || partners.count(pid)) continue;
+                HullInputs ph;
+                if (!load_hull(pid, ph, &verr)) { load_ok = false; break; }
+                partners[pid] = std::move(ph);
+            }
+            if (!load_ok) {
+                result.error = verr;
+                ++result.counts.failures;
+                break;
+            }
+            std::vector<SockView> snapped;
+            if (!cook_hull_validate(h, partners, snapped, &verr)) {
+                result.error = verr;
+                ++result.counts.failures;
+                break;
+            }
+            for (std::size_t i = 0; i < h.socks.size() && i < snapped.size(); ++i) {
+                const Bytes enc = encode_sock_payload(snapped[i]);
+                const std::string sid = h.socks[i].mesh_id + ".sock";
+                Unit su;
+                if (!read_unit_file(unit_path(out_dir, sid), su, &err)) continue;
+                if (su.payload == enc) continue;  // no snap change -> byte-stable
+                su.payload = std::move(enc);
+                if (!write_unit_file(unit_path(out_dir, sid), su, &err)) {
+                    result.error = err;
+                    ++result.counts.failures;
+                    break;
+                }
+                cooked_ids.insert(sid);
+            }
+            if (result.counts.failures) break;
+        }
     }
 
     // Manifest bytes are deterministic (entries ordered by content ID).

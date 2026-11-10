@@ -14,7 +14,9 @@
 // Validation is assemble-time and total: a loadout that exists has no
 // duplicate socket ids, no dangling socket refs, no double-occupied
 // sockets, no category mismatches, no duplicate instance ids, no duplicate
-// attribute keys inside one mount, and a sane #44 grid block. The cooklet
+// attribute keys or duplicate tags inside one mount, and a sane #44 grid
+// block (tags are set-like capability lists; a doubled tag is an authoring
+// bug, never a doubled capability). The cooklet
 // (5.6-5.9) runs the same checks earlier on authored content; runtime
 // refuses to build a broken loadout even from hand-assembled structs.
 
@@ -70,11 +72,14 @@ struct attr_pair {
 };
 
 // One intended mount (from cooked def rows, hangar actions, or tests).
+// tags are opaque gameplay tags (#28a facet actions, #18 role tags) — the
+// cooklet already rejects unknown facet-action tags; core only stores them.
 struct mount_request {
     std::string instance_id;    // unique across the loadout
     std::string type_id;        // must name a catalog entry
     std::string socket_id;      // must name a hull socket
     std::vector<attr_pair> attrs;  // base values; insertion order kept
+    std::vector<std::string> tags; // capability/role tags; insertion order kept
 };
 
 // A validated, mounted component.
@@ -84,6 +89,7 @@ struct mounted_component {
     std::string socket_id;
     socket_category category = socket_category::utility_;
     std::vector<attr_pair> attrs;
+    std::vector<std::string> tags;
 };
 
 // Everything that failed to assemble (single value: the FIRST violation in
@@ -96,6 +102,7 @@ enum class loadout_error : std::uint8_t {
     category_mismatch,
     duplicate_instance_id,
     duplicate_attr_key,
+    duplicate_tag,
     invalid_grid,
     invalid_hull_mass,
 };

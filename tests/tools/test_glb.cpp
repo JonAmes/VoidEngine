@@ -1,6 +1,6 @@
 // test: glb_cook_poc — the Blender PoC hull (docs/tests/blender/report.md,
 // copied to assets/samples/test_ship.glb) cooks into mesh + material +
-// 5 socket records with socket names + extras preserved + the 5.6 SOCK
+// 8 socket records with socket names + extras preserved + the 5.6 SOCK
 // unit (ratified categories, fp64 transforms, golden payload bytes) and
 // the socket_type cook gate.
 // Also: a def referencing an EXISTING texture records the dependency edge
@@ -152,9 +152,10 @@ TEST_CASE("glb_cook_poc") {
     }
     CHECK(found_folded_emissive);
 
-    // sockets: exactly the 5 authored hp_* empties, names + extras preserved.
+    // sockets: exactly the 8 authored hp_* empties (5.6 five + 5.8 three
+    // utility hardpoints for seat/reactor/battery), names + extras preserved.
     const auto socket_count = r2.u32();
-    CHECK(socket_count == 5);
+    CHECK(socket_count == 8);
     std::vector<std::string> names;
     for (std::uint32_t s = 0; s < socket_count; ++s) {
         names.push_back(r2.str());
@@ -167,8 +168,9 @@ TEST_CASE("glb_cook_poc") {
             CHECK(extras.find("main") != std::string::npos);     // re-authored (#21)
     }
     std::sort(names.begin(), names.end());
-    CHECK(names == std::vector<std::string>{"hp_dorsal_turret", "hp_engine_L",
-                                           "hp_engine_R", "hp_wingtip_L", "hp_wingtip_R"});
+    CHECK(names == std::vector<std::string>{"hp_battery", "hp_dorsal_turret",
+                                           "hp_engine_L", "hp_engine_R", "hp_reactor",
+                                           "hp_seat_pilot", "hp_wingtip_L", "hp_wingtip_R"});
 
     // hull-level extras ride the root node.
     const auto root_extras = r2.str(); // str() consumes its own length prefix
@@ -176,22 +178,35 @@ TEST_CASE("glb_cook_poc") {
     CHECK(root_extras.find("mass_t") != std::string::npos);
     CHECK(r2.at == u.payload.size()); // payload fully consumed: layout exact
 
-    // ---- SOCK unit (5.6): the validated hardpoint table ----------------
+    // ---- SOCK unit (5.6, v2 since 5.9a #46a): one named-anchor table —
+    // hardpoint sockets AND #30a interior empties (door_/seat_/panel_/
+    // counter_/berth_), kind byte + ratified category + local TRS. All
+    // fixture anchors are lattice-exact for the sample def's grid (#44) so
+    // 5.9b's snap-rewrite is an exact no-op on this fixture.
     ve::cook::Unit su;
     REQUIRE(ve::cook::read_unit_file(out + "/units/test_ship.glb.sock.ck", su, &err));
     CHECK(su.id == "test_ship.glb.sock");
     CHECK(su.type == ve::cook::kUnitSock);
     Reader s{su.payload};
     CHECK(s.str() == "test_ship.glb");  // content-ID link to the MESH unit
-    CHECK(s.u32() == 5u);
-    struct Want { const char* name; int cat; double x, y, z; };
-    static const Want want[] = {  // node-index order; ratified categories
-        {"hp_engine_L", 0, 1.4, -4.5, 0.0},   {"hp_engine_R", 0, -1.4, -4.5, 0.0},
-        {"hp_wingtip_L", 3, 3.5, -0.3, 0.0},  {"hp_wingtip_R", 1, -3.5, -0.3, 0.0},
-        {"hp_dorsal_turret", 2, 0.0, 1.0, 0.0},
+    CHECK(s.u32() == 2u);               // payload_ver v2
+    CHECK(s.u32() == 12u);              // 8 hardpoints + 4 interior empties
+    struct Want { const char* name; int kind, cat; double x, y, z; };
+    static const Want want[] = {  // node-index order
+        {"hp_engine_L", 0, 0, 2.0, 0.0, -6.0},   {"hp_engine_R", 0, 0, -2.0, 0.0, -6.0},
+        {"hp_wingtip_L", 0, 3, 6.0, 0.0, 0.0},   {"hp_wingtip_R", 0, 1, -6.0, 0.0, 0.0},
+        {"hp_dorsal_turret", 0, 2, 0.0, 2.2, 0.0},
+        {"hp_seat_pilot", 0, 3, 0.0, 0.0, -4.0}, // 5.8 utility hardpoints (#14:
+        {"hp_reactor", 0, 3, -2.0, 0.0, 2.0},    // socket data lives in the glb)
+        {"hp_battery", 0, 3, 2.0, 0.0, 2.0},
+        {"door_1", 1, 3, 0.0, 0.0, 0.0},         // 5.9a #30a interior empties
+        {"seat_pilot", 2, 3, 0.5, 0.55, -4.0},   // (name == def component id,
+        {"panel_main", 3, 3, 0.5, 0.0, -3.5},    //  #46a pairing key)
+        {"berth_1", 5, 3, 2.0, 0.0, 4.0},
     };
     for (const auto& w : want) {
         CHECK(s.str() == w.name);
+        CHECK(static_cast<int>(s.u8()) == w.kind);
         CHECK(static_cast<int>(s.u8()) == w.cat);
         CHECK(s.f64() == doctest::Approx(w.x).epsilon(1e-6));
         CHECK(s.f64() == doctest::Approx(w.y).epsilon(1e-6));

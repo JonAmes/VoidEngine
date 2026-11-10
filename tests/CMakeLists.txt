@@ -41,6 +41,13 @@ add_executable(engine_tests
     core/test_sim_ghost.cpp
     core/test_sim_flight_figure8.cpp
     core/test_loadout.cpp
+    core/test_loadout_load.cpp
+    core/test_occupancy.cpp
+    core/test_cargo.cpp
+    core/test_stats_set.cpp
+    core/test_gameplay_tags.cpp
+    core/test_modifier_stack.cpp
+    core/test_ship_designer_flight.cpp
     core/test_sim_inertia.cpp
     core/test_sim_tensor.cpp
     core/test_sim_thruster.cpp
@@ -49,6 +56,8 @@ add_executable(engine_tests
     core/test_math_coords.cpp
     tools/test_container.cpp
     cook/test_toml.cpp
+    cook/test_hulldef.cpp
+    cook/test_hull_validate.cpp
     tools/test_glb.cpp
     tools/test_mikktspace.cpp
     tools/test_incremental.cpp

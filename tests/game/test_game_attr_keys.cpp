@@ -8,6 +8,8 @@
 
 #include "ve/game/attr_keys.h"
 #include "ve/game/units.h"
+#include "ve/game/facet_actions.h"
+#include "ve/game/role_tags.h"
 
 namespace {
 using namespace ve::game;
@@ -22,7 +24,7 @@ TEST_CASE("game_attr_keys") {
     for (std::size_t i = 0; i < kPhase5_attr_keys.size(); ++i)
         for (std::size_t j = i + 1; j < kPhase5_attr_keys.size(); ++j)
             CHECK(kPhase5_attr_keys[i] != kPhase5_attr_keys[j]);
-    CHECK(kPhase5_attr_keys.size() == 14);
+    CHECK(kPhase5_attr_keys.size() == 15);
 
     // every named constant is IN the set (the array is the registry).
     for (auto k : {kAttr_thrust_force, kAttr_thrust_isp, kAttr_power_supply,
@@ -63,4 +65,28 @@ TEST_CASE("game_attr_keys") {
     CHECK(coerce_to_si(5.0, "bogus").error() == unit_error::unknown_suffix);
     CHECK_FALSE(coerce_to_si(5.0, "KM").has_value());   // case-sensitive
     CHECK_FALSE(coerce_to_si(5.0, "Day").has_value());
+}
+
+// #28a / 5.9b — the closed facet-action registry (#46f checkpoint decision).
+TEST_CASE("game_role_tags") {
+    using namespace ve::game;
+    CHECK(kPhase5_role_tags.size() == 5);  // #18c slice crew roster
+    for (const auto t : kPhase5_role_tags) {
+        CHECK(is_valid_role_tag(t));
+        CHECK(is_valid_attr_key(t));  // same dotted grammar
+    }
+    CHECK_FALSE(is_valid_role_tag("station.captain"));  // parses, not ratified
+    CHECK_FALSE(is_valid_role_tag("use.seat"));         // facet tag, not a role
+    CHECK(is_valid_facet_action("use.seat"));
+}
+
+TEST_CASE("game_facet_actions") {
+    using namespace ve::game;
+    CHECK(kPhase5_facet_actions.size() == 12);
+    for (const auto a : kPhase5_facet_actions) CHECK(is_valid_facet_action(a));
+    CHECK_FALSE(is_valid_facet_action("use.ladder"));   // grammar ok, not ratified
+    CHECK_FALSE(is_valid_facet_action("Use.Seat"));     // case-sensitive
+    CHECK_FALSE(is_valid_facet_action("use..seat"));    // bad grammar
+    CHECK_FALSE(is_valid_facet_action(""));
+    CHECK(is_valid_attr_key("use.ladder"));             // grammar vs membership
 }

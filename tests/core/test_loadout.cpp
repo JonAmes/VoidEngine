@@ -56,11 +56,11 @@ std::vector<component_type> test_catalog() {
 std::vector<mount_request> test_mounts() {
     return {
         {"eng_L", "thruster.main", "hp_main_L",
-         {{"thrust.force", 90000.0}, {"thrust.isp", 300.0}, {"mass", 180.0}}},
+         {{"thrust.force", 90000.0}, {"thrust.isp", 300.0}, {"mass", 180.0}}, {}},
         {"eng_R", "thruster.main", "hp_main_R",
-         {{"thrust.force", 90000.0}, {"thrust.isp", 300.0}, {"mass", 180.0}}},
+         {{"thrust.force", 90000.0}, {"thrust.isp", 300.0}, {"mass", 180.0}}, {}},
         {"reactor", "reactor.core", "hp_util_1",
-         {{"power.supply", 400.0}, {"mass", 90.0}}},
+         {{"power.supply", 400.0}, {"mass", 90.0}}, {}},
     };
 }
 
@@ -128,34 +128,34 @@ TEST_CASE("loadout_mount_rules") {
     CHECK(e == loadout_error::duplicate_socket_id);
 
     // Mount onto a socket that does not exist.
-    e = err_of(build(test_sockets(), {{"x", "thruster.main", "hp_nope", {}}}));
+    e = err_of(build(test_sockets(), {{"x", "thruster.main", "hp_nope", {}, {}}}));
     CHECK(e == loadout_error::unknown_socket);
 
     // Unknown component type (not in the catalog).
-    e = err_of(build(test_sockets(), {{"x", "warp.core", "hp_main_L", {}}}));
+    e = err_of(build(test_sockets(), {{"x", "warp.core", "hp_main_L", {}, {}}}));
     CHECK(e == loadout_error::unknown_component_type);
 
     // Two mounts, same socket.
     e = err_of(build(test_sockets(),
-              {{"a", "thruster.main", "hp_main_L", {}},
-               {"b", "thruster.main", "hp_main_L", {}}}));
+              {{"a", "thruster.main", "hp_main_L", {}, {}},
+               {"b", "thruster.main", "hp_main_L", {}, {}}}));
     CHECK(e == loadout_error::socket_occupied);
 
     // Category mismatch: type says main, socket says rcs — pure equality,
     // core has no policy about what categories afford.
-    e = err_of(build(test_sockets(), {{"a", "thruster.main", "hp_rcs_nose", {}}}));
+    e = err_of(build(test_sockets(), {{"a", "thruster.main", "hp_rcs_nose", {}, {}}}));
     CHECK(e == loadout_error::category_mismatch);
 
     // Duplicate instance ids.
     e = err_of(build(test_sockets(),
-              {{"same", "thruster.main", "hp_main_L", {}},
-               {"same", "thruster.main", "hp_main_R", {}}}));
+              {{"same", "thruster.main", "hp_main_L", {}, {}},
+               {"same", "thruster.main", "hp_main_R", {}, {}}}));
     CHECK(e == loadout_error::duplicate_instance_id);
 
     // Duplicate attribute key within one mount.
     e = err_of(build(test_sockets(),
               {{"a", "thruster.main", "hp_main_L",
-                {{"mass", 1.0}, {"mass", 2.0}}}}));
+                {{"mass", 1.0}, {"mass", 2.0}}, {}, }}));
     CHECK(e == loadout_error::duplicate_attr_key);
 
     // Grid block sanity (#44): non-positive cell, subcell < 1, negative tol.
@@ -183,6 +183,6 @@ TEST_CASE("loadout_mount_rules") {
     // though the mount also dangles.
     s_dup = test_sockets();
     s_dup[1].id = s_dup[0].id;
-    e = err_of(build(s_dup, {{"a", "thruster.main", "hp_gone", {}}}));
+    e = err_of(build(s_dup, {{"a", "thruster.main", "hp_gone", {}, {}}}));
     CHECK(e == loadout_error::duplicate_socket_id);
 }

@@ -13,6 +13,12 @@ add_library(ve_core STATIC
     src/assist.cpp
     src/well_blend.cpp
     src/loadout.cpp
+    src/loadout_load.cpp
+    src/occupancy.cpp
+    src/cargo.cpp
+    src/stats.cpp
+    src/tags.cpp
+    src/modifiers.cpp
     src/inertia.cpp
     src/thruster.cpp
 )

@@ -251,16 +251,44 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& mesh_out, Unit
     Bytes& p = mesh_out.payload;
 
     // (name, node idx, ratified category 0..3) — node-index order (deterministic).
-    std::vector<std::tuple<std::string, int, int>> socket_list;
+    // (name, node idx, ratified category 0..3, kind) — node-index order
+    // (deterministic). kind: 0 hardpoint socket, 1..5 #30a interior empties
+    // (door/seat/panel/counter/berth) — decision #46a: ONE named-empties
+    // table; the empty's name is the pairing key against def component ids.
+    struct Named { std::string name; int ni; int cat; int kind; };
+    std::vector<Named> named_list;
     std::string root_extras_json;
 
     std::uint32_t mesh_count = 0;
     Bytes mesh_body;
+    // #46a: prefix -> empty kind. Ratified set; anything else named *_ is
+    // free-form art and never enters the table.
+    auto empty_kind = [](const std::string& n) -> int {
+        if (n.rfind("door_", 0) == 0) return 1;
+        if (n.rfind("seat_", 0) == 0) return 2;
+        if (n.rfind("panel_", 0) == 0) return 3;
+        if (n.rfind("counter_", 0) == 0) return 4;
+        if (n.rfind("berth_", 0) == 0) return 5;
+        return -1;
+    };
     for (std::size_t ni = 0; ni < N.size(); ++ni) {
         const auto& node = N[ni];
         const std::string name = node.find("name") ? node.find("name")->s() : "";
         const bool is_socket = name.rfind("hp_", 0) == 0;
+        const int ekind = is_socket ? 0 : empty_kind(name);
         const auto* extras = node.find("extras");
+        if (ekind > 0) {
+            // #30a: interior empties are mesh-less anchors; the def pairs
+            // against them by name (#46a). A mesh wearing an anchor name is
+            // an authoring slip — fail loud, like a typo'd hardpoint.
+            if (node.find("mesh"))
+                return fail("interior empty '" + name + "' has a mesh (empties must be mesh-less)");
+            if (extras && extras->is_obj() && extras->find("socket_type"))
+                return fail("interior empty '" + name +
+                            "' carries socket_type (interior anchors are always utility, #46a)");
+            named_list.push_back({name, static_cast<int>(ni), 3, ekind});
+            continue;
+        }
         if (is_socket) {
             // 5.6: socket_type must be a ratified category (#21). A typo'd
             // hardpoint failing LOUD at cook time beats a runtime loadout
@@ -277,7 +305,9 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& mesh_out, Unit
             if (cat < 0)
                 return fail("socket '" + name +
                             "': extras.socket_type must be main|rcs|gun|utility (decision #21)");
-            socket_list.emplace_back(name, static_cast<int>(ni), cat);
+            if (node.find("mesh"))
+                return fail("socket '" + name + "' has a mesh (hardpoints are mesh-less nodes, #14)");
+            named_list.push_back({name, static_cast<int>(ni), cat, 0});
             continue;
         }
         if (extras && extras->is_obj()) {
@@ -467,10 +497,21 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& mesh_out, Unit
     p.insert(p.end(), mesh_body.begin(), mesh_body.end());
     put32(p, mat_count);
     p.insert(p.end(), mat_body.begin(), mat_body.end());
-    put32(p, static_cast<std::uint32_t>(socket_list.size()));
-    for (const auto& [name, ni, cat] : socket_list) {
-        (void)cat;  // SOCK carries the category; MESH keeps verbatim extras
-        put_str(p, name);
+    // named-anchor uniqueness: the name is the pairing key (#46a), so two
+    // nodes sharing one name are a dangling-reference generator.
+    for (std::size_t i = 0; i < named_list.size(); ++i)
+        for (std::size_t j = i + 1; j < named_list.size(); ++j)
+            if (named_list[i].name == named_list[j].name)
+                return fail("duplicate named anchor '" + named_list[i].name + "'");
+
+    std::uint32_t hp_count = 0;
+    for (const auto& n : named_list)
+        if (n.kind == 0) ++hp_count;
+    put32(p, hp_count);
+    for (const auto& n : named_list) {
+        if (n.kind != 0) continue;  // SOCK carries interior empties; MESH keeps hp only
+        put_str(p, n.name);
+        const int ni = n.ni;
         const auto& m = world[static_cast<std::size_t>(ni)];
         const double zero[3] = {0, 0, 0};
         float o[3];
@@ -486,10 +527,17 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& mesh_out, Unit
     sock_out.type = kUnitSock;
     Bytes& sp = sock_out.payload;
     put_str(sp, id);  // content-ID link to the MESH unit
-    put32(sp, static_cast<std::uint32_t>(socket_list.size()));
-    for (const auto& [name, ni, cat] : socket_list) {
-        put_str(sp, name);
-        sp.push_back(static_cast<std::uint8_t>(cat));
+    // SOCK payload v2 (#46a): hardpoint sockets AND #30a interior empties in
+    // one table — kind byte (0 hp_*, 1 door_, 2 seat_, 3 panel_, 4 counter_,
+    // 5 berth_) + ratified category + authored local TRS (t, q). #5.9b
+    // cross-validation snaps lattice coords into this payload in place.
+    put32(sp, 2u);  // payload_ver
+    put32(sp, static_cast<std::uint32_t>(named_list.size()));
+    for (const auto& n : named_list) {
+        put_str(sp, n.name);
+        sp.push_back(static_cast<std::uint8_t>(n.kind));
+        sp.push_back(static_cast<std::uint8_t>(n.cat));
+        const std::size_t ni = static_cast<std::size_t>(n.ni);
         const auto& m = world[static_cast<std::size_t>(ni)];
         // TRS-baked world transform of the node; baked translation for a
         // point at the local origin IS m.t (rotate of scaled zero = 0).
