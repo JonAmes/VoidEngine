@@ -163,3 +163,38 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
 - Gotcha: recompute-on-read cache — the StatsSet derived mirror only shows
   restored bits after the NEXT `derived()` read; capture baseline-restoration
   hashes AFTER the glue's per-tick reads, not at the event tick itself.
+
+## 6.13 — markets + reputation, done-when (g) pt 1 (40d5e86, CI GREEN 117/13291)
+
+- **bands.h = one threshold primitive everywhere**: the 6.9 band machinery
+  extracted verbatim (same `band_dir`/`reservoir_band` names — one type),
+  `apply_bands(value, bands, tags)` now backs BOTH the reservoir and
+  reputation flips (#20c "same threshold machinery"). Reservoir shrank to a
+  call; 6.9 regression (248 assertions) untouched.
+- **piecewise_curve**: authored data, all-or-nothing validated (≥2 pts,
+  finite, x strictly ascending — equal x rejected: ambiguous y). Fixed fp64
+  interpolation form `y0+(x-x0)*(y1-y0)/(x1-x0)`, linear bracket scan (n is
+  tiny, order load-bearing), clamped flat tails both ends — the tail is
+  what floors a bountiful market. Concept-free: numbers in, numbers out.
+- **Market = pure composition, price NEVER stored**: stock = Reservoir;
+  production+lane flow = supply-attr modifiers; player buy/sell = ONE-TICK
+  pulse EFFECTS (`qty/kSim_dt` on load/supply, `expire_tick = t+1`) through
+  the 6.6 machinery — the reservoir integrates them the same tick, no
+  transaction code. Glue re-derives `curve(stock)` into the price base attr
+  every tick; the #18 trader seat discount is just a `percent` pipeline
+  modifier on that attr (seat never touches stock).
+- **Dyadic pins**: +60/s flow → +1.0/tick; buy 16 @100 → delta −15 → 213;
+  sell 64 @140 → +65 → 317; curve (0,10)(128,2)(256,1) → price 1.3359375
+  mid-curve, 1.0 tail; `ore.plentiful >= 256` flips EXACTLY tick 140; two
+  scripted runs bit-identical (level/price/tag vectors).
+- **Gotcha (reconfirmed)**: flow attrs must exist in the StatsSet at zero
+  base — `derived()` on an authored-away attr fails closed → silently zero
+  flow (first draft froze stock at 128). Same rule as 6.9 tests.
+- **Off-by-one gotcha**: recorded vector index t = state after t+1 steps;
+  pin formulas must use 128+(t+1), not 128+t.
+- **reputation_tags**: rep attr on the faction's own StatsSet; player
+  actions = INSTANT effects (no expire_tick → live until remove_source;
+  removal restores the attr bit-exactly). Bands hostile ≤20 / friendly ≥60
+  flip at EXACTLY ticks 40/70/95 under scripted strike/accord/forgive;
+  hysteresis-free so friendly flips the same tick hostile drops; ancestor
+  `faction` query rides 6.2 for free.
