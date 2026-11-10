@@ -19,6 +19,7 @@ add_library(ve_core STATIC
     src/stats.cpp
     src/tags.cpp
     src/modifiers.cpp
+    src/stats_pipeline.cpp
     src/inertia.cpp
     src/thruster.cpp
 )
