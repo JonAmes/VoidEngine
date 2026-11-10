@@ -67,6 +67,51 @@ math::dvec3 cube_project(math::dvec3 d) {
     return d * (1.0 / az);
 }
 
+// The raw multi-octave noise field at an ALREADY-NORMALIZED direction.
+// Operation order here is the 7.2 pinned bit-contract (#40) — do not
+// refactor the accumulation without re-deriving the hand pins.
+double noise_field(const terrain_def& def, math::dvec3 d) {
+    const math::dvec3 p = cube_project(d);
+    const int oct = def.octaves < 1 ? 1 : (def.octaves > kMax_octaves ? kMax_octaves : def.octaves);
+    double sum = 0.0, amp = 1.0, freq = def.base_frequency;
+    for (int o = 0; o < oct; ++o) {
+        sum += amp * value_noise(def.seed, p.x * freq, p.y * freq, p.z * freq);
+        amp *= def.gain;
+        freq *= def.lacunarity;
+    }
+    return def.relief_m * sum;
+}
+
+math::dvec3 normalize_dir(math::dvec3 dir) {  // shared degenerate pin (never throws)
+    double len2 = math::length2(dir);
+    if (len2 == 0.0) return math::dvec3(0.0, 1.0, 0.0);
+    return dir * (1.0 / std::sqrt(len2));
+}
+
+// Stamp weight in [0,1] at unit direction d (angular distance via acos —
+// libm is in the #40 platform contract for sampler evals). Degenerate
+// stamps (non-finite fields, zero center, non-positive radius) are skipped.
+double stamp_weight(const terrain_stamp& s, math::dvec3 d) {
+    if (!std::isfinite(s.radius_rad) || s.radius_rad <= 0.0) return 0.0;
+    if (!std::isfinite(s.level_m) || !std::isfinite(s.blend)) return 0.0;
+    const double c2 = math::length2(s.center_dir);
+    if (!(c2 > 0.0)) return 0.0;  // NaN center falls through here too
+    const math::dvec3 c = s.center_dir * (1.0 / std::sqrt(c2));
+    double cosang = math::dot(d, c);
+    if (cosang > 1.0) cosang = 1.0; else if (cosang < -1.0) cosang = -1.0;
+    const double dd = std::acos(cosang);
+    if (dd >= s.radius_rad) return 0.0;
+    if (s.type == stamp_type::crater) {
+        // point profile: floor at the center, quintic bowl wall to the rim
+        return quintic(1.0 - dd / s.radius_rad);
+    }
+    // plateau profile (flatten/mesa): full weight inside, quintic blend ring
+    if (s.blend <= 0.0) return 1.0;  // hard disc (authored misuse; deterministic)
+    const double inner = (1.0 - (s.blend > 1.0 ? 1.0 : s.blend)) * s.radius_rad;
+    if (dd <= inner) return 1.0;
+    return 1.0 - quintic((dd - inner) / (s.radius_rad - inner));
+}
+
 } // namespace
 
 face_uv cube_face(math::dvec3 dir) {
@@ -82,27 +127,35 @@ face_uv cube_face(math::dvec3 dir) {
 }
 
 double terrain_height(const terrain_def& def, math::dvec3 dir) {
-    // Degenerate direction: pin to +Y rather than divide by zero (core is
-    // exception-free; callers pass unit body-local dirs).
-    double len2 = math::length2(dir);
-    if (len2 == 0.0) dir = math::dvec3(0.0, 1.0, 0.0), len2 = 1.0;
-    const math::dvec3 d = dir * (1.0 / std::sqrt(len2));
-    const math::dvec3 p = cube_project(d);
+    return noise_field(def, normalize_dir(dir));
+}
 
-    const int oct = def.octaves < 1 ? 1 : (def.octaves > kMax_octaves ? kMax_octaves : def.octaves);
-    double sum = 0.0, amp = 1.0, freq = def.base_frequency;
-    for (int o = 0; o < oct; ++o) {
-        sum += amp * value_noise(def.seed, p.x * freq, p.y * freq, p.z * freq);
-        amp *= def.gain;
-        freq *= def.lacunarity;
+double terrain_height(const terrain_def& def, std::span<const terrain_stamp> stamps, math::dvec3 dir) {
+    if (stamps.empty()) return terrain_height(def, dir);  // bit-identical 7.2 path
+    const math::dvec3 d = normalize_dir(dir);
+    const double hn = noise_field(def, d);
+    // #29c order: stamps compose over the FLAT baseline first, then noise
+    // composes on top scaled by the worst suppression — a full-weight stamp
+    // pins h to its level with zero noise influence (exact bits).
+    double hb = 0.0, W = 0.0;
+    for (const auto& s : stamps) {
+        const double w = stamp_weight(s, d);
+        if (w == 0.0) continue;
+        // w==1 shortcut: lerp would round (level - hb) + hb; the pin must be
+        // the authored level's exact bits.
+        hb = (w == 1.0) ? s.level_m : hb + w * (s.level_m - hb);
+        if (w > W) W = w;
     }
-    return def.relief_m * sum;
+    return hb + (1.0 - W) * hn;
 }
 
 math::dvec3 terrain_normal(const terrain_def& def, double mean_radius_m, math::dvec3 dir) {
-    double len2 = math::length2(dir);
-    if (len2 == 0.0) dir = math::dvec3(0.0, 1.0, 0.0), len2 = 1.0;
-    const math::dvec3 d = dir * (1.0 / std::sqrt(len2));
+    return terrain_normal(def, mean_radius_m, std::span<const terrain_stamp>{}, dir);
+}
+
+math::dvec3 terrain_normal(const terrain_def& def, double mean_radius_m,
+                           std::span<const terrain_stamp> stamps, math::dvec3 dir) {
+    const math::dvec3 d = normalize_dir(dir);
 
     // Deterministic tangent basis: ref = axis of SMALLEST |component| (ties
     // pick the lower axis index) keeps |d x ref| >= sqrt(2/3) for any d.
@@ -127,9 +180,9 @@ math::dvec3 terrain_normal(const terrain_def& def, double mean_radius_m, math::d
     const auto rot = [&](math::dvec3 e) {
         return math::normalize(d * c + e * s);
     };
-    const double h0 = terrain_height(def, d);
-    const double D1 = (terrain_height(def, rot(e1)) - terrain_height(def, rot(-e1))) / (2.0 * kEps);
-    const double D2 = (terrain_height(def, rot(e2)) - terrain_height(def, rot(-e2))) / (2.0 * kEps);
+    const double h0 = terrain_height(def, stamps, d);
+    const double D1 = (terrain_height(def, stamps, rot(e1)) - terrain_height(def, stamps, rot(-e1))) / (2.0 * kEps);
+    const double D2 = (terrain_height(def, stamps, rot(e2)) - terrain_height(def, stamps, rot(-e2))) / (2.0 * kEps);
     return math::normalize(d * (mean_radius_m + h0) - e1 * D1 - e2 * D2);
 }
 
