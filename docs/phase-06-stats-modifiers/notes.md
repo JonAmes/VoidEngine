@@ -121,3 +121,45 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
   grepping the SHA back after patching). Restored from a98839f spine text
   with commit 219419c (CI 109/11334); test name corrected to the real
   doctest case `seat_stats_linkage`.
+
+## 6.12 — wire networks as reachability BFS, done-when (e) (93102cc, CI GREEN 115/12235)
+
+- `WiringReach` (core/sim/wiring.h/.cpp): power/signal flow = BFS flood over
+  the hull's authored wire rows; NO persistent lit/dark state — recompute
+  only on topology events (mount/unmount, sever/repair, kill/revive).
+  `recompute_count()` pins: 600 clean reads = zero walks; refused events
+  (unknown ref, no-op revive) = zero walks.
+- Loader change: DEF0 wires are now CARRIED into `loaded_hull::wires`
+  (5.10 decoded-and-skipped them). Wire `kind` u8 validated `<= 2`
+  (0 power, 1 signal, 2 power_signal — cook-side grammar; core treats the
+  bytes as cooked ranges only), endpoint kind `<= 1` (0 socket, 1 comp).
+- Flood semantics (concept-free): power floods from mounted+alive
+  `is_power_source` comps through live wires into sockets AND comps —
+  sockets are pure relays, which is what lets a wire pass hop through a
+  hardpoint/socket bus (`w_r_b -> bus_a -> w_b_l` pin). `power_signal`
+  wires carry BOTH floods; the signal flood seeds from
+  `is_signal_source` comps and is independent of power.
+- Consumers declare `gate_power` / `gate_signal`; ungated = relay. Dark =
+  gate set and its flood fails, OR node killed, OR already dark (one-pass
+  cascade to the fixed point — registration order makes it total).
+- Dark-not-dead = the exact 6.10 machinery: ONE source per dark component
+  carrying `{function_attr ×0, draw_attr ×0}`; empty attr string skips that
+  member. Remove the source -> aggregates return BIT-exactly to baseline
+  (bit_cast pins in `wiring_reach`; `stats_state_hash` equality pin in
+  `wiring_dark_set` — post-repair hash == pre-cut baseline hash).
+- Semantics pinned: killed node is excluded from flooding (a killed junction
+  stops relaying; a killed gated consumer fails its own gate -> dark);
+  mounted ≠ dark (unmounted = absent, holds no source — remount re-runs the
+  BFS into whatever state the net dictates); a mounted signal source emits
+  even while dark (documented Phase 6 simplification, revisit with
+  damage/glitches if it bites).
+- `wiring_dark_set` (done-when (e)): junction killed at tick 60 in a FLIGHT
+  loop where the engines comp's function attr IS `thrust.force` — exact
+  dark snapshot `{"engines"}` (registration order), force bits
+  1200/0/1200 across cut/leg/repair, v_z hand-exact `-t·kSim_dt·F/m` then
+  bit-frozen coast then resume, first replay-hash divergence EXACTLY the
+  cut tick (60) and EXACTLY the repair tick (90), whole scenario one
+  `replay_interval_hash`, two runs bit-identical.
+- Gotcha: recompute-on-read cache — the StatsSet derived mirror only shows
+  restored bits after the NEXT `derived()` read; capture baseline-restoration
+  hashes AFTER the glue's per-tick reads, not at the event tick itself.
