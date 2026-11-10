@@ -61,6 +61,7 @@ add_executable(engine_tests
     core/test_wiring_dark_set.cpp
     core/test_market_price.cpp
     core/test_reputation_tags.cpp
+    core/test_faction_power_bands.cpp
     core/test_ship_designer_flight.cpp
     core/test_sim_inertia.cpp
     core/test_sim_tensor.cpp
