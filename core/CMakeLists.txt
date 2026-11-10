@@ -30,6 +30,7 @@ add_library(ve_core STATIC
     src/wiring.cpp
     src/bands.cpp
     src/curve.cpp
+    src/scrubber.cpp
     src/inertia.cpp
     src/thruster.cpp
 )
