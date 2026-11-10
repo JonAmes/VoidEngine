@@ -91,3 +91,33 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
   modifier landed INVISIBLE. Staleness is now per-SIDE (revision PAIR).
   Regression subcase in `stats_aggregation` pins the exact old failure
   (base rev 51, stack-only flat_add served stale 10.0).
+
+## 6.11 — propellant drain, done-when (f) (4fba91e, CI GREEN 113/12009)
+
+- Pure composition proof (like 6.8): NO new core code, NO stored burn state.
+  Per tick the glue reads the AGGREGATED thrust.force (post-zeroing) + isp,
+  writes `propellant.load = force/isp` (replace policy, one live member),
+  the reservoir integrates `force·dt/Isp` — drain is a pure function of the
+  impulse actually handed to `replay_step` that tick.
+- Binary-exact scenario design: 1200 N / Isp 20 -> 1.0/tick; every mid-burn
+  value is exactly `120 - n` (CHECK(==) bit pins, no Approx anywhere).
+- Closed loop: dry at exactly n=120 -> glue adds ONE x0 source on
+  thrust.force (dark-not-dead) -> applied force reads 0 BITS -> no impulse,
+  no drain, coast forever; value never negative (floor).
+- Refill = `set_value` door (hysteresis-free band re-eval inside) +
+  `remove_source` -> derived force returns to baseline BIT-exact
+  (bit_cast pin), drain resumes at 1.0/tick.
+- Subtle pin: an early refill changes NO force at its tick (tank isn't dry
+  yet), so the sim hash stream stays identical until the dry variant
+  zeroes thrust — first hash divergence lands exactly at tick 120.
+- Whole scenario folded to ONE `replay_interval_hash`; two identical
+  scripts produce bit-identical per-tick streams.
+
+## 6.7 docs repair (checklist line 11)
+
+- The 6.7 box line had been mangled by a later sed into garbage and the
+  a84183e "6.7 checked" patch had actually NO-OPED on the box (third time
+  sed patching this checklist silently failed — always verify box flips by
+  grepping the SHA back after patching). Restored from a98839f spine text
+  with commit 219419c (CI 109/11334); test name corrected to the real
+  doctest case `seat_stats_linkage`.
