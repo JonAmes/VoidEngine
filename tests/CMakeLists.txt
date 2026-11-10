@@ -55,6 +55,7 @@ add_executable(engine_tests
     core/test_seat_stats_linkage.cpp
     core/test_flight_stats_linkage.cpp
     core/test_reservoir.cpp
+    core/test_power_pool.cpp
     core/test_ship_designer_flight.cpp
     core/test_sim_inertia.cpp
     core/test_sim_tensor.cpp

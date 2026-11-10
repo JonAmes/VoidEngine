@@ -42,12 +42,6 @@ std::optional<clamp_range> StatsPipeline::clamp_for(std::string_view attr) const
     return std::nullopt;
 }
 
-std::uint64_t StatsPipeline::current_clock() const {
-    // One clock per side (6.1/6.3 revisions); staleness is against the
-    // later of the two — any stats-base or stack mutation re-dirties.
-    return std::max(m_stats.revision(), m_mods.revision());
-}
-
 float StatsPipeline::resolve(std::string_view attr, float base) const {
     float flat = 0.0f, pct = 0.0f, mult = 1.0f;
     // Walk the TOTAL ORDERED VIEW (source order, then modifier order). The
@@ -85,21 +79,22 @@ float StatsPipeline::resolve(std::string_view attr, float base) const {
     return v;
 }
 
-const std::uint64_t* StatsPipeline::find_stamp(std::string_view attr) const {
+const StatsPipeline::stamp_pair* StatsPipeline::find_stamp(
+    std::string_view attr) const {
     for (const auto& s : m_stamps)
         if (s.first == attr)
             return &s.second;
     return nullptr;
 }
 
-std::uint64_t* StatsPipeline::find_stamp(std::string_view attr) {
+StatsPipeline::stamp_pair* StatsPipeline::find_stamp(std::string_view attr) {
     for (auto& s : m_stamps)
         if (s.first == attr)
             return &s.second;
     return nullptr;
 }
 
-void StatsPipeline::set_stamp(std::string_view attr, std::uint64_t stamp) {
+void StatsPipeline::set_stamp(std::string_view attr, stamp_pair stamp) {
     if (auto* p = find_stamp(attr))
         *p = stamp;
     else
@@ -112,7 +107,7 @@ void StatsPipeline::recompute(std::string_view attr) {
             const float old_v = e.value.derived;
             const float new_v = resolve(attr, e.value.base);
             m_stats.set_derived(attr, new_v);
-            set_stamp(attr, current_clock());
+            set_stamp(attr, {m_stats.revision(), m_mods.revision()});
             ++m_count;
             if (m_bus && std::bit_cast<std::uint32_t>(old_v) !=
                             std::bit_cast<std::uint32_t>(new_v))
@@ -132,10 +127,13 @@ std::optional<float> StatsPipeline::derived(std::string_view attr) {
     for (const auto& e : m_stats.entries()) {
         if (e.key != attr)
             continue;
-        const std::uint64_t clock = current_clock();
-        const std::uint64_t* stamp = find_stamp(attr);
-        if (!stamp || *stamp != clock)
-            recompute(attr);  // one re-walk; the stamp now equals clock
+        // Per-side staleness (6.10 fix): EITHER input moving re-dirties.
+        // A max() clock stranded stack-only mutations behind a stale cache
+        // whenever base revisions ran ahead.
+        const stamp_pair* stamp = find_stamp(attr);
+        if (!stamp || stamp->set_rev != m_stats.revision() ||
+            stamp->mod_rev != m_mods.revision())
+            recompute(attr);  // one re-walk; the stamp now equals both sides
         return m_stats.derived(attr);
     }
     return std::nullopt;

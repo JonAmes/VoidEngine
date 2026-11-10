@@ -151,12 +151,30 @@ TEST_CASE("stats_aggregation") {
             (void)p.derived("stat.b");
         }
         CHECK(p.recompute_count() == 2);
-        // Any mutation re-dirties (coarse global clock: b re-walks too).
+        // Any mutation re-dirties (per-SIDE coarse clock: b re-walks too).
         ms.add_modifier(1, mk("stat.b", "y", mod_op::flat_add, 2.0f));
         CHECK(p.derived("stat.b") == 22.0f);
         CHECK(p.recompute_count() == 3);
         CHECK(p.derived("stat.a") == 11.0f);
         CHECK(p.recompute_count() == 4);
+    }
+
+    SUBCASE("staleness is per-SIDE — stack-only mutation visible with base revisions far ahead (6.10 regression)") {
+        StatsSet st;
+        ModifierStack ms;
+        StatsPipeline p(st, ms);
+        ms.add_source(1);
+        st.set_base("k", 10.0f);   // stack mutated BEFORE heavy base authoring:
+        CHECK(p.derived("k") == 10.0f);  // stamp (1, 0)
+        for (int i = 1; i <= 50; ++i)
+            st.set_base("filler", static_cast<float>(i));  // set_rev races to 51
+        (void)p.derived("k");      // base side moved: one legit re-walk
+        const auto walks = p.recompute_count();
+        ms.add_modifier(1, mk("k", "late", mod_op::flat_add, 5.0f));  // stack side only
+        // A max() clock sits frozen at 51 here and serves a stale 10.0 —
+        // the exact invisibility the 6.10 power pool hit on every modifier.
+        CHECK(p.derived("k") == 15.0f);
+        CHECK(p.recompute_count() == walks + 1);
     }
 
     SUBCASE("full recompute == incremental, bit-identical") {

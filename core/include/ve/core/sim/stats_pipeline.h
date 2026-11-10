@@ -16,10 +16,11 @@
 // about it (AGENTS rule 5).
 //
 // Dirty flags (PLAN: "recompute on read ... never a full recompute every
-// tick"): each attribute carries the last (max of StatsSet::revision(),
-// ModifierStack::revision()) it resolved at; derived() re-walks only when
-// that stamp is stale. recompute_count() is the test-visible counter that
-// pins "never per-tick".
+// tick"): each attribute carries the (StatsSet::revision(),
+// ModifierStack::revision()) PAIR it last resolved at; derived() re-walks
+// when EITHER side moved. (A single max() clock silently misses stack-only
+// mutations once base revisions run ahead — 6.10 found it.)
+// recompute_count() is the test-visible counter that pins "never per-tick".
 //
 // Finiteness: base and every stored modifier value are finite by
 // construction (6.1/6.3), so NaN/inf can only come from fp32 overflow in
@@ -82,16 +83,25 @@ public:
 private:
     [[nodiscard]] float resolve(std::string_view attr, float base) const;
     [[nodiscard]] const clamp_range* find_clamp(std::string_view attr) const;
-    [[nodiscard]] std::uint64_t current_clock() const;
-    [[nodiscard]] const std::uint64_t* find_stamp(std::string_view attr) const;
-    std::uint64_t* find_stamp(std::string_view attr);
-    void set_stamp(std::string_view attr, std::uint64_t stamp);
+    // Staleness is per-SIDE: a stamp records the (StatsSet, ModifierStack)
+    // revision pair the attribute last resolved at. A single max() clock is
+    // WRONG: if base revisions run ahead of stack revisions (a rig that
+    // authors many attrs, then only mutates the stack afterwards), max()
+    // never moves again and stack-only mutations never re-dirty — found by
+    // the 6.10 power pool, where every modifier landed invisible.
+    struct stamp_pair {
+        std::uint64_t set_rev;
+        std::uint64_t mod_rev;
+    };
+    [[nodiscard]] const stamp_pair* find_stamp(std::string_view attr) const;
+    stamp_pair* find_stamp(std::string_view attr);
+    void set_stamp(std::string_view attr, stamp_pair stamp);
 
     StatsSet& m_stats;
     ModifierStack& m_mods;
     StatsEventBus* m_bus = nullptr;  // 6.5; not owned
     std::vector<std::pair<std::string, clamp_range>> m_clamps;   // insertion order
-    std::vector<std::pair<std::string, std::uint64_t>> m_stamps;  // insertion order
+    std::vector<std::pair<std::string, stamp_pair>> m_stamps;  // insertion order
     std::uint64_t m_count = 0;
 };
 
