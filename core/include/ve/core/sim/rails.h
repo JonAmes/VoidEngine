@@ -26,6 +26,12 @@ struct body_def {
     double well_radius = 0.0;      // m; 0 = no well, else > surface_radius
     double surface_g = 0.0;        // m/s^2 inside the well (constant near surface)
     double well_taper_start = 0.0; // m; field ramps to 0 over [taper_start, well_radius]
+    // Atmosphere (#17, 7.6): hand-authored SI this phase (#45d; world-def
+    // cooking is Phase 8). rho0 == 0 authors NO atmosphere (airless moons).
+    // Density rides rho0*exp(-h/H) with h radial altitude above
+    // surface_radius; aero only applies inside well_radius (#17).
+    double atm_rho0_kg_m3 = 0.0;    // sea-level density, >= 0
+    double atm_scale_height_m = 0.0; // > 0 whenever rho0 > 0
     // Kinematic rail (#17a). parent = -1 pins the body to the static root
     // anchor (world origin); otherwise a circular orbit about the parent.
     std::int32_t parent = -1;

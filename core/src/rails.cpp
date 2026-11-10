@@ -39,6 +39,15 @@ std::optional<std::int32_t> rail_world::add_body(body_def def) {
     if (def.spin_rate_rad_s != 0.0 && axis_len2 == 0.0)
         return std::nullopt;
     if (axis_len2 > 0.0) def.spin_axis = def.spin_axis * (1.0 / std::sqrt(axis_len2));
+    // Atmosphere (7.6/#17): an authored density needs a usable scale
+    // height AND a well — aero outside a well is forbidden by #17, so a
+    // well-less body with atmosphere is an authoring error, not a quirk.
+    if (!std::isfinite(def.atm_rho0_kg_m3) || !std::isfinite(def.atm_scale_height_m) ||
+        def.atm_rho0_kg_m3 < 0.0)
+        return std::nullopt;
+    if (def.atm_rho0_kg_m3 > 0.0 &&
+        !(def.atm_scale_height_m > 0.0 && def.well_radius > 0.0))
+        return std::nullopt;
     m_bodies.push_back(std::move(def));
     return static_cast<std::int32_t>(m_bodies.size() - 1);
 }
