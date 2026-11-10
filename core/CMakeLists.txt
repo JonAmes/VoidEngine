@@ -22,6 +22,8 @@ add_library(ve_core STATIC
     src/stats_pipeline.cpp
     src/stats_bus.cpp
     src/stats_hash.cpp
+    src/effects.cpp
+    src/effect_bus.cpp
     src/inertia.cpp
     src/thruster.cpp
 )
