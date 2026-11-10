@@ -69,6 +69,7 @@ add_executable(engine_tests
     core/test_sim_thruster.cpp
     game/test_game_attr_keys.cpp
     game/test_scrubber_panel.cpp
+    core/test_stats_combat_scenario.cpp
     core/test_math_projection.cpp
     core/test_math_coords.cpp
     tools/test_container.cpp
