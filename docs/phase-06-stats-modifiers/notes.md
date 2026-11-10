@@ -234,3 +234,24 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
 - doctest traps: `CHECK(a->x == 1 && ...)` = "Expression Too Complex"
   (arrow + &&); `CHECK(*opt == v)` too — split / use `.value()`. Mixed
   `tick_t{-1}, 0, ...` braced range-for won't deduce — `std::vector<tick_t>{...}`.
+
+## 6.16 — scrubber panel on the pure-CPU UI core (8aa96ae, CI GREEN 120/15347)
+
+- Panel lives in `game/` (ve_game is the layer that links core+gfx; panel is
+  glue, concept-free anyway). `scrubber_panel::draw(ui, sc, x, y, actions)`
+  -> buttons/text_field/checkbox/labels; state mutation ONLY through the
+  6.15 scrubber API. Actions struct records stepped/jumped/jumped_to/
+  diff_toggled so tests assert interaction without poking sc.
+- Headless pinning: clicks = neutral ui_io frames (down frame, then release
+  frame with pointer still over the widget -> click), output = ui_frame
+  draw list compared byte-wise; DejaVu Mono advance 8.27515/cp -> button
+  width int(sum)+2*kPad. Layout rects derived straight from ui.cpp rules.
+- text_field traps: commit does NOT clear the buffer (Go re-commits stale
+  text — pin "backspace n times" clears before retyping); chars apply only
+  while focused, focus set on press-over-box; Enter commits same frame the
+  chars arrive.
+- Draw-list size comparisons must be at the SAME cursor: inspector label
+  text length varies with the values, so verts.size() across different
+  cursors is meaningless — grow at cursor, exact-restore at same cursor.
+- Diff view fail-closed: diff_between(cursor-100, cursor) under -1 ->
+  "diff n/a" row (view grows, no bogus deltas).
