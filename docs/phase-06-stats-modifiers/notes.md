@@ -22,3 +22,10 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
 - Cycles-by-construction: no data-model edge from modifier to modifier exists, so dependent chains are unbuildable; pipeline reads base only (pinned deeper in 6.4).
 - revision() is the dirty clock: source add/remove, mod add/refresh/expire/dispel bump; no-op expiries don't. 6.4 stamps per-attribute last-revision against it.
 - Ordered view: source order beats modifier insertion order — pinned by replaying build() twice AND an exact string vector.
+
+## 6.4 — aggregation pipeline (CI GREEN 104/11130, done-when (a))
+- Stage order pinned: base -> +sum(flat) -> *(1+sum(pct)/100) -> *prod(mult) -> clamp. Percent values are PERCENT-POINTS (10 = +10%). The 86.25 exact pin discriminates wrong stage order (percent-before-flat gives 82.5) — all suite pins binary-exact so CHECK(==) is a bit pin.
+- fp32 accumulation walks the stack's TOTAL ORDERED VIEW; associativity is not free, the walk order is the replay-hash contract.
+- Overflow policy: inputs finite by construction (6.1/6.3), so only arithmetic overflow leaves the range -> saturate to +/-FLT_MAX; NaN/inf never reach consumers, clamps, or the state hash. Test forces stage-1 inf then *0 (the only NaN route).
+- Dirty clock is coarse-global (max of the two revisions): any mutation re-dirties every attribute. Deliberate: tens of attrs; fine-grained per-attr dirtying would cost more than it saves. Cold-attr reads are the only extra walks.
+- set_base's derived-mirror stays for stack-free StatsSets; once a pipeline stamps an attr, the stamp is authority. clear() bumps revision only when non-empty (no-op clears must not re-dirty pipelines).
