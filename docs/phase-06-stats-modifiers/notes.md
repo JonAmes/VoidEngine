@@ -60,3 +60,9 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
 ## 6.5/6.6 docs catch-up + done-when audit
 - 6.5 = 15d27fc (CI 106/11176), 6.6 = 02b6ca2 (CI 108/11263) — both were committed+pushed with docs earlier but the 6.5 checklist box replacement silently no-oped (regex miss); now fixed.
 - Done-when audit vs PLAN: 6d9814b checked "(e)" believing 6.5's commit label; but the spine maps (e) = junction-dark-set wiring test ← 6.12. Unchecked again. 6.5's commit-message "(done-when (e))" tag is a mislabel; the (e) bullet stays with 6.12. (a) <- 6.4 ca777aa and (c) <- 6.7 219419c now properly checked.
+
+## 6.9 — reservoir primitive (3da4068, CI GREEN 111/11642)
+- Flow delta is net/60.0 (division, not *(1/60)): keeps hand-picked rates binary-exact (30/s -> 0.5/tick); crossings pin to the exact tick, no hysteresis fuzz.
+- Hysteresis-free band eval = re-evaluate ALL bands every tick: tag add is idempotent (unique set), remove is exact. Consequence tested: ancestor query `tank` answers exactly while some `tank.*` band tag is live.
+- Pipeline must be NON-const for the reservoir: StatsPipeline::derived() is recompute-on-read (mutates dirty stamps). "Pure function of aggregated attrs at the tick" refers to VALUES, not constness.
+- Refill/set_value evaluates bands immediately (market refills, authoring); construction too, so cold-start state is tagged at tick 0 without a warmup step.
