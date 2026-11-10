@@ -50,3 +50,9 @@ Design notes, findings, and gotchas for the stats & modifier framework. Appended
 - sit() MOVE semantics: occupancy already moves atomically; the link must reverse the OLD seat (grant drop + zeroing re-arm) and apply the NEW one around that single occ.sit call — order: busy-check, conflict pre-check, occ.sit, reverse old, apply new, rail events (drop then attach for a move).
 - Initial when_unmanned state: seats start empty, so wiring a ship stack means scripting needs the zeroing live; tested honestly via sit/stand so the unit property itself is the assertion. If a phase-8 sim needs cold-start unmanned state, call sit+stand once at wiring or add a sync pass then.
 - drop() = KO (#18d): ejects WHOEVER holds the seat; caller passes the victim's stack (sim knows the victim; the claimant id is decorative).
+
+## 6.8 — flight<->stats glue (4e85acf, CI GREEN 110/11394)
+- Zero new core code: done-when (b) is proven by COMPOSITION (SeatLink + pipeline sampled per tick + Phase 4 assist law). That is the point of the spine.
+- Crew-ship stack wiring: seat grants for SHIP functions ride the ship's own ModifierStack (occupant stack == ship stack). Occupant-personal attrs (pilot.reflex) keep per-entity stacks; both patterns coexist (6.7 vs 6.8).
+- Control law must SAMPLE gains per tick from the pipeline (pre-tick state), so a mid-flight sit/stand bends the trajectory at exactly that tick — decay pins are the geometric law omega_n*(1-kd*dt/Iy)^n, doubles-exact to 1e-12.
+- Stabilizer gain zero = assist silently off (tau = -kd*omega). Unmanned zeroing IS "assist authority requires a pilot" — no engine bool for "assist enabled".

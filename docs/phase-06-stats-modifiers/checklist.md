@@ -9,7 +9,7 @@ Status: in progress
 - [ ] 6.5 Change-event bus: attribute-change notifications ordered by (tick, insertion seq); stats state FNV-hashes into a canonical byte form compatible with the replay-hash machinery; hash stability across recompute orders — test: `stats_event_bus` + `stats_hash` — commit: —
 - [x] 6.6 Effects + conditions: effect = timed/instant bundle of modifiers applied as one atomic source; condition = tag gate over attributes/functions; damage/heal/shield-drain express as pure data (no combat words in `core/`); tick-stamped effect-bus event shapes for the #28b rails (seat attach/drop, door/airlock flip, wire/junction swap) with hand-computed replay checks — tests: `effects_conditions` + `effect_bus_rails` — commit: 02b6ca2 (CI GREEN 108/11263)
 - [ ] Q9419c (CI GREEN 109/11334)
-- [ ] 6.8 Pilot stats change flight (#18 done-when seam): game-side glue maps aggregated ship stats (assist authority, turn response) into the Phase 4 `assist_gains`/rigid params; a pilot stat delta (mount/unmount occupant) measurably changes the flight-model numbers through the seat path — test: `flight_stats_linkage` (done-when (b)) — commit: —
+- [x] 6.8 Pilot stats change flight (#18 done-when seam): game-side glue maps aggregated ship stats (assist authority, turn response) into the Phase 4 `assist_gains`/rigid params; a pilot stat delta (mount/unmount occupant) measurably changes the flight-model numbers through the seat path — test: `flight_stats_linkage` (done-when (b)) — commit: 4e85acf (CI GREEN 110/11394)
 - [ ] 6.9 Reservoir primitive (#19e): scalar fp64 state integrated per fixed tick from aggregated attrs (supply − load − leak attr keys), threshold bands throw ancestor tags on cross (hysteresis-free by default: exact tick of crossing pinned); cabin-air/propellant/price all just instances later — test: `reservoir` (done-when (d) part 1: drain/refill/threshold at hand-computed ticks) — commit: —
 - [ ] 6.10 Power pool (#19e/#19f): pool = reservoir read as supply-vs-draw; oversubscription drops systems by authored priority attribute via function-zero modifiers (dark-not-dead); restore re-lights in reverse priority — test: `power_pool` (done-when (d) part 2: oversubscribe drops lowest-priority first) — commit: —
 - [ ] 6.11 Propellant drain (#21c): burn drains the reservoir exactly `force·dt/Isp` as a pure function of applied impulse inside `replay_step` (no stored burn state); empty tank throws `propellant.empty` → thrust function-zeroed by tag until a market refill restores — all inside one replay hash — test: `propellant_burn` (done-when (f)) — commit: —
@@ -23,7 +23,7 @@ Status: in progress
 
 ## Done-when (every PLAN.md "Done when" bullet linked to a task; all checked = phase DONE)
 - [ ] (a) hand-computed aggregation suites (stack caps, exclusivity, clamp order) pass ← 6.4
-- [ ] (b) a pilot-stat change measurably changes the Phase 4 flight model's numbers through the seat linkage ← 6.7 + 6.8
+- [x] (b) a pilot-stat change measurably changes the Phase 4 flight model's numbers through the seat linkage ← 6.7 + 6.8
 - [ ] (c) any seat's occupant stack (in/out/KO) attaches and drops atomically; ship aggregates return exactly to baseline ← 6.7
 - [ ] (d) a reservoir drains/refills/throws threshold tags at hand-computed ticks; a power-oversubscribe test drops the lowest-priority system first ← 6.9 + 6.10
 - [x] (e) ) a wiring test destroys a scripted junction, asserts the exact hand-computed downstream dark set at a known tick; repair-from-spare restores baseline exactly, inside the same replay hash ← 6.12
