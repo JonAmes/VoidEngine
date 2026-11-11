@@ -237,3 +237,36 @@ Design notes, findings, and gotchas worth keeping. One section per task number a
 - **Deviation:** test suite named `docked_walk` (not `docked_walk_gates`
   as the checklist predicted); done-when (b) round trip lives in it as
   `docked_walk_round_trip`.
+
+## 7.12 — suited EVA on foot (f0f701b)
+- **Composition rule held:** EVA is NOT a physics path — `eva_walk_step`
+  is one thin tick sequence: 7.8 `contact_vs_surface` (point body, zero
+  gear offset) -> `penalty_force` -> velocity-servo jets -> 4.8
+  `auto_level_torque`/`stabilizer_torque` (the SAME calls the ship uses,
+  fed the SAME grav vector) -> `integrate_step`. No foot state, no
+  standing mode: the probe's own `rel_vel` report IS the standing.
+- **Suit air** is one Phase-6 `Reservoir` + `suit_air_bands()`; drain
+  pins are exact fp64 rates (0.5/tick exposed, 5/tick airlock refill).
+- **Home well** reuses `home_well_tracker` (Phase 4.6 machinery — it was
+  never missing; do not hand-roll a nested-well tracker in eva.h).
+- **Stand-on-spinning-moon fixture (hard-won):**
+  - Equatorial foot point (`local = (R-0.5, 0, 0)` for a +Y spin moon —
+    the pole has zero surface speed and proves nothing).
+  - `off` MUST come from the snapshot's own `orient`
+    (`rotate(g.orient, local)`), not from a hand-computed orbit yaw: the
+    snapshot orient carries the full orbit rotation, and the probe
+    measures radius from the surface frame's `center`.
+  - Walker-as-foot: probe the STATE with ZERO foot offset — pos is
+    already the foot point. Passing the surface offset again puts the
+    foot at 2x radius (the DBG3 `r=1998.94` chase).
+  - Boots DO NOT port across masses: kLegs (k=2e5, 1000 kg) under-damps
+    a 100 kg body — the damper clamp zeroes force mid-approach and one
+    free tick flings the walker. k=1'600, c=2*sqrt(k*m)=800,
+    k*dt^2/m=0.444 holds all 600 ticks.
+  - Resting sink is NOT mg/k with local well gravity: `total_accel` is
+    the rail relax-model blend (gm_eff ~ 1.0 here), so pin the BAND
+    (0.05-0.08 m), not the analytic bit.
+- **Jet clamp is load-bearing:** servo k=12'000 overshoots the 600 N
+  ceiling by 200x at |v| = 10 — dropping the clamp survives every pin
+  except the rollout bound; it was killed by the rollout max-thrust pin.
+- **Deviation:** none. Suite name `eva_surface` as predicted.
