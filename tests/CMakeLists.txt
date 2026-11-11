@@ -41,6 +41,7 @@ add_executable(engine_tests
     core/test_land_contacts.cpp
     core/test_pad_capture.cpp
     core/test_docking_clamp.cpp
+    core/test_docked_walk.cpp
     core/test_sim_gravity.cpp
     core/test_sim_well_blend.cpp
     core/test_sim_integrator.cpp
