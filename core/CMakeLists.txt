@@ -37,6 +37,7 @@ add_library(ve_core STATIC
     src/swept.cpp
     src/aero.cpp
     src/aero_heat.cpp
+    src/contacts.cpp
 )
 # The crash handler is POSIX by construction (sigaction + backtrace_symbols_fd +
 # execinfo.h, and it re-raises so the kernel reports the death). MSVC has no
