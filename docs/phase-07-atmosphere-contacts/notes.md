@@ -66,3 +66,44 @@ Design notes, findings, and gotchas worth keeping. One section per task number a
 - Poison defense is two-layer and one layer is redundant by design: NaN/inf flux is caught by BOTH the flux gate and the `next`-finite gate (that mutant is EQUIVALENT, survives — expected); the overflow guard and negative-absorb gate are independently mutation-killed.
 - Loop order is the pin contract: flux/heat from CURRENT state → over-check + damage → integrate. Python port of that exact order matched landing/cross ticks, over-tick counts and every fp32 integrity float bit-for-bit on the first C++ run.
 - Trap: an overflow test needs `heat + flux*dt > DBL_MAX` — `1e308 + 1e308/60` is NOT an overflow (1.017e308 is finite); used 1.79e308 + 1.7e308·dt.
+
+## 7.8 — landed-body contacts (#47a penalty, 0a29ae3)
+- Pure per-call: `contact_vs_surface(surface_world, hull_vel, point_state)` ->
+  `contact_hit{depth_m, normal_world, rel_vel}`; `penalty_force(hit, params)` ->
+  normal spring-damper, clamped never-pull, hard `k*dmax` compliance ceiling.
+  No stored contacts, no solver, no impulses (#47a). Poison gates (non-finite
+  state/params, bad orientation, mu/c_t < 0) return nullopt/zero, never throw.
+- **Deviation: the tangential friction channel is deliberately absent at 7.8.**
+  The #29b sampler normal is radial everywhere — even on an authored pad — so
+  the tangent plane is curved: any sustained tangential cap (Coulomb or
+  tangential damper) drags a landed hull *along the curvature* and it never
+  comes to rest (measured: pad-tangent 705 m/s sweep after one minute).
+  "Stable rest on terrain" (checklist 7.8) actually *requires* no tangential
+  channel with a radial-normal sphere model. Per #29 the capture zone's
+  hold-down (#29g) + snap-to-rest (7.9) carry landed bodies; real Coulomb
+  friction returns at 7.13 (on-foot) where the contact frame is a flat patch.
+  `friction_mu`/`c_tangent_N_s_m` stay in `contact_params` and stay gate-live
+  so 7.13 needs no API change.
+- **Exact discrete fixed point**: with the integrator order (contact accel +
+  gravity before `integrate_step`, velocity damping per tick), the resting
+  penetration of n feet is `d = mg / (n*k + c/60)` — measured 0.0125000002
+  (4 feet) and 0.050208333409 (1 foot) match it to the last digit. The naive
+  hand pin `mg/nk` is the c->0 limit; pin the closed form, not a port output.
+- Free-fall: first sampled contact tick for a drop from height h is
+  `ceil(60*sqrt(2h/g))` (fall time is sampler-exact while airborne); overshoot
+  peak of a zeta=1 drop pins just under the analytic `v*sqrt(m/k)` bound
+  (0.08323 for the 15 m drop, ceiling `dmax=0.075` + spring-dominant tail).
+- The surface snapshot (`surface_world`) carries terrain + authored stamps —
+  stamps are NOT on `body_def` (7.3 sampler takes them per-call); tests stamp
+  the snapshot. Terrain needs nonzero `relief_m` or the flatten level pins the
+  *whole* surface (zero relief + level = global plane).
+- API gotchas: `math::dquat{}` IS the identity (`{x,y,z,w=1}`, w defaults 1);
+  `dquat{1,0,0,0}` is a 180° spin — state_ok rejects it as the earlier
+  all-zero fear was wrong, but it is *not* identity. Probing exactly at the
+  surface gives depth 0 -> nullopt (not touching); probe 1 m under for a
+  depth==1 exact pad test. doctest cannot vector-compare: check
+  `normal_world.x/y/z` components. Explicit-spring damping stability:
+  keep `4*c*dt/m < 2` (zeta=1 at contact frequency, omega=sqrt(k/m)=10/s).
+- Mutation-killed gates: normal-force sign, depth>0 no-contact gate, damper
+  sign (energy-pump). Determinism: run==run memcmp over the whole 600-tick
+  trajectory stream; an ulp nudge to `vel.x` diverges it.
