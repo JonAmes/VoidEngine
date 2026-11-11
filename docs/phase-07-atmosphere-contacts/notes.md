@@ -198,3 +198,42 @@ Design notes, findings, and gotchas worth keeping. One section per task number a
   assertions); always-engage at tick 0 killed by the analytic tick-band pin.
 - 32,655 targeted assertions (the flyby sweep over 800 approach points is the
   bulk). CI 129 cases, 316 s.
+
+## 7.11 — docked service gates + walk junction (88eb310)
+
+- **No new state, no menu mode.** Everything derives from the 7.10
+  `clamped_pair` + loadout tags, as pure functions — nothing stored,
+  replay hashes ride it unchanged. `station_service_check(pair, station,
+  facet, dark_tag)` and `mated_junction(...)` are referentially transparent.
+- **dark-not-dead carries payload.** A gate that only answers
+  yes/no can't drive a prompt (#28b). `service_check` returns
+  `{available, reason, counter_id}`; the load-bearing dark test keeps
+  the counter's service facets, adds the dark tag, and pins
+  `reason == "counter dark"` AND `counter_id == "counter_truck"` —
+  a fixture that only checked availability let the dark mutant survive.
+- **Deterministic scan = loadout mount order.** First facet-matching
+  counter wins; no unordered containers touched.
+- **Walk junction is derived, never stored.** Edge exists iff: pair
+  clamped + ship has airlock facet + station port names a section beside
+  the clamp. Open iff both endpoint sections hold pressure. Fail-closed
+  on a missing section report (`if (it == secs.end()) return false;`).
+- **Round-trip pin gotchas (fixture truths learned the hard way):**
+  - A hull starting ON the capture shell (z=130 with radius 30) engages
+    at tick 0 — start outside; swept entry then lands deterministically
+    (2004 here, one tick before the analytic shell crossing, like 7.10's
+    5999-vs-6000).
+  - `docked_pose` is pure — called after release it projects the
+    DEPARTED ship. The release-instant pose is the last clamped pose,
+    captured inside the loop before `release_impulse`.
+  - Gear local +Z mates the port normal, so r x J = 0 at release:
+    departure is pure translation (no spin to perturb the flight pin).
+  - Flight pin must mirror the per-tick fp64 sum (`+= 1.0*dt` N times is
+    NOT bit-identical to `N*dt` — ~1e-12 drift). Closed-form pins fail.
+  - `release_impulse` mass-scaling is a real gate: 1000 N*s / 1000 kg
+    = 1 m/s; a dropped `params` argument (default mass 1.0) launches at
+    1000 m/s.
+- **Mutants killed:** snap skipped (engage without clamp), engage
+  disabled, release one tick late (flips count/timing + flight pins).
+- **Deviation:** test suite named `docked_walk` (not `docked_walk_gates`
+  as the checklist predicted); done-when (b) round trip lives in it as
+  `docked_walk_round_trip`.
