@@ -68,8 +68,12 @@ std::optional<pad_world> pad_at(const rail_world& world, const pad_def& pad,
 // t = seconds into the tick — NOT a solid-surface hit (the sphere is the
 // zone).
 // `zone` carries the authored radius/safe-speed; `pad` the tick snapshot.
-std::optional<swept_hit> capture_engage(const pad_def& zone,
-                                        const pad_world& pad,
+// Template so any authored zone shape works: pad_def (7.9) AND
+// dock_port_def (7.10 docking = the same machinery on a station port) —
+// anything with .capture_radius_m and .safe_speed_m_s fields.
+template <typename Zone, typename World>
+std::optional<swept_hit> capture_engage(const Zone& zone,
+                                        const World& pad,
                                         math::dvec3 ship_pos,
                                         math::dvec3 ship_vel, tick_t t);
 

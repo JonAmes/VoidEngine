@@ -1,4 +1,5 @@
 #include "ve/core/sim/capture.h"
+#include "ve/core/sim/dock.h"
 
 #include <cmath>
 
@@ -62,8 +63,9 @@ std::optional<pad_world> pad_at(const rail_world& world, const pad_def& pad,
     return out;
 }
 
-std::optional<swept_hit> capture_engage(const pad_def& zone,
-                                        const pad_world& pad,
+template <typename Zone, typename World>
+std::optional<swept_hit> capture_engage(const Zone& zone,
+                                        const World& pad,
                                         math::dvec3 ship_pos,
                                         math::dvec3 ship_vel, tick_t t) {
     if (!finite(pad.pos) || !finite(pad.vel) || !finite(pad.normal) ||
@@ -118,5 +120,12 @@ rigid_state snap_to_rest(const rigid_state& ship, const pad_world& pad,
                           // inherit body spin (#41) — spin rides pad.vel
     return out;
 }
+
+// Template definition lives in this TU; explicit instantiations for every
+// authored zone shape in the engine (landing pad #29g, dock port #23a).
+template std::optional<swept_hit> capture_engage<pad_def, pad_world>(
+    const pad_def&, const pad_world&, math::dvec3, math::dvec3, tick_t);
+template std::optional<swept_hit> capture_engage<dock_port_def, port_world>(
+    const dock_port_def&, const port_world&, math::dvec3, math::dvec3, tick_t);
 
 } // namespace ve::core::sim
