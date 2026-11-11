@@ -270,3 +270,42 @@ Design notes, findings, and gotchas worth keeping. One section per task number a
   ceiling by 200x at |v| = 10 — dropping the clamp survives every pin
   except the rollout bound; it was killed by the rollout max-thrust pin.
 - **Deviation:** none. Suite name `eva_surface` as predicted.
+
+## 7.13 — airlock cycle + on-foot verbs (4de4848)
+
+- **The chamber IS the pump.** No timer, no `pumping` countdown: the
+  airlock reads `chamber.empty` / `chamber.norm` band facts from the
+  section `Reservoir` (7.11 discipline — facts in, reservoir stays the
+  source of truth). `Airlock::step` just maps (phase, facts) -> door
+  opens. A 60-unit chamber venting at 60/s drains binary-exact in 60
+  steps, so every flip tick in the stream is hand-computed, not observed.
+- **Two rail events, one fact each:** `door_flip(a=mount+1, b=open)` and
+  `airlock_flip(a=mount+1, b=0 ship-side / 1 space-side)`. The last
+  `airlock_flip` in the log = current side, readable for scrubbing.
+  Payloads never mention the actor (#28b) — the foot-vs-seat test
+  compares drained streams field-for-field INCLUDING seq numbers.
+- **Interlock = invariant + refusal.** `cycle_out` closes the inner door
+  as its first act (that close is itself a `door_flip`); the never-both-
+  open invariant is CHECKed every tick of the round-trip. Manual
+  `door.toggle` on an airlock-owned mount returns `interlock` — the
+  machine alone actuates its doors.
+- **Gate order is fixed (bounds -> facet -> suit-OK)** so scripted tests
+  pin the FIRST failure cause; every refusal is a total no-op on BOTH
+  bus and door state (checked: pending()==0 after five refusals).
+- **#19d gate is a tag string, not a game concept:** on-foot actor acts
+  on an atmosphere world (`atm_rho0_kg_m3 != 0`, the 7.6 rails field)
+  only inside a zone whose authored tags include the caller-supplied
+  suit-OK tag; airless worlds pass anywhere — exactly the 7.12 walk.
+  Seated crew are never gated (their air problem is the 7.11 junction).
+- **Trap (this doctest build):** `CHECK(a[i].x == 1 && a[i].y == 2)`
+  fires "Expression Too Complex Please Rewrite As Binary Comparison" —
+  subscript + `&&` defeats decomposition. Wrap the whole expression in
+  extra parens: `CHECK((...));`.
+- **Trap:** verb payload mount index is carried as **mount+1** (0 is the
+  "no component" sentinel in rail payloads — same rule as seat payloads).
+- **Mutants killed (production doors.cpp):** interlock check dropped
+  (airlock suite), suit gate dropped (foot suite), `airlock_flip`
+  emission dropped (both suites), `cycle_out` skipping the close-inner
+  first act (both suites).
+- **Deviation:** none. Suite names `airlock_cycle` + `foot_verb_events`
+  as predicted by the checklist.
