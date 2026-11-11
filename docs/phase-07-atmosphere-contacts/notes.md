@@ -108,6 +108,53 @@ Design notes, findings, and gotchas worth keeping. One section per task number a
   sign (energy-pump). Determinism: run==run memcmp over the whole 600-tick
   trajectory stream; an ulp nudge to `vel.x` diverges it.
 
+## 7.10 — docking clamp (1384138 + fc79047)
+
+- Docking reuses 7.9's capture machinery verbatim: `capture_engage` is
+  now `template <Zone, World>` with explicit instantiations for
+  `pad_def/pad_world` and `dock_port_def/port_world` — the port is just
+  a capture zone welded to a host body (`port_at(port, host_rigid)`:
+  pos/normal/vel ride the host hull pose, #24a rail-pose-is-rigid).
+- Docked ≠ landed, one axis apart: `snap_to_rest` mates hull-local -Y
+  (landers stand on their bellies); `snap_to_dock` mates hull-local +Z
+  (the gear/airlock axis). A test with an on-axis gear offset or a
+  junk roll ABOUT the keel is degenerate for both gates — the
+  alignment-assist mutant survived exactly such fixtures. The
+  load-bearing attitude gate is the pitched-junk fixture + keel-mate
+  pin (`rotate(out.att, +Z) == port.normal`), because snap_to_dock
+  back-computes `pos = target - R(att)·gear` and seats the gear
+  TAUTOLOGICALLY at any attitude — gear-on-target CHECKs cannot see
+  attitude. Off-axis gear (0,-2,0) also pins release torque
+  (r×J = -2ŷ×20kN·ẑ -> dω_body.x = -4 rad/s, I=1e4).
+- BRACE BUG FOUND (fc79047): dock.cpp's local `minimal_rotation` built
+  its aggregate scalar-FIRST (`dquat{w, x, y, z}`) while `quat` is
+  `{x, y, z, w}` — every non-degenerate assist was garbage; the
+  identity/degenerate branches hid it. Symptom that cracked it: a
+  composition-order flip that changed the probe output but NOT the
+  test result (garbage composed with garbage still seats the gear).
+  Composition is then `assist * ship` (engine operator* is Hamilton
+  "a after b"; the assist is authored in world space, so it applies
+  AFTER attitude). Grep lesson: when a probe contradicts a green
+  suite, suspect the helper's field order before the convention.
+- math::rotate EXONERATED: the "rotate returns (2,0,-1) for 180Y"
+  claim was this same brace bug in a probe's own minimal_rotation
+  wearing a disguise. Re-verified exact vs `to_mat4` for generic
+  quats (180Y·Z and 50deg pitch·Z bit-agree). No core workaround
+  needed; the probe `rotate_exact` mat4 detour was deleted.
+- Engage tick pinned 5999, not the analytic shell crossing 6000:
+  `capture_engage` reports the earliest entry into the tick window.
+- Clamp is a hard bind, per decision: `docked_pose(host, clamp_att,
+  clamp_pos)` is an exact pose projection every tick (pos = host pose
+  + rot(clamp_att, port_local) - gear_local... algebraic, no spring,
+  no solver); released push-off impulse is the departure path
+  (`release_impulse` gives vel + J/m and torque domega about the
+  gear offset). Destroyed clamp (`clamp_strength_N == 0`) never
+  engages — dark-not-dead.
+- Mutation gates that must stay killed: docked_pose gear term
+  (1 CHECK), snap_to_dock aim-assist drop (4 CHECKs in the pitched
+  fixture), capture safe_speed (shared with 7.9 pad suite — killing
+  it burns 601 pad assertions too, expected).
+
 ## 7.9 — capture zones + snap-to-rest (f500921)
 
 - Shape: `pad_def` (authored: body, local_dir on the surface, capture_radius,
