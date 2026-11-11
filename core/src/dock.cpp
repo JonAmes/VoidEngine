@@ -3,6 +3,7 @@
 #include <cmath>
 #include <limits>
 
+#include "ve/core/math/mat4.h"
 #include "ve/core/math/quat.h"
 
 namespace ve::core::sim {
@@ -28,11 +29,14 @@ math::dquat minimal_rotation(math::dvec3 from, math::dvec3 to) {
         return math::quat_from_axis_angle(axis, math::kPi_d);
     }
     // axis = from x to, angle = acos(d); quat (1+d, axis) is the same
-    // rotation up to scale — normalize once, bit-stable.
+    // rotation up to scale — normalize once, bit-stable. Scalar-LAST
+    // aggregate (quat{x,y,z,w}) — the w-first order here was a real bug
+    // caught by the pitched docking fixture.
     math::dvec3 axis = math::cross(from, to);
     const double w = 1.0 + d;
     const double len = std::sqrt(w * w + math::length2(axis));
-    return math::dquat{w / len, axis.x / len, axis.y / len, axis.z / len};
+    return math::dquat{axis.x / len, axis.y / len, axis.z / len,
+                       w / len};
 }
 
 } // namespace
@@ -106,11 +110,29 @@ rigid_state snap_to_dock(const rigid_state& ship, const port_world& port,
     // alignment assist as snap_to_rest (7.9 pins -Y because a LANDER
     // stands on its belly; a DOCKED ship seats its gear: the hull's +Z
     // must mate the normal or the gear can never sit on the port axis).
+    //
+    // Composition: assist composes on the LEFT — engine operator*(a,b)
+    // is Hamilton "a after b" (b applied first), the assist is authored
+    // in WORLD space (keel_world -> port.normal), so it applies AFTER
+    // the ship's attitude: out = assist * ship gives
+    // rotate(out, keel_local) == port.normal exactly. The right-side
+    // sandwich left the keel 50 deg off and let an aim-dropped mutant
+    // survive, because snap_to_dock back-computes pos from att and
+    // seats the gear tautologically at ANY attitude — the keel pin in
+    // the pitched fixture is the load-bearing gate.
+    //
+    // TRAP FIXED THIS TASK: minimal_rotation's aggregate here was built
+    // scalar-FIRST (w, x, y, z) while quat is {x, y, z, w} — every
+    // generic (non-degenerate) assist was garbage. The pitched docking
+    // fixture caught it; math::rotate was re-verified exact against
+    // to_mat4 (the earlier "rotate is broken" diagnosis was this same
+    // brace bug wearing a disguise).
+    const math::dvec3 keel_world =
+        math::rotate(ship.att, {0.0, 0.0, 1.0});
+    const math::dquat assist =
+        minimal_rotation(keel_world, port.normal);
     rigid_state out = ship;
-    out.att = math::normalize(minimal_rotation(math::rotate(ship.att,
-                                              {0.0, 0.0, 1.0}),
-                                              port.normal) *
-                              ship.att);
+    out.att = math::normalize(assist * ship.att);
     out.pos = target - math::rotate(out.att, gear.local_pos);
     out.vel = port.vel;  // port-relative rest (#41)
     out.omega_body = {0.0, 0.0, 0.0};

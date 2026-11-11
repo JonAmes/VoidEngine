@@ -179,7 +179,51 @@ TEST_CASE("docking_clamp") {
         CHECK(tick_c <= tick_a + 10);
     }
 
-    SUBCASE("snap_to_dock: gear pinned at rest depth on the port axis, -Y onto normal") {
+    SUBCASE("snap_to_dock: pitched junk attitude — the aim gate is real") {
+        // The roll-only fixture above leaves the aim gate identity (its
+        // junk is already about the keel axis), so this fixture pitches
+        // the keel ~50 deg OFF the normal: a dropped alignment assist
+        // must NOT pass.
+        rail_world rw = station_world(0.0);
+        const dock_port_def port = test_port(0);
+        const dock_gear_def gear = test_gear();
+        const auto pw = port_on_rail(rw, port, 0);
+        REQUIRE(pw.has_value());
+        const double th = 0.8727;
+        const math::dquat pitch =
+            math::quat_from_axis_angle({1.0, 0.0, 0.0}, th);
+        rigid_state ship{.pos = pw->pos + pw->normal * 30.0,
+                         .vel = {0.0, 0.0, -2.0},
+                         .att = pitch,
+                         .omega_body = {0.0, 0.0, 0.0}};
+        const auto out = snap_to_dock(ship, *pw, port, gear);
+        // Load-bearing gate: the clamp's attitude must MATE the hull keel
+        // (+Z) onto the port normal. snap_to_dock back-computes pos from
+        // att, so a gear-on-target check is tautological for ANY attitude
+        // (an earlier aim-dropped mutant survived exactly that); the keel
+        // pin is what the alignment assist exists for.
+        const math::dvec3 keel_out =
+            math::rotate(out.att, {0.0, 0.0, 1.0});
+        CHECK(std::abs(keel_out.x) < 1e-9);
+        CHECK(std::abs(keel_out.y) < 1e-9);
+        CHECK(keel_out.z > 1.0 - 1e-9);
+        // Pinned closed form (probe-verified): the pitch fixture's junk
+        // is a pure +X pitch, the assist is its exact inverse about X,
+        // left-side Hamilton composition cancels to identity.
+        CHECK(out.att.x == doctest::Approx(0.0).epsilon(1e-12));
+        CHECK(out.att.y == doctest::Approx(0.0).epsilon(1e-12));
+        CHECK(out.att.z == doctest::Approx(0.0).epsilon(1e-12));
+        CHECK(out.att.w == doctest::Approx(1.0).epsilon(1e-12));
+        // The gear seats at rest depth on the port axis under that att.
+        const math::dvec3 target = pw->pos - pw->normal * port.rest_depth_m;
+        const math::dvec3 gear_world =
+            out.pos + math::rotate(out.att, gear.local_pos);
+        CHECK(std::abs(gear_world.x - target.x) < 1e-6);
+        CHECK(std::abs(gear_world.y - target.y) < 1e-6);
+        CHECK(std::abs(gear_world.z - target.z) < 1e-6);
+    }
+
+    SUBCASE("snap_to_dock: gear pinned at rest depth on the port axis") {
         rail_world rw = station_world(0.0);
         const dock_port_def port = test_port(0);
         const dock_gear_def gear = test_gear();
