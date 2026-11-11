@@ -107,3 +107,47 @@ Design notes, findings, and gotchas worth keeping. One section per task number a
 - Mutation-killed gates: normal-force sign, depth>0 no-contact gate, damper
   sign (energy-pump). Determinism: run==run memcmp over the whole 600-tick
   trajectory stream; an ulp nudge to `vel.x` diverges it.
+
+## 7.9 — capture zones + snap-to-rest (f500921)
+
+- Shape: `pad_def` (authored: body, local_dir on the surface, capture_radius,
+  safe_speed, rest_depth) + `pad_at(rail_world, pad_def, tick) -> pad_world`
+  (pose snapshot that rides spin: pos = center + R(t)·local_dir·R_body, vel =
+  v_body + ω×r, normal = R(t)·local_dir). `capture_engage` decides from the
+  tick snapshot only — pure, no stored zone state, so replay hashes ride it.
+- #41 pinned hard: the safe-speed gate compares PAD-RELATIVE velocity.
+  A world-stationary hull hovering 20 m over a rim pad on a spinning moon
+  (rim ~1000 m/s) must NOT engage; a pad-matched hull must. A pole pad sits
+  on the spin axis (zero rim velocity) and teaches nothing — fixture pads
+  for spin tests go on the equator.
+- #29e: too-fast/too-close flybys simply never engage; nothing "fails".
+  The whole engage path is one `std::optional` — no failure states.
+- Sweep = closed-form closest approach of the two LINEAR paths over the tick
+  (tau clamped to [0,dt]), not the 7.4 OBB slab clip: the capture zone is a
+  sphere with no solid surface to clip. The swept_hit shape is reused
+  (pos/normal/t at the closest-approach instant); normal points pad->hull.
+  Engagement sampled entirely from the pinned tick (#45e): checking the late
+  snapshot against a start-of-tick trajectory is CHECK-false once the pad has
+  spun past (equator fixture: ~67 deg in 100 s).
+- `snap_to_rest` is algebraic, not a solver: pos = pad.pos - normal*rest_depth,
+  vel = pad.vel exactly, attitude = minimal rotation taking hull-local -Y onto
+  the pad normal, composed onto the current attitude. The 180-degenerate
+  branch pins cross(x̂, from) as the axis (identity hull over +Y normal ->
+  flip about -Z; w = cos(pi/2) ~ 1e-17 fp noise, x/y/z lockable).
+- Determinism pin gotcha: a scripted descent re-pins velocity every tick, so
+  a nudge must be applied at t==0 (position offset) to count. Engagement is
+  a shell crossing: 1e-3 m/s shifts the crossing ~sub-tick (~4 ticks band),
+  1e-9 lands on the SAME tick. Descent profile is authored (engines cancel
+  well accel exactly, hold -1.5 m/s) — 200 m closure pins tick band
+  [7900, 8060], measured 8001.
+- API traps: `math::rotate(q, v)` for transforms; `math::quat_from_axis_angle`;
+  `rail_world::add_body` returns optional-like — REQUIRE(has_value); doctest
+  `-ts=pad_capture` for the suite (the -tc name is capture_zone); Approx on
+  bare 0.0 is ABSOLUTE tolerance, but exact-zero pins (rest vel == 0.0) are
+  safer than epsilon-on-zero here.
+- Deviation: "release on player input" is a seat/input verb (7.11+), not this
+  sim task; capture_engage stays stateless so the caller's input verb is the
+  release. Mutation evidence: speed-gate-off mutant killed (601 failed
+  assertions); always-engage at tick 0 killed by the analytic tick-band pin.
+- 32,655 targeted assertions (the flyby sweep over 800 approach points is the
+  bulk). CI 129 cases, 316 s.
