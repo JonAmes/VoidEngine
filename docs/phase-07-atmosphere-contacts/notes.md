@@ -440,3 +440,15 @@ attachment to the triangle pass without also clearing it.
   by design; the ctest suite stays display-free (7.15 test covers the same
   scene path headless). The 7.16.1 depth attachment's runtime attestation is
   this run's 0-problems-under-validation exit, nothing else.
+
+## 7.17 — Phase 7 evidence pass (this docs commit)
+- Clean tree -> `rm -rf build` -> `tools/ci_local.sh`: GREEN 369.4s, CI_EXIT=0,
+  no display, ASan+UBSan on. `engine_tests` 146 cases / 8,310,695 assertions
+  all passed. `git status` after the run: only the README/checklist docs edit —
+  zero golden drift, no stray artifacts.
+- Bookkeeping catch at this pass: done-when (d) was left unchecked since 7.4
+  even though the `swept_contact` task box (49e48db) was checked with its
+  evidence — done-when lines must be checked in the SAME docs commit that
+  checks the task box they cite.
+- Phase 7 DONE. Next: Phase 8 (time compression & world streaming) — needs the
+  user's go-ahead.
