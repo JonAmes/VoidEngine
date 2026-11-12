@@ -81,6 +81,7 @@ add_executable(engine_tests
     game/test_scrubber_panel.cpp
     game/test_def_fields.cpp
     game/test_def_forms_panel.cpp
+    game/test_inspector_panel.cpp
     core/test_stats_combat_scenario.cpp
     core/test_math_projection.cpp
     core/test_math_coords.cpp
