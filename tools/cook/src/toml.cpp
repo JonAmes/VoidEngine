@@ -4,7 +4,6 @@
 #include "ve/cook/toml.h"
 
 #include <cerrno>
-#include <charconv>
 #include <cmath>
 #include <cstdlib>
 
@@ -309,43 +308,11 @@ bool parse_toml(const std::string& text, TomlValue& root, std::string* err) {
 }
 
 std::expected<double, std::string> si_from_string(const std::string& s) {
-    // "NUMBER SUFFIX" with exactly one whitespace boundary. Extra whitespace
-    // tolerated at the ends; interior splits on the LAST whitespace so values
-    // like "1.5e 3 m" stay rejected by the number grammar (only one token
-    // before the suffix is allowed).
-    std::size_t a = 0, b = s.size();
-    while (a < b && (s[a] == ' ' || s[a] == '\t')) ++a;
-    while (b > a && (s[b - 1] == ' ' || s[b - 1] == '\t')) --b;
-    const std::size_t ws = s.find_last_of(" \t", b - 1);
-    std::string num_tok, suffix;
-    if (ws == std::string::npos || ws < a) {
-        num_tok = s.substr(a, b - a);  // no suffix -> bare error below
-    } else {
-        num_tok = s.substr(a, ws - a);
-        suffix = s.substr(ws + 1, b - ws - 1);
-        if (suffix.find_first_of(" \t") != std::string::npos ||
-            num_tok.find_first_of(" \t") != std::string::npos)
-            return std::unexpected("unit coercion: too many tokens: '" + s + "'");
-    }
-    // strict number grammar; from_chars rejects inf/nan spellings
-    double val = 0.0;
-    const char* first = num_tok.c_str();
-    const char* last = num_tok.c_str() + num_tok.size();
-    const auto res = std::from_chars(first, last, val);
-    // from_chars DOUBLE accepts "inf"/"nan" spellings — never valid def data.
-    if (res.ec != std::errc{} || res.ptr != last || !std::isfinite(val))
-        return std::unexpected("unit coercion: bad number '" + num_tok + "'");
-    const auto si = ve::game::coerce_to_si(val, suffix);
-    if (!si) {
-        switch (si.error()) {
-            case ve::game::unit_error::bare_suffix:
-                return std::unexpected("unit coercion: bare number '" + num_tok +
-                                       "' (suffix mandatory per #42)");
-            case ve::game::unit_error::unknown_suffix:
-                return std::unexpected("unit coercion: unknown suffix '" + suffix + "'");
-        }
-    }
-    return *si;
+    // 8.1: the "NUMBER SUFFIX" grammar lives in ve::game::parse_unit_entry
+    // (game/src/units.cpp) so the def-forms entry gate (#42 on entry) and
+    // this parser share ONE implementation. No dim gate here — that is a
+    // forms-side schema check; the cook layer stays as #42 ratified.
+    return ve::game::si_from_string(std::string_view{s});
 }
 
 }  // namespace ve::cook

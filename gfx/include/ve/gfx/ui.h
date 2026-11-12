@@ -66,6 +66,12 @@ public:
     // Editable text: click focuses; chars/backspace edit while focused.
     // true on Enter while focused (commit signal).
     bool text_field(const char* label, char* buf, std::size_t cap);
+    // 8.1 def-forms: text_field releases focus on the Enter that commits.
+    // A REJECTED entry re-focuses here so the draft stays editable without
+    // a re-click (#48 "garbage hard to enter, easy to fix"). Only ever call
+    // immediately after text_field returned true, same frame, same window
+    // (id = label + window scope hash).
+    void refocus_text(const char* label) { focus_ = hash_id(label); }
 
     void end_frame(); // finalize draw list
     const ui_frame& frame() const { return frame_; }

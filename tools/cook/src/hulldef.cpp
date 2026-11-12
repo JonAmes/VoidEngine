@@ -33,6 +33,7 @@
 #include <ve/game/attr_keys.h>
 
 #include "ve/cook/toml.h"
+#include "ve/game/def_schema.h"
 #include "ve/game/facet_actions.h"
 
 namespace ve::cook {
@@ -97,13 +98,12 @@ bool req_unit(const TomlValue& v, const std::string& path, double& outv, std::st
 
 // Ratified Phase-5 categories; encoding matches core `socket_category`
 // (main=0, rcs=1, gun=2, utility=3) so the 5.10 loader can cast through.
+// 8.1: spellings come from the game-side schema table (def_schema.h) —
+// the forms panel and the cooklet share one enumeration source.
 bool category_u8(const std::string& s, std::uint8_t& outv) {
-    if (s == "main") outv = 0;
-    else if (s == "rcs") outv = 1;
-    else if (s == "gun") outv = 2;
-    else if (s == "utility") outv = 3;
-    else return false;
-    return true;
+    for (std::size_t i = 0; i < ve::game::kCategory_names.size(); ++i)
+        if (s == ve::game::kCategory_names[i]) { outv = static_cast<std::uint8_t>(i); return true; }
+    return false;
 }
 
 bool req_string_array(const TomlValue& v, const std::string& path,
@@ -176,14 +176,11 @@ struct CompRow {
     std::vector<Facet> facets;
 };
 
-// #46c1 axis spelling -> face code (engine axes, #34 RH Y-up -Z fwd).
+// #46c1 axis spelling -> face code (engine axes, #34). Spellings from the
+// game-side schema table (8.1); code = index + 1.
 bool face_u8(std::string_view s, std::uint8_t& out) {
-    if (s == "+x") { out = 1; return true; }
-    if (s == "-x") { out = 2; return true; }
-    if (s == "+y") { out = 3; return true; }
-    if (s == "-y") { out = 4; return true; }
-    if (s == "+z") { out = 5; return true; }
-    if (s == "-z") { out = 6; return true; }
+    for (std::size_t i = 0; i < ve::game::kFace_axis_names.size(); ++i)
+        if (s == ve::game::kFace_axis_names[i]) { out = static_cast<std::uint8_t>(i + 1); return true; }
     return false;
 }
 
@@ -315,10 +312,12 @@ bool parse_wire(const TomlValue& row, const std::string& where, WireRow& w, std:
     if (!req_str(t, "id", where + ".", w.id, err)) return false;
     std::string type;
     if (!req_str(t, "type", where + ".", type, err)) return false;
-    if (type == "power") w.type = 0;
-    else if (type == "signal") w.type = 1;
-    else if (type == "power+signal") w.type = 2;
-    else return fail(err, where + ".type '" + type + "' not one of power/signal/power+signal");
+    // 8.1: wire-type spellings from the game-side schema table; code = index.
+    bool known_wire = false;
+    for (std::size_t i = 0; i < ve::game::kWire_type_names.size(); ++i)
+        if (type == ve::game::kWire_type_names[i]) { w.type = static_cast<std::uint8_t>(i); known_wire = true; break; }
+    if (!known_wire)
+        return fail(err, where + ".type '" + type + "' not one of power/signal/power+signal");
     if (const TomlValue* cap = at(t, "capacity")) {
         if (!req_num(*cap, where + ".capacity", w.capacity, err)) return false;
         if (w.capacity <= 0.0) return fail(err, where + ".capacity must be > 0");
