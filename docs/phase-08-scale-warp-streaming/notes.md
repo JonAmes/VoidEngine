@@ -185,3 +185,52 @@ is legal (rule 5: ordered container, explicit total order).
 - **Decision gate (open):** which look (or a blend) becomes the game's
   terrain art direction — USER decision, recorded in PLAN.md before 8.18
   commits anything terrain.
+
+## 8.7 — world-def TOML schema + WORLD cook unit (commit 1b0099a)
+- **One codec, both sides (DEF0 precedent):** `game/{include/ve/game,src}/world_load.*`
+  owns the WORLD0 payload — `encode_world` / `decode_world` / `WorldDef`. The
+  cooklet parses TOML into the same structs and encodes; the runtime will
+  decode. `worlddef_cook` pins `encode(decode(payload)) == payload`
+  byte-for-byte for every cooked unit, so the two directions can never drift
+  silently. Payload speaks game concepts (market/lane/faction/build plan), so
+  the codec lives in `ve::game`, not `core/`.
+- **Unit coercion at cook (#42):** every length/time/angle scalar in the schema
+  is a `"NUMBER SUFFIX"` string (`"6200 km"`, `"27.3 day"`, `"24 deg"`); structs
+  and payload only ever hold SI. **Composite units ride bare SI** —
+  `surface_g` (m/s^2) and `atm_rho0` (kg/m^3) have no ratified #42 suffix, so
+  they follow the hull-attr rule (bare numbers) instead of inventing one.
+- **Routing:** a `.toml` source with root `world_class = "system"|"body"|"station"`
+  cooks to `WRLD` (`kUnitWrld`, cook format **v6**); every other `.toml` stays
+  on the DEF0 hull-def path. No new source extension.
+- **Flat-row AOT schema:** `[[moon]]`-style nesting under other AOT rows is NOT
+  used; every section is a flat root-level row array (`[[lane]]`, `[[edge]]`,
+  `[[job_step]]`, ...) — sturdier subset parsing, and it maps 1:1 onto future
+  forms panels. `members` is a string *array*, not rows.
+- **Gate doctrine:** schema gates run in fixed code order, first failure only;
+  every failure writes through `Schema::errp` to the caller's err (a bare
+  `sc.err = ...; return false` once escaped silently — the write-through helper
+  `bad()` now backs every path). Error context grows per class/row
+  (`world body 'Vesper Prime' stamp 1: ...`).
+- **Manifest edges:** `WorldDef::collect_refs()` (parent, hull def, members,
+  build-plan modules) become sorted deps; cook.cpp now **dedupes** sorted deps
+  (a station's hull def and its build modules are the same def — one edge).
+  Dangling refs fail at cook time via the existing def-ref resolution (#27a).
+- **Decode tamper ladder (pinned):** empty payload, truncated mid-field
+  ("truncated"), trailing junk ("trailing"), out-of-range class byte — the
+  class byte is guarded twice (explicit range check + switch default arm);
+  the mutation below only went red with BOTH removed.
+- **Evidence:** `worlddef_cook` + `worlddef_manifest_deps` + `worlddef_gate_order`
+  = 3 cases / 156 assertions; full suite 159 / 8,311,426; ci_local GREEN
+  375.6 s, CI_EXIT=0. Mutations caught: err-plumbing removed (gate_order,
+  8 failures), dep dedup removed (manifest_deps, 1), both class-byte gates
+  removed (worlddef_cook, 1).
+- **Process traps (this task):**
+  - Compound short-circuit chains `!strf(...) || !x.empty()` invert silently —
+    the lane from/to check required the fields to be EMPTY. Read every
+    `||`-chain term twice; a green parse of well-formed fixtures is the tell.
+  - Unknown AOT keys are silently NOT schema data: a dangling-ref fixture must
+    corrupt a key the schema actually reads (`members` array), not an invented
+    `[[moon]]` row — the first dangling fixture "passed" because nothing parsed it.
+  - Cook output layout is `out/units/<id>.ck` + `out/manifest.bin` (readers in
+    `core::cooked`), not `out/<id>.vecook` — copy paths from test_hulldef, not
+    from memory.
