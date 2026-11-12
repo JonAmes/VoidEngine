@@ -34,6 +34,7 @@ inline constexpr std::uint32_t kUnitMat0 = fourcc("MAT0"); // cooked material (0
 inline constexpr std::uint32_t kUnitDef0 = fourcc("DEF0"); // normalized def
 inline constexpr std::uint32_t kUnitShdr = fourcc("SHDR"); // cooked SPIR-V (2.5)
 inline constexpr std::uint32_t kUnitFont0 = fourcc("FONT0"); // cooked glyph atlas (3.12)
+inline constexpr std::uint32_t kUnitWrld = fourcc("WRLD"); // cooked world def (8.7, #45d)
 
 // SOCK payload (5.6, v2 since 5.9a #46a): the hull's ONE named-anchor table —
 // hardpoint sockets AND #30a interior empties (door_/seat_/panel_/counter_/
@@ -69,7 +70,7 @@ inline constexpr std::uint32_t kUnitFont0 = fourcc("FONT0"); // cooked glyph atl
 //   u32 refs (authored order; manifest deps resolve them separately).
 // All #42 unit suffixes are already coerced to SI — the runtime never sees
 // TOML. A def WITHOUT class_tag keeps its raw source bytes (non-hull defs).
-inline constexpr std::uint32_t kCookFormat = 5; // v5: DEF0 hull-def binary + SOCK v2 one named-anchor table (#46); v4: .glb cook gained SOCK unit + strict socket_type (#21); v3: MAT0 texture refs (3.8); v2: MESH tan (3.6)
+inline constexpr std::uint32_t kCookFormat = 6; // v6: WRLD world-def payload class (8.7 #45d); v5: DEF0 hull-def binary + SOCK v2 one named-anchor table (#46); v4: .glb cook gained SOCK unit + strict socket_type (#21); v3: MAT0 texture refs (3.8); v2: MESH tan (3.6)
 
 // SHDR payload: u32 stage (kShdrStage*) | SPIR-V binary as cooked by
 // glslangValidator at cook time. Runtime never compiles GLSL (decision #13)

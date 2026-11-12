@@ -10,6 +10,7 @@
 #include "internal.h"
 #include "ve/cook/hulldef.h"
 #include "ve/cook/hullvalidate.h"
+#include "ve/cook/worlddef.h"
 #include "font.h"
 #include "glb.h"
 #include "png.h"
@@ -217,10 +218,19 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         if (unit.type == kUnitDef0) {
             // 5.8: hull defs compile to the normalized DEF0 v1 payload
             // (cooked.h); plain defs keep raw bytes; refs -> manifest deps.
+            // 8.7 (#45d): a .toml declaring world_class is a WORLD def —
+            // same source slot, different unit type (WRLD) and gates.
             const std::string text(unit.payload.begin(), unit.payload.end());
             std::vector<std::string> def_refs;
             std::string def_err;
-            if (!cook_hulldef_unit(text, unit.payload, def_refs, &def_err)) {
+            if (toml_source_has_world_class(text)) {
+                unit.type = kUnitWrld;
+                if (!cook_worlddef_source(text, unit.payload, def_refs, &def_err)) {
+                    result.error = "world def '" + id + "': " + def_err;
+                    ++result.counts.failures;
+                    continue;
+                }
+            } else if (!cook_hulldef_unit(text, unit.payload, def_refs, &def_err)) {
                 result.error = "def '" + id + "': " + def_err;
                 ++result.counts.failures;
                 continue;
@@ -246,6 +256,10 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
                 continue;
             }
             std::sort(entry.deps.begin(), entry.deps.end()); // deterministic graph bytes
+            // Dedup: a station's hull def and its build-plan modules can be
+            // the same def (8.7) — one manifest edge per dep.
+            entry.deps.erase(std::unique(entry.deps.begin(), entry.deps.end()),
+                             entry.deps.end());
         }
 
         if (!write_unit_file(unit_path(out_dir, id), unit, &err)) {
