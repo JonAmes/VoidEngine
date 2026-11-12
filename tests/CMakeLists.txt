@@ -46,6 +46,7 @@ add_executable(engine_tests
     core/test_airlock_cycle.cpp
     core/test_foot_verb_events.cpp
     core/test_flight_landing_scenario.cpp
+    gfx/test_flight_visible.cpp
     core/test_sim_gravity.cpp
     core/test_sim_well_blend.cpp
     core/test_sim_integrator.cpp
