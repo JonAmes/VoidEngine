@@ -348,3 +348,35 @@ Hard-won scenario lessons (all load-bearing in the test):
 6. **doctest INFO scope trap:** an INFO() inside a for-loop body or a { }
    block pops its context immediately — silently never prints at failure.
    Accumulate into one std::string and emit a single INFO at test-body scope.
+
+## 7.15 — renderer visibility proof 1 (53629fe)
+Done-when (c) renderer leg. The 7.14 scenario was extracted VERBATIM into
+tests/core/flight_scenario.h (namespace ve_test::flight) so the core pin
+harness and gfx/test_flight_visible.cpp replay the SAME flight from one
+source — core suite stayed at exactly 1 case / 216,050 assertions across
+the move (the extraction is behavior-identical by count, not by eye). The
+header adds only run_result.poses (per-tick rigid_state track) and
+pad_pos0 (the pad anchor the renderer frames on).
+
+Renderer shape: cooked hull by content id (#13) + 64-byte mat4 MODEL push
+constant per draw (the per-tick transform — the 3.15 orbit test bakes TRS
+at cook and keeps model identity; this is the first scene-path use of a
+live model matrix) + mono camera_rig eye chasing at a CONSTANT offset
+(rel + off) with constant orientation. Chase cam means screen position is
+stable and only ATTITUDE moves the silhouette — the honest signal.
+Pins: painted+depth center ray and >=150 painted px on 11 sampled frames
+(pad rest, climb, cruise x4, stall excursion, glide, approach, two
+post-capture coast frames); mask-delta min>=50 across all consecutive
+pairs (frozen transform dies) + >=4 pairs >=300 (stall/glide/approach
+attitude swings). Measured deltas 68..686: the two smallest pairs are the
+vertical-thrust phases where attitude genuinely ~constant — do NOT raise
+the min pin past ~85 or you pin flight choreography, not render.
+Golden flight_hull_cruise.png (tick 3600) byte-exact, regenerable with
+VE_GOLDEN_UPDATE=1.
+
+Traps hit: local function def in a TEST_CASE (mask_xor) is illegal — use a
+lambda. dquat -> quatf needs explicit float() fields (narrowing dies under
+-Werror). compose() does not exist — it is math::trs_compose (the orbit
+test never calls it; rig.compute() hides it). An untracked test file
+breaks the `git checkout --` mutant restore — cp a /tmp proven copy BEFORE
+the mutation pass and restore from that.
