@@ -11,6 +11,7 @@
 #include "ve/cook/hulldef.h"
 #include "ve/cook/hullvalidate.h"
 #include "ve/cook/worlddef.h"
+#include "ve/cook/wrldvalidate.h"
 #include "font.h"
 #include "glb.h"
 #include "png.h"
@@ -390,6 +391,111 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
                 cooked_ids.insert(sid);
             }
             if (result.counts.failures) break;
+        }
+
+        // ---- 8.8 world-def cross-field gates (#45d) ----
+        // Touched WRLD units (own or dep cooked this run) in manifest
+        // (content-ID) order; gate order is fixed inside cook_wrld_validate
+        // (deterministic first-error, like the hull pass above). World/hull
+        // deps are loaded transitively; a missing dep is a GATE message,
+        // never a crash.
+        if (result.counts.failures == 0) {
+            std::vector<std::string> wrld_ids;
+            for (const auto& m : manifest) {
+                Unit du;
+                std::string e;
+                if (!read_unit_file(unit_path(out_dir, m.first), du, &e) ||
+                    du.type != kUnitWrld)
+                    continue;
+                bool touched = cooked_ids.count(m.first) != 0;
+                if (!touched)
+                    for (const auto& dep : m.second.deps)
+                        if (cooked_ids.count(dep)) {
+                            touched = true;
+                            break;
+                        }
+                if (touched) wrld_ids.push_back(m.first);
+            }
+            const RefResolve resolve = [](const std::string& from_id,
+                                          const std::string& ref,
+                                          std::string& id_out) {
+                return resolve_ref(from_id, ref, id_out);
+            };
+            for (const auto& wid : wrld_ids) {
+                Unit du;
+                std::string e;
+                if (!read_unit_file(unit_path(out_dir, wid), du, &e)) {
+                    result.error = e;
+                    ++result.counts.failures;
+                    break;
+                }
+                auto self_wd = game::decode_world(du.payload);
+                if (!self_wd) {
+                    result.error = "world def decode failed for '" + wid +
+                                   "': " + self_wd.error();
+                    ++result.counts.failures;
+                    break;
+                }
+                // Transitive world-dep closure: parent chains + members.
+                std::map<std::string, game::WorldDef> wdeps;
+                wdeps.emplace(wid, *self_wd);
+                std::vector<std::string> queue{wid};
+                bool decode_bad = false;
+                while (!queue.empty() && !decode_bad) {
+                    const std::string cur_id = queue.back();
+                    queue.pop_back();
+                    const game::WorldDef& d = wdeps[cur_id];
+                    std::vector<std::string> refs;
+                    if (!d.parent_ref.empty()) refs.push_back(d.parent_ref);
+                    for (const auto& mem : d.members) refs.push_back(mem);
+                    for (const auto& ref : refs) {
+                        std::string rid;
+                        if (!resolve_ref(cur_id, ref, rid) || rid.empty() ||
+                            wdeps.count(rid))
+                            continue;  // gate reports unresolvable refs
+                        Unit ru;
+                        if (!read_unit_file(unit_path(out_dir, rid), ru, &e) ||
+                            ru.type != kUnitWrld)
+                            continue;  // missing / not a world def: gate message
+                        auto rwd = game::decode_world(ru.payload);
+                        if (!rwd) {
+                            result.error = "world def decode failed for '" + rid +
+                                           "': " + rwd.error();
+                            decode_bad = true;
+                            break;
+                        }
+                        wdeps.emplace(rid, *rwd);
+                        queue.push_back(rid);
+                    }
+                }
+                if (decode_bad) {
+                    ++result.counts.failures;
+                    break;
+                }
+                // Hull-dep closure for stations: hull def + plan modules.
+                std::map<std::string, HullInputs> hulls;
+                if (self_wd->world_class == game::WorldClass::station) {
+                    auto add_hull = [&](const std::string& ref) {
+                        std::string hid;
+                        if (ref.empty() || !resolve_ref(wid, ref, hid) ||
+                            hid.empty() || hulls.count(hid))
+                            return;
+                        HullInputs h;
+                        std::string he;
+                        if (!load_hull(hid, h, &he)) return;  // gate reports the miss
+                        hulls.emplace(hid, std::move(h));
+                    };
+                    add_hull(self_wd->hull_def_ref);
+                    for (const auto& p : self_wd->build_plans)
+                        for (const auto& s : p.steps) add_hull(s.module_def_ref);
+                }
+                std::string verr;
+                if (!cook_wrld_validate(wid, *self_wd, wdeps, hulls, resolve, &verr)) {
+                    result.error = verr;
+                    ++result.counts.failures;
+                    break;
+                }
+            }
         }
     }
 

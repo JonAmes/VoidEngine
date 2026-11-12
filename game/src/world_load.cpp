@@ -34,6 +34,15 @@ std::vector<std::string> WorldDef::collect_refs() const {
     for (const auto& p : build_plans)
         for (const auto& s : p.steps)
             if (!s.module_def_ref.empty()) refs.push_back(s.module_def_ref);
+    // 8.8: market anchors and waypoint bodies are def refs too — they must
+    // become manifest edges so dangling ones fail the cook at authoring time
+    // (#20d/#27a). "poi:<name>" anchors reference POIs INSIDE a member body
+    // and are resolved by the wrld graph gates, not by the file graph.
+    for (const auto& mk : markets)
+        if (!mk.anchor_ref.empty() && mk.anchor_ref.rfind("poi:", 0) != 0)
+            refs.push_back(mk.anchor_ref);
+    for (const auto& w : waypoints)
+        if (!w.body_ref.empty()) refs.push_back(w.body_ref);
     return refs;
 }
 

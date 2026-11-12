@@ -14,6 +14,7 @@ add_library(ve_cooklet STATIC
     src/hulldef.cpp
     src/hullvalidate.cpp
     src/worlddef.cpp
+    src/wrldvalidate.cpp
 )
 target_include_directories(ve_cooklet PUBLIC include)
 target_link_libraries(ve_cooklet PUBLIC ve_core ve_game stb_headers)  # ve_game: #42 units table at cook time

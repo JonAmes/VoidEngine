@@ -21,6 +21,7 @@
 #include <fstream>
 #include <numbers>
 #include <string>
+#include <utility>
 #include <vector>
 #include "../ve_test_portability.h"  // getpid
 
@@ -50,7 +51,12 @@ struct Tree {
         // real hull fixture as the station's hull/module def
         std::filesystem::copy_file(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml", src / "defs/test_ship.def.toml");
         std::filesystem::copy_file(std::string(VE_SOURCE_DIR) + "/assets/samples/test_ship.glb", src / "samples/test_ship.glb");
+        std::ifstream sf(src / "defs/test_ship.def.toml");
+        ship_text = std::string((std::istreambuf_iterator<char>(sf)),
+                                std::istreambuf_iterator<char>());
+        REQUIRE(!ship_text.empty());
     }
+    std::string ship_text;  // base text for the station/ring hull defs
     void write(const std::string& rel, const std::string& text) const {
         std::ofstream f(src / rel);
         f << text;
@@ -195,7 +201,7 @@ spin_rate = "6.8 deg/day"
 constexpr const char* kKepler = R"toml(
 world_class = "station"
 name = "Kepler Station"
-hull_def = "../../defs/test_ship.def.toml"
+hull_def = "../../defs/station_core.def.toml"
 parent = "../bodies/vesper.toml"
 orbit_period = "3.2 day"
 orbit_radius = "7000 km"
@@ -203,22 +209,58 @@ root_socket = "hp_engine_L"
 
 [[build_step]]
 plan = "expansion_a"
-module = "../../defs/test_ship.def.toml"
+module = "../../defs/ring_module.def.toml"
 socket = "hp_engine_R"
 at = "0.5 day"
+)toml";
 
-[[build_step]]
-plan = "expansion_b"
-module = "../../defs/test_ship.def.toml"
+// 8.8: station + module hulls with REAL #46d seam pairs, so the build-plan
+// clamp-pairing gate has a proven pair to bind onto (5.9b G9 validates the
+// rows themselves; the ring defs share the ship mesh/SOCK on purpose).
+constexpr const char* kSeamsStation = R"toml(
+
+[[seam]]
+partner = "ring_module.def.toml"
+socket = "hp_engine_R"
+
+[[seam]]
+partner = "ring_module_b.def.toml"
 socket = "hp_engine_L"
-at = "2 day"
+)toml";
+
+constexpr const char* kSeamsRing = R"toml(
+
+[[seam]]
+partner = "station_core.def.toml"
+socket = "hp_engine_R"
+)toml";
+
+constexpr const char* kSeamsRingB = R"toml(
+
+[[seam]]
+partner = "station_core.def.toml"
+socket = "hp_engine_L"
+)toml";
+
+// A body no system claims: exercised by the member/anchor/waypoint gates.
+constexpr const char* kOrphan = R"toml(
+world_class = "body"
+name = "Orphan Rock"
+radius = "180 km"
+well_radius = "600 km"
+surface_g = 0.3
+well_taper_start = "400 km"
 )toml";
 
 void write_slice(const Tree& t) {
     t.write("world/system.toml", kSystem);
     t.write("world/bodies/vesper.toml", kVesper);
     t.write("world/bodies/luna.toml", kLuna);
+    t.write("world/bodies/orphan.toml", kOrphan);
     t.write("world/stations/kepler.toml", kKepler);
+    t.write("defs/station_core.def.toml", t.ship_text + kSeamsStation);
+    t.write("defs/ring_module.def.toml", t.ship_text + kSeamsRing);
+    t.write("defs/ring_module_b.def.toml", t.ship_text + kSeamsRingB);
 }
 
 core::cooked::Unit unit_of(const Tree& t, const std::string& id) {
@@ -233,6 +275,14 @@ const core::cooked::ManifestEntry* entry_of(const core::cooked::Manifest& m, con
     return it == m.end() ? nullptr : &it->second;
 }
 
+} // namespace
+
+namespace {
+
+const char* kBody = "world/bodies/vesper.toml";
+const char* kMoon = "world/bodies/luna.toml";
+const char* kSys = "world/system.toml";
+const char* kKep = "world/stations/kepler.toml";
 } // namespace
 
 TEST_CASE("worlddef_cook") {
@@ -332,14 +382,14 @@ TEST_CASE("worlddef_cook") {
     auto st = game::decode_world(unit_of(t, "world/stations/kepler.toml").payload);
     REQUIRE(st);
     CHECK(st->world_class == WorldClass::station);
-    CHECK(st->hull_def_ref == "../../defs/test_ship.def.toml");
+    CHECK(st->hull_def_ref == "../../defs/station_core.def.toml");
     CHECK(st->root_socket == "hp_engine_L");
-    REQUIRE(st->build_plans.size() == 2); // plans in first-seen order
+    REQUIRE(st->build_plans.size() == 1); // plans in first-seen order
     CHECK(st->build_plans[0].id == "expansion_a");
     REQUIRE(st->build_plans[0].steps.size() == 1);
     CHECK(st->build_plans[0].steps[0].at_time_s == doctest::Approx(43200.0)); // "0.5 day"
-    CHECK(st->build_plans[1].steps[0].at_time_s == doctest::Approx(172800.0)); // "2 day"
-    CHECK(st->build_plans[1].steps[0].target_socket == "hp_engine_L");
+    CHECK(st->build_plans[0].steps[0].target_socket == "hp_engine_R");
+    CHECK(st->build_plans[0].steps[0].module_def_ref == "../../defs/ring_module.def.toml");
 
     // ---- decode gates refuse tampered payloads ----
     const auto good = unit_of(t, "world/bodies/vesper.toml").payload;
@@ -370,6 +420,8 @@ TEST_CASE("worlddef_manifest_deps") {
 
     const auto* sys = entry_of(m, "world/system.toml");
     REQUIRE(sys);
+    // market anchors + waypoint bodies are refs too (8.8) but they point at
+    // members -> dedup keeps exactly one edge per member.
     CHECK(sys->deps == std::vector<std::string>{"world/bodies/luna.toml",
                                                "world/bodies/vesper.toml",
                                                "world/stations/kepler.toml"}); // sorted
@@ -378,9 +430,9 @@ TEST_CASE("worlddef_manifest_deps") {
     CHECK(luna->deps == std::vector<std::string>{"world/bodies/vesper.toml"});
     const auto* kepler = entry_of(m, "world/stations/kepler.toml");
     REQUIRE(kepler);
-    // hull def + both build modules are the SAME def -> one deduped edge,
-    // plus the parent body.
-    CHECK(kepler->deps == std::vector<std::string>{"defs/test_ship.def.toml",
+    // hull def + build module (distinct defs) + parent body.
+    CHECK(kepler->deps == std::vector<std::string>{"defs/ring_module.def.toml",
+                                                   "defs/station_core.def.toml",
                                                    "world/bodies/vesper.toml"});
 
     // dangling ref fails the cook at cook time (#27a doctrine)
@@ -481,4 +533,162 @@ color = [1.0, 1.0, 1.0]
     REQUIRE(dec);
     CHECK(dec->rails.surface_radius == doctest::Approx(1e6));
     CHECK(dec->rails.surface_g == doctest::Approx(3.0));
+}
+
+// ---------------------------------------------------------------------------
+// 8.8 — world-def cross-field / cross-file validation gates (cook side).
+// Every variant mutates ONE fixture line of the green slice and expects the
+// cook to fail with the fixed-order first-error text from wrldvalidate.cpp.
+// ---------------------------------------------------------------------------
+namespace {
+
+std::string repl(const std::string& s, const std::string& from, const std::string& to) {
+    std::string out{s};
+    const auto p = out.find(from);
+    if (p == std::string::npos) throw std::logic_error("fixture anchor not found: " + from);
+    out.replace(p, from.size(), to);
+    return out;
+}
+
+// cook the full slice with these files overwritten; returns the cook error
+// (empty string = cook stayed green).
+std::string gate_error(std::vector<std::pair<std::string, std::string>> muts) {
+    Tree t;
+    write_slice(t);
+    for (const auto& [f, text] : muts) t.write(f, text);
+    auto res = cook::cook_incremental(t.src.string(), t.out.string());
+    return res.ok ? std::string{} : res.error;
+}
+
+} // namespace
+
+TEST_CASE("worlddef_validate_stamps") {
+    auto expect_gate = [&](std::vector<std::pair<std::string, std::string>> muts,
+                           const char* needle) {
+        const std::string err = gate_error(std::move(muts));
+        CHECK_MESSAGE(err.find(needle) != std::string::npos,
+                      "wanted '" << std::string{needle} << "', cook said: " << err);
+    };
+    // POI stamp coverage + pad shape + blend-core gates (#29c).
+    // ---- POI stamp gates (#29c) ----
+    // Ladder pins the FIXED ORDER: coverage fires before the pad-shape gate.
+    expect_gate({{kBody, repl(repl(kVesper, "footprint = \"60 m\"", "footprint = \"400 km\""),
+                              "stamp = \"flatten\"", "stamp = \"crater\"")}},
+                "does not cover footprint");
+    expect_gate({{kBody, repl(kVesper, "stamp = \"flatten\"", "stamp = \"crater\"")}},
+                "pad stamp must be flatten or mesa, not crater");
+    // blend ring too fat: the pad plane could sit off the bit-constant core,
+    // breaking the pad-normal ∥ well-normal proof (#29c).
+    const std::string blendy =
+        repl(repl(kVesper, "level = \"120 m\"", "level = \"120 m\"\nblend = 0.9"),
+             "footprint = \"60 m\"", "footprint = \"100 km\"");
+    expect_gate({{kBody, blendy}}, "plateau under a");
+}
+
+
+TEST_CASE("worlddef_validate_graph_refs") {
+    auto expect_gate = [&](std::vector<std::pair<std::string, std::string>> muts,
+                           const char* needle) {
+        const std::string err = gate_error(std::move(muts));
+        CHECK_MESSAGE(err.find(needle) != std::string::npos,
+                      "wanted '" << std::string{needle} << "', cook said: " << err);
+    };
+    // ---- rail parent chain (#45c) + graph refs ----
+    const std::string vesper_moon = repl(
+        kVesper, "tags = [\"owner.vesper_authority\"]",
+        "tags = [\"owner.vesper_authority\"]\nparent = \"../bodies/luna.toml\"\n"
+        "orbit_period = \"20 day\"\norbit_radius = \"900000 km\"");
+        expect_gate({{kBody, vesper_moon}}, "rail parent cycle");  // luna->vesper->luna
+
+    const std::string vesper_bad_parent = repl(
+        kVesper, "tags = [\"owner.vesper_authority\"]",
+        "tags = [\"owner.vesper_authority\"]\nparent = \"../../defs/test_ship.def.toml\"\n"
+    "orbit_period = \"20 day\"\norbit_radius = \"900000 km\"");
+    expect_gate({{kBody, vesper_bad_parent}}, "is not a cooked world def (#45c)");
+
+
+    // member rail parent must live inside the system (#39)
+    expect_gate({{kMoon, repl(kLuna, "../bodies/vesper.toml", "../bodies/orphan.toml")}},
+                "rail parent 'world/bodies/orphan.toml' is not a member of this system (#39)");
+
+
+    // ---- system graph gates ----
+    expect_gate({{kSys, repl(kSystem, "stations/kepler.toml\"]",
+                             "stations/kepler.toml\", \"../defs/test_ship.def.toml\"]")}},
+                "is not a cooked world def (#45d)");
+
+    expect_gate({{kBody, repl(kVesper, "owner.vesper_authority", "owner.mars_republic")}},
+                "names undefined faction 'mars_republic' (#25a)");
+
+    // (duplicate faction NAMES are already a schema gate in 8.7 — the
+    // wrldvalidate dup check is defensive and unreachable through TOML.)
+    expect_gate({{kSys, repl(kSystem, "stance.hostile.pirate_confederacy",
+                             "stance.hostile.vesper_authority")}},
+                "targets itself (#25b)");
+    expect_gate({{kSys, repl(kSystem, "stance.hostile.pirate_confederacy",
+                             "stance.hostile.mars_republic")}},
+                "names undefined faction 'mars_republic' (#25b)");
+
+    expect_gate({{kSys, repl(kSystem, "anchor = \"bodies/vesper.toml\"",
+                             "anchor = \"bodies/orphan.toml\"")}},
+                "anchor 'world/bodies/orphan.toml' is not a member of this system (#45d)");
+    expect_gate({{kSys, repl(kSystem, "anchor = \"bodies/vesper.toml\"",
+                             "anchor = \"poi:nope_pad\"")}},
+                "POI anchor 'poi:nope_pad' is defined by no member body (#29c)");
+
+    expect_gate({{kSys, repl(kSystem, "from = \"kepler_market\"", "from = \"ghost_market\"")}},
+                "names no market node (#20b)");
+    expect_gate({{kSys, repl(kSystem, "commodity = \"refined_ore\"\nflow",
+                             "commodity = \"water\"\nflow")}},
+                "produces no such commodity (#20b)");
+    expect_gate({{kSys, repl(kSystem, "flow = 1.75", "flow = 0.0")}},
+                "flow_rate must be > 0 (#20b)");
+
+    expect_gate({{kSys, repl(kSystem, "body = \"bodies/vesper.toml\"",
+                             "body = \"bodies/orphan.toml\"")}},
+                "body 'world/bodies/orphan.toml' is not a member of this system (#27a)");
+    expect_gate({{kSys, repl(kSystem, "from = \"wp_patrol_gate\"\nto = \"vesper_orbit_market\"",
+                             "from = \"wp_patrol_gate\"\nto = \"wp_ghost\"")}},
+                "to-endpoint names no market or waypoint node (#27a)");
+    expect_gate({{kSys, repl(kSystem, "target = \"vesper_orbit_market\"",
+                             "target = \"nowhere\"")}},
+                "names no node, lane or station (#33a)");
+
+    // two simultaneous system faults: faction gates run before lane gates —
+    // identical inputs, identical first-error text.
+    const std::string two_faults =
+        repl(repl(kSystem, "stance.hostile.pirate_confederacy", "stance.hostile.self_ghost"),
+             "from = \"kepler_market\"", "from = \"ghost_market\"");
+    expect_gate({{kSys, two_faults}}, "stance tag 'stance.hostile.self_ghost' names undefined faction");
+
+}
+
+TEST_CASE("worlddef_validate_plans") {
+    auto expect_gate = [&](std::vector<std::pair<std::string, std::string>> muts,
+                           const char* needle) {
+        const std::string err = gate_error(std::move(muts));
+        CHECK_MESSAGE(err.find(needle) != std::string::npos,
+                      "wanted '" << std::string{needle} << "', cook said: " << err);
+    };
+
+    // ---- station hull + build plans (#24a/#24b/#46d) ----
+    expect_gate({{kKep, repl(kKepler, "root_socket = \"hp_engine_L\"",
+                             "root_socket = \"door_1\"")}},
+                "not a hardpoint on the station hull (#46d)");
+    expect_gate({{kKep, repl(kKepler, "module = \"../../defs/ring_module.def.toml\"",
+                             "module = \"../bodies/luna.toml\"")}},
+                "is not a cooked hull def (#24b)");
+    expect_gate({{kKep, repl(kKepler, "socket = \"hp_engine_R\"",
+                             "socket = \"hp_dorsal_turret\"")}},
+                "declares no clamp seam pairing socket 'hp_dorsal_turret'");
+    expect_gate({{kKep, repl(kKepler, "at = \"0.5 day\"",
+                             "at = \"0.5 day\"\n\n[[build_step]]\nplan = \"expansion_b\"\n"
+                             "module = \"../../defs/ring_module_b.def.toml\"\n"
+                             "socket = \"hp_engine_L\"\nat = \"2 day\"")}},
+                "mounts a module on the station's own root socket");
+    expect_gate({{kKep, repl(kKepler, "at = \"0.5 day\"",
+                             "at = \"0.5 day\"\n\n[[build_step]]\nplan = \"expansion_c\"\n"
+                             "module = \"../../defs/ring_module.def.toml\"\n"
+                             "socket = \"hp_engine_R\"\nat = \"1 day\"")}},
+                "two modules on socket 'hp_engine_R' (#24b)");
 }
