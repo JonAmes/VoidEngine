@@ -146,3 +146,42 @@ is legal (rule 5: ordered container, explicit total order).
   (170000 W / 57300 W) — core never sees key names.
 - **Editor kit (#48) 8.1–8.5 complete.** Next: 8.6 terrain spike (throwaway,
   ends with a user decision presentation), then world work 8.7+.
+
+## 8.6 — terrain art-direction spike (#17d, throwaway by checklist design)
+
+- **What it is:** `ve_demo --mode terrain` renders the *same* 7.2 analytic
+  sampler (authored stamps: pad, 2 mesas, crater) through one fixed camera,
+  fixed sun, one pipeline — two CPU meshes of one face-atlas:
+  - **stylized:** 24-wide grid, flat per-triangle facets, cel-quantized N·L
+    bands, band-edge lines, height-band palette cards. 20,736 v / 6,912 t.
+  - **realistic-leaning:** 132-wide grid, smooth `terrain_normal` normals,
+    continuous height/slope color blend, Blinn sheen, distance haze.
+    106,134 v / 209,088 t.
+  Zero baked meshes (#29 intact) — every vertex is a `terrain_height` sample.
+- **No new gfx/core surfaces:** spike reuses the 7.16 `Cam` UBO contract +
+  `mesh_vertex` layout; the uv channel is *re-purposed* as
+  `(height param, slope param)` — spike-local semantics live in the shader
+  and demo only, not in core/gfx. Push constant `look.x` picks the look so
+  both renders share pipeline/rig/descriptor — the comparison is shading +
+  tessellation, nothing else can differ.
+- **Self-attestation:** exit 0 only if both looks painted (>= 0.30 sky-minus
+  fraction of the capture) AND the looks differ (>= 0.05 differing pixels);
+  exit 4 on capture/paint/diff failure, 2 on setup refusal.
+  `tools/dev/terrain_spike.sh` (not ctest — spike rule) re-decodes the PNGs
+  on disk with stdlib zlib and re-runs the sky-surround / painted-center /
+  diff checks independently, so a capture bug can't hide behind the demo's
+  own report. Evidence run: painted 0.580 / 0.611, look_diff 0.612,
+  validation ON zero problems, median present 85.8 ms.
+- **Process traps (this spike):**
+  - `gpu_mesh::upload` refuses `index_count == 0` — a "flat-shaded" mesh
+    still needs per-triangle indices (3 verts/tri in the index buffer), not
+    a bare vertex list.
+  - The WSI presenter hard-errors `present() without acquire()` — every
+    hand-rolled render loop must call `pres.acquire()` before
+    `begin_command()` (flight loop does; a copy-paste miss costs a round).
+  - Validation layer caught nothing in the new pass on the first clean
+    run once those two were fixed — the 7.16 pass-shape (dynamic rendering,
+    one set, push range) is a good template for ad-hoc passes.
+- **Decision gate (open):** which look (or a blend) becomes the game's
+  terrain art direction — USER decision, recorded in PLAN.md before 8.18
+  commits anything terrain.
