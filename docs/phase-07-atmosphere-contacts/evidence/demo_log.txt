@@ -1,0 +1,6 @@
+[INFO ] demo: cooked 4, unchanged 0 -> docs/phase-07-atmosphere-contacts/evidence/cook
+[INFO ] gfx: VkInstance @API 1.3 created on 1 device(s), validation ON
+[INFO ] gfx: logical device 'llvmpipe (LLVM 21.1.8, 256 bits)' (family 0 graphics queue, present same family)
+[INFO ] gfx: WSI presenter up — 640x360, 4 swapchain image(s), FIFO, 2 frames in flight
+[INFO ] demo: presenter target 640x360 VK_FORMAT_B8G8R8A8_UNORM
+[INFO ] demo: scripted flight: 21600 ticks, capture engage at 14786, stride 60, 360 frame(s) planned (whole flight)

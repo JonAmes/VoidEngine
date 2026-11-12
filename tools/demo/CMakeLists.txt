@@ -9,8 +9,11 @@ add_executable(ve_demo
     src/main.cpp
     src/png_out.cpp
 )
-target_include_directories(ve_demo PRIVATE include)
-target_link_libraries(ve_demo PRIVATE ve_core ve_gfx ve_platform ve_cooklet volk stb_headers)
+target_include_directories(ve_demo PRIVATE include ${CMAKE_SOURCE_DIR}/tests)
+# doctest::doctest is header-only and needed ONLY for tests/core/flight_scenario.h
+# (7.16.2 flight mode), whose REQUIREs compile out under DOCTEST_CONFIG_DISABLE;
+# the demo's own exit-code gates carry the attestation.
+target_link_libraries(ve_demo PRIVATE ve_core ve_gfx ve_platform ve_cooklet volk stb_headers doctest::doctest)
 # The default --shaders path is the repo's assets/, resolved from the source tree
 # exactly the way the test targets do it — no hard-coded absolute paths.
 target_compile_definitions(ve_demo PRIVATE VE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

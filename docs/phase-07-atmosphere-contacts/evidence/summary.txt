@@ -1,0 +1,29 @@
+ve_demo --mode flight - checklist 7.16.2 scripted-flight evidence
+device: llvmpipe (LLVM 21.1.8, 256 bits)  (api 1.4.335, present family 0)
+extent at close: 640x360  format: VK_FORMAT_B8G8R8A8_UNORM
+scenario: 21600 sim ticks, capture engage tick 14786, stride 60 ticks/frame
+frames planned: 360  presented: 360  window closed early: no  acquire refusals: 0  swapchain rebuilds: 0
+distinct camera UBO signatures: 360 over 360 frame(s)
+frame ms median (all, incl capture-readback stalls): 5.834440; present fps (capture-free frames, post-warmup): 174.386025 over 297 sample(s)
+capture diff first-vs-last: mean_abs=1.240856 changed=1.538086% over 921600 bytes
+  frame 0 (tick 0): painted=6862/230400
+  frame 22 (tick 1320): painted=6845/230400
+  frame 44 (tick 2640): painted=6619/230400
+  frame 66 (tick 3960): painted=4598/230400
+  frame 88 (tick 5280): painted=5263/230400
+  frame 110 (tick 6600): painted=4219/230400
+  frame 132 (tick 7920): painted=4201/230400
+  frame 154 (tick 9240): painted=6232/230400
+  frame 176 (tick 10560): painted=4856/230400
+  frame 198 (tick 11880): painted=4336/230400
+  frame 220 (tick 13200): painted=4160/230400
+  frame 242 (tick 14520): painted=6285/230400
+  frame 264 (tick 15840): painted=6460/230400
+  frame 286 (tick 17160): painted=6460/230400
+  frame 308 (tick 18480): painted=6460/230400
+  frame 330 (tick 19800): painted=6460/230400
+  frame 352 (tick 21120): painted=6460/230400
+min painted px over probes: 4160 (gate: >= 150, the 7.15 floor)
+evidence PNGs: flight_tick0.png flight_tick1800.png flight_tick3600.png flight_tick5400.png flight_tick7200.png flight_tick9000.png flight_tick10800.png flight_tick12600.png flight_tick14400.png flight_tickc14760.png flight_tick14820.png flight_tick16200.png flight_tick18000.png flight_tick19800.png flight_tick21540.png
+validation problems (Khronos layer): 0
+loader notes (environment, not gated): 0

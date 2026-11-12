@@ -15,13 +15,31 @@
 //   2  setup failed (window / instance / surface / device / swapchain / cook) — reason printed
 //   3  the validation layer reported errors or warnings (2.7's policy, enforced app-side)
 //   4  the two captures are identical — the spin is not actually spinning
+//   7  window could not open (reserved for the desktop path; 2 today)
+//
+// --mode flight (7.16.2, proof 2 of the Phase 7 renderer, #47c): the scene is
+// the scripted 7.14 flight — takeoff, cruise, stall, glide, pad capture — driven
+// by tests/core/flight_scenario.h: the SAME per-tick poses the core harness pins
+// (7.14) and the Tier-2 gfx test replays (7.15), so this is the flight for human
+// eyes, never a re-derived one. Hull.vert/.frag cook from assets/shaders (#13),
+// test_ship.glb loads by content id (3.15), MODEL is a per-tick push constant,
+// the eye is a mono camera_rig chase, and the WSI presenter carries the 7.16.1
+// depth attachment. Evidence: --out gets flight_tick<tick>.png at whole-sim-30s
+// marks, the capture window, and the last frame; frames.csv gains a tick column.
+// Flight-only gates: an unfinished flight exits 2 and an unpainted probe exits 4
+// (the 7.15 painted-px floor), so the exit code stays self-attesting.
+// tools/dev/xvfb_flight_run.sh drives this mode into the phase-07 evidence tree.
 #include <ve/core/log.h>
 #include <ve/core/math/mat4.h>
 #include <ve/core/math/quat.h>
 #include <ve/cook/cook.h>
 #include <ve/demo/png_out.h>
+#include <ve/gfx/camera.h>
+#include <ve/gfx/descriptor.h>
 #include <ve/gfx/device.h>
 #include <ve/gfx/instance.h>
+#include <ve/gfx/mesh.h>
+#include <ve/gfx/pipeline_cache.h>
 #include <ve/gfx/presenter.h>
 #include <ve/gfx/shader.h>
 #include <ve/gfx/wsi_presenter.h>
@@ -37,10 +55,22 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <set>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+// 7.16.2: the scripted flight fixture, verbatim — proof 2 renders exactly what
+// proof 1 pinned. This executable has no doctest main, so the header arrives
+// with the framework compiled away (its sanity REQUIREs become no-ops); the
+// demo's own gates (A.ok, pose count, engage window, painted px) carry the
+// attestation instead, and the identical code path runs with real doctest in
+// the core + gfx suites every CI commit.
+#define DOCTEST_CONFIG_DISABLE
+#include "../../tests/core/flight_scenario.h"
+#undef DOCTEST_CONFIG_DISABLE
 
 namespace {
 
@@ -51,7 +81,13 @@ constexpr const char* kUsage =
     "  --resize-at N forces a window resize at frame N (swapchain rebuild proof);\n"
     "  --resize-at 0 disables it. Default: 2/3 through the run.\n"
     "  --alternate-clear: diagnostic. Clear even/odd frames with two different\n"
-    "  colors, which separates a static render target from a stale readback.\n";
+    "  colors, which separates a static render target from a stale readback.\n"
+    "  --mode spin|flight: scene selector. flight = 7.16.2 scripted takeoff ->\n"
+    "  cruise -> pad-capture through the hull scene path; evidence PNGs are\n"
+    "  named flight_tick<tick>.png and --resize-at is ignored there.\n"
+    "  --stride N: flight mode only, sim ticks per presented frame (default 60,\n"
+    "  i.e. one frame per sim second; --frames >= 360 covers the whole 21600-\n"
+    "  tick flight; a prefix run exits 2 on purpose).\n";
 
 // The push-constant block: one mat4, same contract 2.6 pinned (the vertex shader
 // declares 'layout(push_constant) uniform Push { mat4 mvp; }').
@@ -410,6 +446,124 @@ bool record_frame(ve::gfx::wsi_presenter& pres, VkPipeline pipe, VkPipelineLayou
     return pres.present(cmd);
 }
 
+// ---- 7.16.2 flight-mode helpers -------------------------------------------
+// The Cam UBO and 64-byte MODEL push constant byte-for-byte the contract the
+// 7.15 test pinned and assets/shaders/hull.{vert,frag} declare (identical
+// source, so the shading is identical between the two proofs).
+struct FlightCamUbo {
+    ve::core::math::mat4f view;
+    ve::core::math::mat4f proj;
+    ve::core::math::vec4f camPos;
+};
+
+// The chase eye: constant pad-frame offset and orientation around the ship —
+// 7.15's construction (up = pad radial +X; the offset keeps a 0.38 radial
+// component so the view axis vs up never degenerates).
+struct flight_cam {
+    ve::core::math::vec3f off{};
+    ve::core::math::quatf att{};
+    ve::core::math::dvec3 anchor{};
+};
+
+// One flight frame = one command buffer, shaped exactly like 7.15's
+// render_frame: color + D32 depth attachments (the presenter's 7.16.1 target),
+// chase eye in the Cam UBO, one MODEL push constant per mesh, indexed draws.
+// The presenter owns the command buffer; present() submits and shows. `echo`
+// returns the eye's UBO bytes for the CPU-side motion proof (spin mode does the
+// same with the triangle's push block).
+bool record_flight_frame(ve::gfx::wsi_presenter& pres, VkPipeline pipe, VkPipelineLayout layout,
+                         VkDescriptorSet dset, ve::gfx::uniform_buffer& cam_buf,
+                         const std::vector<std::unique_ptr<ve::gfx::gpu_mesh>>& meshes,
+                         std::uint32_t width, std::uint32_t height,
+                         const ve::core::sim::rigid_state& pose, const flight_cam& cam,
+                         ve::gfx::camera_rig& rig, FlightCamUbo* echo) {
+    using ve::core::math::mat4f;
+    using ve::core::math::quatf;
+    using ve::core::math::trsf;
+    using ve::core::math::vec3f;
+    using ve::core::math::vec4f;
+
+    const vec3f rel{float(pose.pos.x - cam.anchor.x), float(pose.pos.y - cam.anchor.y),
+                    float(pose.pos.z - cam.anchor.z)};
+    const quatf att{float(pose.att.x), float(pose.att.y), float(pose.att.z), float(pose.att.w)};
+    const mat4f model = trs_compose(trsf{rel, att, {1.f, 1.f, 1.f}});
+    const vec3f eye = rel + cam.off; // the chase: constant pad-frame offset
+
+    rig.set_rig(trsf{eye, cam.att, {1.f, 1.f, 1.f}});
+    const auto eyes = rig.compute();
+    if (eyes.size() != 1u) {
+        VE_LOG_ERROR("demo: camera rig produced %zu eyes, expected 1", eyes.size());
+        return false;
+    }
+    FlightCamUbo cu{};
+    cu.view = eyes[0].view;
+    cu.proj = eyes[0].proj;
+    cu.camPos = vec4f{eye.x, eye.y, eye.z, 1.f};
+    cam_buf.write(&cu, sizeof(cu));
+    if (echo != nullptr) {
+        *echo = cu;
+    }
+
+    VkCommandBuffer cmd = pres.begin_command();
+    if (cmd == VK_NULL_HANDLE) {
+        VE_LOG_ERROR("demo: no command buffer for this flight frame");
+        return false;
+    }
+    if (!pres.begin_pass(cmd)) {
+        VE_LOG_ERROR("demo: begin_pass refused the flight frame");
+        return false;
+    }
+
+    VkRenderingAttachmentInfo catt{};
+    catt.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    catt.imageView = pres.color_view();
+    catt.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    catt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    catt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    catt.clearValue.color.float32[0] = 1.f; // white bg (B8G8R8A8) — 7.15's choice
+    catt.clearValue.color.float32[1] = 1.f;
+    catt.clearValue.color.float32[2] = 1.f;
+    catt.clearValue.color.float32[3] = 1.f;
+    VkRenderingAttachmentInfo datt{};
+    datt.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    datt.imageView = pres.depth_view(); // the 7.16.1 attachment, presenter-owned layout
+    datt.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    datt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    datt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    datt.clearValue.depthStencil.depth = 0.0f; // reversed-Z far
+    VkRenderingInfo ri{};
+    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    ri.renderArea = {{0, 0}, {width, height}};
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachments = &catt;
+    ri.pDepthAttachment = &datt;
+    vkCmdBeginRendering(cmd, &ri);
+
+    const VkViewport vpt{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f,
+                         1.0f};
+    const VkRect2D sc{{0, 0}, {width, height}};
+    vkCmdSetViewport(cmd, 0, 1, &vpt);
+    vkCmdSetScissor(cmd, 0, 1, &sc);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &dset, 0, nullptr);
+    for (const auto& m : meshes) {
+        const VkBuffer vb = m->vertex_buffer();
+        const VkDeviceSize o = 0;
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mat4f), &model);
+        vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &o);
+        vkCmdBindIndexBuffer(cmd, m->index_buffer(), 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, m->index_count(), 1, 0, 0, 0);
+    }
+    vkCmdEndRendering(cmd);
+
+    if (!pres.end_pass(cmd)) {
+        VE_LOG_ERROR("demo: end_pass refused the flight frame");
+        return false;
+    }
+    return pres.present(cmd);
+}
+
 } // namespace
 
 // The surface belongs to the presenter's caller (documented in wsi_presenter.h)
@@ -466,6 +620,8 @@ int main(int argc, char** argv) {
     std::uint32_t resize_at = 0;
     bool resize_at_set = false;
     bool alternate_clear = false;
+    std::string mode = "spin";
+    std::uint32_t stride = 60;
     std::string shaders_dir;
     std::string cook_dir;
     std::string out_dir;
@@ -490,7 +646,8 @@ int main(int argc, char** argv) {
             return 2;
         }
         const std::string value = argv[++i];
-        if (arg == "--frames" || arg == "--width" || arg == "--height" || arg == "--resize-at") {
+        if (arg == "--frames" || arg == "--width" || arg == "--height" || arg == "--resize-at" ||
+            arg == "--stride") {
             bool ok = false;
             const std::uint32_t v = parse_u32(value.c_str(), ok);
             if (!ok) {
@@ -504,10 +661,23 @@ int main(int argc, char** argv) {
                 width = v;
             } else if (arg == "--height") {
                 height = v;
-            } else {
+            } else if (arg == "--resize-at") {
                 resize_at = v;
                 resize_at_set = true;
+            } else {
+                if (v < 1u || v > 600u) {
+                    std::fprintf(stderr, "--stride: '%s' is not in 1..600 sim ticks per frame\n",
+                                 value.c_str());
+                    return 2;
+                }
+                stride = v;
             }
+        } else if (arg == "--mode") {
+            if (value != "spin" && value != "flight") {
+                std::fprintf(stderr, "--mode takes spin or flight\n");
+                return 2;
+            }
+            mode = value;
         } else if (arg == "--shaders") {
             shaders_dir = value;
         } else if (arg == "--cook") {
@@ -526,6 +696,7 @@ int main(int argc, char** argv) {
     if (!resize_at_set) {
         resize_at = (frames * 2u) / 3u; // 0 only when --frames is tiny
     }
+    const bool flight_mode = (mode == "flight");
 
     std::error_code ec;
     const std::filesystem::path shaders = shaders_dir.empty()
@@ -573,28 +744,34 @@ int main(int argc, char** argv) {
                 cook.string().c_str());
 
     const std::filesystem::path units_dir = cook / "units";
-    const std::filesystem::path vert_path = find_unit(units_dir, "demo_tri.vert");
-    const std::filesystem::path frag_path = find_unit(units_dir, "demo_tri.frag");
-    if (vert_path.empty() || frag_path.empty()) {
-        fail("no cooked demo_tri.vert/.frag unit under " + units_dir.string());
-        return finish(2);
-    }
+    // The spin triangle's units; flight mode loads the hull set in its own block
+    // below instead, and must not depend on the spin pair being present.
     ve::core::cooked::Unit vert_unit;
     ve::core::cooked::Unit frag_unit;
     std::string err;
-    if (!ve::core::cooked::read_unit_file(vert_path.string(), vert_unit, &err) ||
-        !ve::core::cooked::read_unit_file(frag_path.string(), frag_unit, &err)) {
-        fail("reading a cooked unit: " + err);
-        return finish(2);
-    }
-    if (vert_unit.type != ve::core::cooked::kUnitShdr || frag_unit.type != ve::core::cooked::kUnitShdr) {
-        fail("a demo shader unit is not SHDR");
-        return finish(2);
+    if (!flight_mode) {
+        const std::filesystem::path vert_path = find_unit(units_dir, "demo_tri.vert");
+        const std::filesystem::path frag_path = find_unit(units_dir, "demo_tri.frag");
+        if (vert_path.empty() || frag_path.empty()) {
+            fail("no cooked demo_tri.vert/.frag unit under " + units_dir.string());
+            return finish(2);
+        }
+        if (!ve::core::cooked::read_unit_file(vert_path.string(), vert_unit, &err) ||
+            !ve::core::cooked::read_unit_file(frag_path.string(), frag_unit, &err)) {
+            fail("reading a cooked unit: " + err);
+            return finish(2);
+        }
+        if (vert_unit.type != ve::core::cooked::kUnitShdr ||
+            frag_unit.type != ve::core::cooked::kUnitShdr) {
+            fail("a demo shader unit is not SHDR");
+            return finish(2);
+        }
     }
 
     // --- 2. platform seam: window -> extensions -> instance -> surface -----
     auto win = ve::platform::window::create(static_cast<int>(width), static_cast<int>(height),
-                                            "void-engine 2.9 - rotating triangle");
+                                            flight_mode ? "void-engine 7.16 - scripted flight"
+                                                        : "void-engine 2.9 - rotating triangle");
     if (!win) {
         fail(win.error());
         return finish(2);
@@ -685,6 +862,454 @@ int main(int argc, char** argv) {
     }
     VE_LOG_INFO("demo: presenter target %ux%u %s", pres->width(), pres->height(),
                 format_name(pres->color_format()));
+
+    // ==================================================================
+    // 7.16.2 — FLIGHT MODE: proof 2 of the Phase 7 renderer (#47c). The
+    // scripted 7.14 flight plays for human eyes: run_scenario() is the SAME
+    // 21,600-tick takeoff -> cruise -> stall -> glide -> capture -> pad ride
+    // the core harness pins (7.14) and the Tier-2 gfx test replays (7.15),
+    // and its per-tick poses drive every frame here — never a re-derived
+    // flight. Chase-eye construction and hull shaders are 7.15's verbatim
+    // (assets/shaders/hull.* are byte-copies of the test's GLSL). This run
+    // exercises the 7.16.1 WSI depth attachment under the Khronos layer:
+    // a validated, painted, self-attesting frame loop IS the depth path's
+    // live attestation (the ctest gate only pins the seam's shape).
+    // ==================================================================
+    if (flight_mode) {
+        using ve::core::sim::tick_t;
+        constexpr tick_t kEnd = ve_test::flight::kT_END;
+        const auto A = ve_test::flight::run_scenario();
+        if (!A.ok || A.poses.size() != static_cast<std::size_t>(kEnd) || A.engage_tick <= 0 ||
+            A.engage_tick >= kEnd) {
+            fail("flight scenario did not run clean (ok=" + std::string(A.ok ? "yes" : "no") +
+                 ", poses=" + std::to_string(A.poses.size()) + ", engage_tick=" +
+                 std::to_string(A.engage_tick) + ")");
+            return finish(2);
+        }
+        const std::uint32_t planned =
+            std::min(frames, static_cast<std::uint32_t>((kEnd + static_cast<tick_t>(stride) - 1) /
+                                                        static_cast<tick_t>(stride)));
+        VE_LOG_INFO("demo: scripted flight: %lld ticks, capture engage at %lld, stride %u, "
+                    "%u frame(s) planned (%s)",
+                    static_cast<long long>(kEnd), static_cast<long long>(A.engage_tick), stride,
+                    planned, planned * stride >= kEnd ? "whole flight" : "flight PREFIX");
+
+        // Cooked hull scene assets (#13): shaders ride the cook above; the mesh
+        // cooks from assets/samples into its own tree and loads by CONTENT ID.
+        const std::filesystem::path hull_v_path = find_unit(units_dir, "hull.vert");
+        const std::filesystem::path hull_f_path = find_unit(units_dir, "hull.frag");
+        if (hull_v_path.empty() || hull_f_path.empty()) {
+            fail("no cooked hull.vert/.frag unit under " + units_dir.string() +
+                 " (assets/shaders is missing the 7.16 flight hull shaders)");
+            return finish(2);
+        }
+        ve::core::cooked::Unit hull_vu, hull_fu;
+        if (!ve::core::cooked::read_unit_file(hull_v_path.string(), hull_vu, &err) ||
+            !ve::core::cooked::read_unit_file(hull_f_path.string(), hull_fu, &err)) {
+            fail("reading a cooked hull unit: " + err);
+            return finish(2);
+        }
+        auto h_vert = ve::gfx::shader_module::create(*dev, hull_vu.payload);
+        auto h_frag = ve::gfx::shader_module::create(*dev, hull_fu.payload);
+        if (!h_vert || !h_frag) {
+            fail("hull module load: " + (h_vert ? h_frag : h_vert).error());
+            return finish(2);
+        }
+        if (h_vert->stage() != ve::core::cooked::kShdrStageVert ||
+            h_frag->stage() != ve::core::cooked::kShdrStageFrag) {
+            fail("cooked stage words do not match hull.vert/.frag");
+            return finish(2);
+        }
+        const std::filesystem::path samples =
+            std::filesystem::path(VE_SOURCE_DIR) / "assets" / "samples";
+        if (!std::filesystem::is_directory(samples, ec)) {
+            fail("sample mesh directory not found: " + samples.string());
+            return finish(2);
+        }
+        const std::filesystem::path mesh_cook = cook / "samples";
+        std::filesystem::create_directories(mesh_cook, ec);
+        const auto mck = ve::cook::cook_incremental(samples.string(), mesh_cook.string());
+        if (!mck.ok) {
+            fail("sample mesh cook failed: " + mck.error);
+            return finish(2);
+        }
+        auto meshes = ve::gfx::load_meshes_by_id(mesh_cook.string(), "test_ship.glb");
+        if (!meshes) {
+            fail("no cooked mesh unit for test_ship.glb under " + mesh_cook.string() + ": " +
+                 meshes.error());
+            return finish(2);
+        }
+        std::vector<std::unique_ptr<ve::gfx::gpu_mesh>> gm;
+        for (const auto& m : *meshes) {
+            auto g = ve::gfx::gpu_mesh::upload(*dev, m);
+            if (!g) {
+                fail("gpu_mesh upload: " + g.error());
+                return finish(2);
+            }
+            gm.push_back(std::make_unique<ve::gfx::gpu_mesh>(std::move(*g)));
+        }
+
+        // One Cam UBO (7.15's contract) + 64-byte MODEL push constant.
+        auto cam_buf = ve::gfx::uniform_buffer::create(*dev, sizeof(FlightCamUbo));
+        if (!cam_buf) {
+            fail("camera UBO: " + cam_buf.error());
+            return finish(2);
+        }
+        const ve::gfx::uniform_set_layout::ubo_binding bind0{
+            0, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT};
+        auto set_layout = ve::gfx::uniform_set_layout::create(
+            *dev, std::span<const ve::gfx::uniform_set_layout::ubo_binding>{&bind0, 1});
+        if (!set_layout) {
+            fail("camera set layout: " + set_layout.error());
+            return finish(2);
+        }
+        const VkPushConstantRange hull_push{
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = 64};
+        const VkDescriptorSetLayout hull_sets[1] = {set_layout->handle()};
+        const VkPipelineLayoutCreateInfo hull_lci{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .setLayoutCount = 1,
+            .pSetLayouts = hull_sets,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &hull_push,
+        };
+        VkPipelineLayout hull_layout = VK_NULL_HANDLE;
+        if (vkCreatePipelineLayout(dev->handle(), &hull_lci, nullptr, &hull_layout) != VK_SUCCESS) {
+            fail("vkCreatePipelineLayout failed for the hull pipeline");
+            return finish(2);
+        }
+        // pipeline_guard with pipe=nullptr guards ONLY the layout; declaring it
+        // before the cache means destruction order is pipeline (cache dtor)
+        // then layout — never the reverse.
+        const pipeline_guard layout_only{dev->handle(), nullptr, &hull_layout};
+        ve::gfx::pipeline_cache cache(*dev);
+        ve::gfx::pipeline_desc bd{};
+        bd.layout = hull_layout;
+        bd.stages = {{VK_SHADER_STAGE_VERTEX_BIT, h_vert->handle()},
+                     {VK_SHADER_STAGE_FRAGMENT_BIT, h_frag->handle()}};
+        bd.bindings = {{0, sizeof(ve::gfx::mesh_vertex), VK_VERTEX_INPUT_RATE_VERTEX}};
+        bd.attributes = {
+            {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},  // pos (MUST be R32G32B32)
+            {1, 0, VK_FORMAT_R32G32B32_SFLOAT, 12}, // nrm
+            {2, 0, VK_FORMAT_R32G32B32_SFLOAT, 24}, // uv
+        };
+        bd.cull = VK_CULL_MODE_NONE;
+        bd.depth_format = VK_FORMAT_D32_SFLOAT; // the 7.16.1 presenter attachment
+        bd.depth_test = true;                   // reversed-Z GREATER is the default
+        bd.depth_write = true;
+        bd.color_formats = {pres->color_format()};
+        bd.blends = {ve::gfx::blend_attachment_state{}};
+        bd.dynamic_mask = (1u << VK_DYNAMIC_STATE_VIEWPORT) | (1u << VK_DYNAMIC_STATE_SCISSOR);
+        auto pipe = cache.get(bd);
+        if (!pipe) {
+            fail("flight pipeline: " + pipe.error());
+            return finish(2);
+        }
+        auto pool = ve::gfx::descriptor_pool::create(*dev, 4, 8);
+        if (!pool) {
+            fail("descriptor pool: " + pool.error());
+            return finish(2);
+        }
+        auto dset = pool->allocate(set_layout->handle());
+        if (!dset) {
+            fail("descriptor set: " + dset.error());
+            return finish(2);
+        }
+        pool->write_uniform(*dset, 0, cam_buf->handle(), cam_buf->size());
+
+        // The chase eye, 7.15's frame verbatim: pad radial up +X, constant
+        // offset (10, 8, -10) keeping 0.38 radial so view-vs-up never degenerates.
+        const ve::core::math::vec3f up{1.f, 0.f, 0.f};
+        const ve::core::math::vec3f off{10.f, 8.f, -10.f};
+        const ve::core::math::vec3f zax = normalize(off);
+        const ve::core::math::vec3f yax = normalize(up - zax * dot(zax, up));
+        const ve::core::math::vec3f xax = cross(yax, zax);
+        const ve::core::math::dquat cam_att_d = ve_test::flight::quat_from_axes(
+            {xax.x, xax.y, xax.z}, {yax.x, yax.y, yax.z}, {zax.x, zax.y, zax.z});
+        const flight_cam cam{
+            .off = off,
+            .att = ve::core::math::quatf{float(cam_att_d.x), float(cam_att_d.y),
+                                         float(cam_att_d.z), float(cam_att_d.w)},
+            .anchor = A.pad_pos0,
+        };
+        ve::gfx::camera_rig rig;
+        ve::gfx::eye_def mono{};
+        mono.frust = ve::gfx::symmetric_frustum(ve::core::math::deg_to_rad(60.0f),
+                                                float(pres->width()) / float(pres->height()), 0.5f,
+                                                160.f);
+        mono.frust.depth = ve::core::math::depth_range::reversed_1_to_0;
+        mono.view = {0, 0, pres->width(), pres->height()};
+        rig.add_eye(mono);
+
+        // Evidence schedule: whole-sim-30s marks, the two frames bracketing
+        // capture engage, and the last frame. Keys are (frame<<1|window-bit)
+        // so the engage-window entries can never collide with a 30s mark.
+        auto ev_key = [](std::uint32_t frame, bool engage_window) {
+            return (static_cast<std::uint64_t>(frame) << 1u) | (engage_window ? 1u : 0u);
+        };
+        std::set<std::uint64_t> evidence;
+        for (tick_t t = 0; t < kEnd; t += 1800) {
+            evidence.insert(ev_key(static_cast<std::uint32_t>(t / static_cast<tick_t>(stride)), false));
+        }
+        const tick_t engage_mark =
+            (A.engage_tick / static_cast<tick_t>(stride)) * static_cast<tick_t>(stride);
+        const auto engage_frame = static_cast<std::uint32_t>(engage_mark / static_cast<tick_t>(stride));
+        evidence.insert(ev_key(engage_frame, true));
+        evidence.insert(ev_key(engage_frame + 1u, true));
+        evidence.insert(ev_key(planned - 1u, false));
+
+        std::vector<double> frame_ms;
+        frame_ms.reserve(planned);
+        // Frames WITHOUT a capture readback measure presentation cost. Under
+        // lavapipe + validation a capture_rgba8 readback stalls ~40 ms and
+        // lands in the NEXT frame's present too — that is evidence plumbing,
+        // not the presented frame rate, so the fps gate runs on this vector
+        // (the 2.9 spin gate never had readbacks this dense).
+        std::vector<double> disp_ms;
+        disp_ms.reserve(planned);
+        std::vector<std::uint32_t> image_indices;
+        image_indices.reserve(planned);
+        std::vector<std::uint32_t> frame_ticks;
+        frame_ticks.reserve(planned);
+        std::vector<capture_probe> probes;
+        const std::uint32_t probe_step = planned > 16u ? planned / 16u : 1u;
+        std::set<std::uint64_t> model_signatures;
+        std::vector<std::string> evidence_names;
+        bool png_write_failed = false;
+        std::uint32_t presented_n = 0, recreates = 0, acquire_refusals = 0;
+        bool window_closed = false;
+        const bool swap_rb = pres->color_format() == VK_FORMAT_B8G8R8A8_UNORM ||
+                             pres->color_format() == VK_FORMAT_B8G8R8A8_SRGB;
+        auto prev = std::chrono::steady_clock::now();
+
+        std::uint32_t frame = 0;
+        bool fired_prev_capture = false; // a capture readback also stalls the NEXT present
+        std::vector<std::uint8_t> capture_first, capture_last;
+        while (frame < planned) {
+            bool fired = false; // this frame does a capture readback (probe/evidence)
+            win->poll_events();
+            if (win->should_close()) {
+                window_closed = true;
+                break;
+            }
+            const auto [fw, fh] = win->frame_size();
+            if (pres->needs_recreate() || fw != pres->width() || fh != pres->height()) {
+                if (!pres->recreate(fw, fh)) {
+                    fail("swapchain rebuild refused the new extent mid-flight");
+                    return finish(2);
+                }
+                ++recreates;
+                mono.view = {0, 0, pres->width(), pres->height()};
+                mono.frust = ve::gfx::symmetric_frustum(ve::core::math::deg_to_rad(60.0f),
+                                                        float(pres->width()) / float(pres->height()),
+                                                        0.5f, 160.f);
+                mono.frust.depth = ve::core::math::depth_range::reversed_1_to_0;
+                rig = ve::gfx::camera_rig{};
+                rig.add_eye(mono);
+            }
+            auto idx = pres->acquire();
+            if (!idx) {
+                ++acquire_refusals;
+                if (!pres->needs_recreate() || acquire_refusals > 8u) {
+                    fail("acquire: " + idx.error());
+                    return finish(2);
+                }
+                const auto [rw, rh] = win->frame_size();
+                if (!pres->recreate(rw, rh)) {
+                    fail("recreate after a stale acquire failed");
+                    return finish(2);
+                }
+                continue; // same frame number: nothing has been presented yet
+            }
+            const tick_t tick = static_cast<tick_t>(frame) * static_cast<tick_t>(stride);
+            FlightCamUbo echo{};
+            if (!record_flight_frame(*pres, *pipe, hull_layout, *dset, *cam_buf, gm,
+                                     pres->width(), pres->height(),
+                                     A.poses[static_cast<std::size_t>(tick)], cam, rig, &echo)) {
+                fail("recording/present failed at flight frame " + std::to_string(frame));
+                return finish(2);
+            }
+            // CPU-side motion proof: the exact bytes the pass ran with.
+            std::uint64_t sig = 0;
+            for (const float* p = echo.view.m.data(); p != echo.view.m.data() + 16; ++p) {
+                std::uint32_t bits = 0;
+                std::memcpy(&bits, p, sizeof(bits));
+                sig ^= bits + 0x9e3779b9u + (sig << 6) + (sig >> 2);
+            }
+            model_signatures.insert(sig);
+            image_indices.push_back(*idx);
+            frame_ticks.push_back(static_cast<std::uint32_t>(tick));
+            const auto now = std::chrono::steady_clock::now();
+            frame_ms.push_back(std::chrono::duration<double, std::milli>(now - prev).count());
+            prev = now;
+            if (presented_n == 0u) {
+                capture_first = pres->capture_rgba8(); // between frames, never mid-pass
+                fired = true;
+            }
+            if (frame % probe_step == 0u && probes.size() < 24u) {
+                probes.push_back(probe_capture(frame, pres->capture_rgba8()));
+                fired = true;
+            }
+            const bool was_mark = evidence.erase(ev_key(frame, false)) != 0u ||
+                                  evidence.erase(ev_key(frame, true)) != 0u;
+            if (was_mark) {
+                fired = true;
+                std::string name = "flight_tick";
+                if (tick == engage_mark) {
+                    name += "c"; // inside the capture-engage window
+                }
+                name += std::to_string(static_cast<long long>(tick)) + ".png";
+                const auto cap = pres->capture_rgba8();
+                const bool wrote =
+                    !out.empty() &&
+                    ve::demo::write_png_rgba8((out / name).string().c_str(), pres->width(),
+                                              pres->height(), cap.data(), swap_rb);
+                if (!out.empty() && !wrote) {
+                    png_write_failed = true;
+                }
+                evidence_names.push_back(name + (wrote ? "" : " (WRITE FAILED)"));
+            }
+            if (!fired && !fired_prev_capture) {
+                disp_ms.push_back(frame_ms.back()); // clean presentation sample
+            }
+            fired_prev_capture = fired;
+            ++presented_n;
+            ++frame;
+        }
+        if (presented_n > 0u) {
+            capture_last = pres->capture_rgba8(); // between frames: the RT is idle here
+        }
+
+        // Summary + gates, same self-attesting shape as spin mode (2.9).
+        const auto problems = inst->validation_problems();
+        std::vector<std::string> layer_problems;
+        std::vector<std::string> loader_notes;
+        for (const auto& p : problems) {
+            // Loader chatter is environment, not our API misuse; spin mode
+            // applies the same split (see the loader-notes comment there).
+            if (p.rfind("Loader Message:", 0) == 0u) {
+                loader_notes.push_back(p);
+            } else {
+                layer_problems.push_back(p);
+            }
+        }
+        std::vector<double> sorted_ms = frame_ms;
+        std::sort(sorted_ms.begin(), sorted_ms.end());
+        const double median_ms = sorted_ms.empty() ? 0.0 : sorted_ms[sorted_ms.size() / 2];
+        const std::size_t warmup = std::min<std::size_t>(5, disp_ms.size());
+        double steady_sum = 0.0;
+        std::size_t steady_n = 0;
+        for (std::size_t i = warmup; i < disp_ms.size(); ++i) {
+            steady_sum += disp_ms[i];
+            ++steady_n;
+        }
+        const double steady_ms = steady_n != 0 ? steady_sum / static_cast<double>(steady_n) : 0.0;
+        const double avg_fps = steady_ms > 0.0 ? 1000.0 / steady_ms : 0.0;
+        const capture_diff fdiff = compare_captures(capture_first, capture_last);
+        std::uint64_t min_painted = 0;
+        bool have_probe = false;
+        for (const auto& p : probes) {
+            if (!have_probe || p.off_background < min_painted) {
+                min_painted = p.off_background;
+                have_probe = true;
+            }
+        }
+
+        std::string summary;
+        summary += "ve_demo --mode flight - checklist 7.16.2 scripted-flight evidence\n";
+        summary += "device: " + device_line + '\n';
+        summary += "extent at close: " + std::to_string(pres->width()) + 'x' +
+                   std::to_string(pres->height()) + "  format: " +
+                   format_name(pres->color_format()) + '\n';
+        summary += "scenario: " + std::to_string(static_cast<long long>(kEnd)) +
+                   " sim ticks, capture engage tick " +
+                   std::to_string(static_cast<long long>(A.engage_tick)) + ", stride " +
+                   std::to_string(stride) + " ticks/frame\n";
+        summary += "frames planned: " + std::to_string(planned) + "  presented: " +
+                   std::to_string(presented_n) + "  window closed early: " +
+                   (window_closed ? "yes" : "no") + "  acquire refusals: " +
+                   std::to_string(acquire_refusals) + "  swapchain rebuilds: " +
+                   std::to_string(recreates) + '\n';
+        summary += "distinct camera UBO signatures: " + std::to_string(model_signatures.size()) +
+                   " over " + std::to_string(presented_n) + " frame(s)\n";
+        summary += "frame ms median (all, incl capture-readback stalls): " +
+                   std::to_string(median_ms) + "; present fps (capture-free frames, post-warmup): " +
+                   std::to_string(avg_fps) + " over " + std::to_string(steady_n) + " sample(s)\n";
+        summary += "capture diff first-vs-last: mean_abs=" + std::to_string(fdiff.mean_abs) +
+                   " changed=" + std::to_string(fdiff.changed_pct) + "% over " +
+                   std::to_string(fdiff.bytes) + " bytes\n";
+        for (const auto& p : probes) {
+            summary += "  frame " + std::to_string(p.frame) + " (tick " +
+                       std::to_string(static_cast<long long>(p.frame) * stride) + "): painted=" +
+                       std::to_string(p.off_background) + "/" + std::to_string(p.pixels) + '\n';
+        }
+        summary += "min painted px over probes: " + std::to_string(min_painted) +
+                   " (gate: >= 150, the 7.15 floor)\n";
+        summary += "evidence PNGs:";
+        for (const auto& n : evidence_names) {
+            summary += " " + n;
+        }
+        summary += '\n';
+        summary += "validation problems (Khronos layer): " + std::to_string(layer_problems.size()) +
+                   '\n';
+        for (const auto& p : layer_problems) {
+            summary += "  " + p + '\n';
+        }
+        summary += "loader notes (environment, not gated): " + std::to_string(loader_notes.size()) +
+                   '\n';
+        if (layer_problems.empty() && layer_is_active) {
+            summary += "  (VK_LAYER_KHRONOS_validation observed in the chain, so an empty list\n"
+                       "   means VALIDATED: the 7.16.1 WSI depth path ran under it — the live\n"
+                       "   attestation for the depth attachment, which ctest only shape-pins)\n";
+        }
+        if (!out.empty()) {
+            std::ofstream sf(out / "summary.txt");
+            sf << summary;
+            std::ofstream csv(out / "frames.csv");
+            csv << "frame,tick,present_ms,image_index\n";
+            for (std::size_t i = 0; i < frame_ms.size(); ++i) {
+                csv << i << ',' << frame_ticks[i] << ',' << frame_ms[i] << ',' << image_indices[i]
+                    << '\n';
+            }
+        }
+        std::fputs(summary.c_str(), stdout);
+
+        if (!layer_problems.empty()) {
+            fail("the validation layer found " + std::to_string(layer_problems.size()) +
+                 " problem(s) — see summary.txt");
+            return finish(3);
+        }
+        if (window_closed || presented_n < planned) {
+            fail("flight did not complete: " + std::to_string(presented_n) + " of " +
+                 std::to_string(planned) + " planned frames presented");
+            return finish(2);
+        }
+        if (capture_first.empty() || capture_last.empty() || fdiff.mean_abs < 0.0) {
+            fail("capture evidence missing or not comparable");
+            return finish(2);
+        }
+        if (evidence_names.empty() || png_write_failed) {
+            fail("flight evidence PNGs were not all written (run with --out DIR)");
+            return finish(2);
+        }
+        if (!have_probe || min_painted < 150u) {
+            fail("a capture probe shows only " + std::to_string(min_painted) +
+                 " painted px — the hull is not visible (7.15's floor)");
+            return finish(4);
+        }
+        if (fdiff.mean_abs == 0.0) {
+            fail("first and last flight captures are identical — sim poses are not reaching the image");
+            return finish(4);
+        }
+        if (steady_n >= 20u && avg_fps < 55.0) {
+            fail("present fps is " + std::to_string(avg_fps) +
+                 ", under the 55 fps floor over capture-free frames (2.9 pattern)");
+            return finish(5);
+        }
+        return finish(0);
+    }
 
     // --- 4. cooked modules -> pipeline (same shape as the 2.6 golden) ------
     auto vert = ve::gfx::shader_module::create(*dev, vert_unit.payload);

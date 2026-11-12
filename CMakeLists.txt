@@ -84,6 +84,22 @@ add_subdirectory(core)
 add_subdirectory(gfx)
 add_subdirectory(platform)
 add_subdirectory(game)
+
+# doctest fetch hoisted above tools/ (7.16.2): ve_demo --mode flight includes
+# the shared flight fixture (tests/core/flight_scenario.h), which includes
+# <doctest/doctest.h> (disabled via DOCTEST_CONFIG_DISABLE in that TU), so the
+# header-only doctest target must exist before tools/ links it. tests/ keeps
+# its MSVC flag patch and still owns its test sources.
+include(FetchContent)
+FetchContent_Declare(
+    doctest
+    GIT_REPOSITORY https://github.com/doctest/doctest
+    GIT_TAG v2.4.11
+    GIT_SHALLOW TRUE
+)
+set(DOCTEST_WITH_TESTS OFF) # library only; we own our main
+FetchContent_MakeAvailable(doctest)
+
 add_subdirectory(tools)
 
 enable_testing()

@@ -56,6 +56,7 @@ inline rail_world make_world() {
     b.spin_rate_rad_s = kSpin;
     const auto added = rw.add_body(std::move(b));
     REQUIRE(added.has_value());
+    (void)added; // the demo TU compiles REQUIRE out (DOCTEST_CONFIG_DISABLE)
     return rw;
 }
 
