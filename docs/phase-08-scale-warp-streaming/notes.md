@@ -34,3 +34,48 @@ Design notes, findings, and gotchas worth keeping. One section per task number a
 - gfx additions for hit-testing: `gfx::rect` (namespace-scope, screen px), `ui_context::last_rect()`, `button(label, id_salt)` (same-spelled widgets in one window need distinct ids without dirtying labels), rect out-params on the 8.1 field draws + `cand_out` rects on picker candidates.
 - Test gotchas (pinned): every `begin_frame` `ui_io` must OUTLIVE `end_frame` (named locals — temporaries trip ASan stack-use-after-scope in the frame-retention path); attr-map composite drafts hit the 64-char field buffer — raised to 256; composite key trim must strip BOTH sides of `=` (comma-split leaves `" power.draw"` leading spaces → grammar refused).
 - Evidence: `def_forms_panel` (full-form edit matrix: unit/number/enum/picker/attr-map/add_child; minimal-delta line diff; fresh-panel replay determinism), `def_forms_writeback_blocked` (cooklet-registry refusal; blocked value absent from take_write; earlier good edit intact), `def_forms_recook_hotswap` (re-cook → payload swap + 1-line delta); 8.2 pinned 3 cases / 216 assertions; full suite **151 cases / 8,311,002 assertions** green via `tools/ci_local.sh` (341 s, no display, ASan+UBSan).
+
+## 8.2.5 + 8.3 — ECS registry + inspector panel (selection spine for the kit)
+
+**Why a box appeared mid-phase:** PLAN #8 ratified "entity + component
+arrays" but no Phase 0–7 checklist box ever built a registry — the
+sim systems (rails, contacts) own their own stores. 8.3 was the first
+consumer, so 8.2.5 (minimal registry, own commit) was inserted per
+checklist rule 3. Do NOT read ecs_world as the Phase 12 hot-system
+answer: it is the editor-visible entity spine only.
+
+**Registry gotchas (core/ecs.h):**
+- No RTTI (AGENTS): dispatch is by REGISTRATION INDEX. `emplace<T>`/
+  `get<T>` pair T with the index the CALLER registered — a wrong pair is
+  a silent type-pun; the pairing discipline lives at call sites.
+- Storage is `shared_ptr<void>`: deleter captured at creation, so
+  deleting through void is defined WITHOUT RTTI. register_component_type
+  after entities exist RESIZES every slot's comps vector (column growth).
+- Generation bumps on REUSE (inside create()), not on destroy() — the
+  bump point is then a create, keeping id order deterministic. The
+  alive() generation match is mutation-checked (remove it -> ecs_registry
+  fails).
+
+**Selection service (game-side, #48 spine):** current entity + expansion
+set live in `selection_service`, NOT in the panel — host owns it, any
+editor panel reads/drives it (8.4 browser, 8.5 loadout select the same
+entities). Expansion kept sorted by (slot, generation) so binary_search
+is legal (rule 5: ordered container, explicit total order).
+
+**Inspector panel gotchas:**
+- ui has no wheel (#15 keeps input neutral) -> scroll is [^]/[v] buttons
+  with clamped row-skip state in the panel; scrolled-away rows have no
+  hit rect that frame, so clicks on them are no-ops by construction.
+- Two begin_window calls per frame (tree + detail) is fine — the window
+  stack is one deep but pairs are sequential within the frame.
+- Hit rects captured per frame via ui.last_rect() RIGHT AFTER each
+  interactive draw (scroll/twisty/row), keyed "tree:<slot>" /
+  "tw:<slot>" — same pattern as 8.2's field_rect.
+- TEST PITFALL (caught a real bug): counting glyph COMMANDS to pin text
+  presence is wrong — consecutive label runs MERGE into one cmd
+  (add_rect flushes runs; labels don't), so 6 extra labels changed the
+  cmd count by 0. Pin with `frame.verts.size()` instead (glyph verts
+  never merge). And: the twisty `ui.button` return was initially dropped
+  on the floor — expand never fired; any button whose click is ignored
+  silently no-ops. Tests for both actions go in the SAME commit as the
+  panel (done-discipline).
