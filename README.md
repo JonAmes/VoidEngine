@@ -38,7 +38,7 @@ Phase 7 (atmosphere, landing, contacts) **complete** (2026-11-12): the line betw
 | 5 | Ship designer (hull + hardpoints) | **complete** |
 | 6 | RPG stats & modifier framework | **complete** |
 | 7 | Atmosphere, landing, contacts | **complete** |
-| 8 | Time compression & streaming | not started |
+| 8 | Time compression & streaming | in progress |
 | 9 | Combat: weapons, shields, damage | not started |
 | 10 | OpenXR bring-up (mock-first) | not started |
 | 11 | Vertical slice | not started |
