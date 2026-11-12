@@ -34,6 +34,7 @@
 #include <ve/core/math/quat.h>
 #include <ve/cook/cook.h>
 #include <ve/demo/png_out.h>
+#include <ve/demo/terrain_mode.h>
 #include <ve/gfx/camera.h>
 #include <ve/gfx/descriptor.h>
 #include <ve/gfx/device.h>
@@ -85,6 +86,9 @@ constexpr const char* kUsage =
     "  --mode spin|flight: scene selector. flight = 7.16.2 scripted takeoff ->\n"
     "  cruise -> pad-capture through the hull scene path; evidence PNGs are\n"
     "  named flight_tick<tick>.png and --resize-at is ignored there.\n"
+    "  terrain = 8.6 art-direction spike (#17d, throwaway): writes\n"
+    "  terrain_stylized.png / terrain_realistic.png / terrain_summary.txt;\n"
+    "  --frames counts frames PER LOOK. See tools/dev/terrain_spike.sh.\n"
     "  --stride N: flight mode only, sim ticks per presented frame (default 60,\n"
     "  i.e. one frame per sim second; --frames >= 360 covers the whole 21600-\n"
     "  tick flight; a prefix run exits 2 on purpose).\n";
@@ -673,8 +677,8 @@ int main(int argc, char** argv) {
                 stride = v;
             }
         } else if (arg == "--mode") {
-            if (value != "spin" && value != "flight") {
-                std::fprintf(stderr, "--mode takes spin or flight\n");
+            if (value != "spin" && value != "flight" && value != "terrain") {
+                std::fprintf(stderr, "--mode takes spin, flight or terrain\n");
                 return 2;
             }
             mode = value;
@@ -697,6 +701,7 @@ int main(int argc, char** argv) {
         resize_at = (frames * 2u) / 3u; // 0 only when --frames is tiny
     }
     const bool flight_mode = (mode == "flight");
+    const bool terrain_mode = (mode == "terrain"); // 8.6 spike (#17d)
 
     std::error_code ec;
     const std::filesystem::path shaders = shaders_dir.empty()
@@ -749,7 +754,7 @@ int main(int argc, char** argv) {
     ve::core::cooked::Unit vert_unit;
     ve::core::cooked::Unit frag_unit;
     std::string err;
-    if (!flight_mode) {
+    if (!flight_mode && !terrain_mode) {
         const std::filesystem::path vert_path = find_unit(units_dir, "demo_tri.vert");
         const std::filesystem::path frag_path = find_unit(units_dir, "demo_tri.frag");
         if (vert_path.empty() || frag_path.empty()) {
@@ -769,9 +774,11 @@ int main(int argc, char** argv) {
     }
 
     // --- 2. platform seam: window -> extensions -> instance -> surface -----
-    auto win = ve::platform::window::create(static_cast<int>(width), static_cast<int>(height),
-                                            flight_mode ? "void-engine 7.16 - scripted flight"
-                                                        : "void-engine 2.9 - rotating triangle");
+    auto win = ve::platform::window::create(
+        static_cast<int>(width), static_cast<int>(height),
+        flight_mode   ? "void-engine 7.16 - scripted flight"
+        : terrain_mode ? "void-engine 8.6 - terrain look spike"
+                       : "void-engine 2.9 - rotating triangle");
     if (!win) {
         fail(win.error());
         return finish(2);
@@ -862,6 +869,16 @@ int main(int argc, char** argv) {
     }
     VE_LOG_INFO("demo: presenter target %ux%u %s", pres->width(), pres->height(),
                 format_name(pres->color_format()));
+
+    // ==================================================================
+    // 8.6 — TERRAIN MODE (#17d art-direction spike, THROWAWAY): the two
+    // looks render from the same analytic sampler through the same fixed
+    // camera; PNG + summary evidence go to --out. tools/dev/terrain_spike.sh
+    // is its driver (not ctest — the user decision gate follows).
+    // ==================================================================
+    if (terrain_mode) {
+        return finish(ve::demo::run_terrain_mode(*win, *dev, *pres, units_dir, out, frames));
+    }
 
     // ==================================================================
     // 7.16.2 — FLIGHT MODE: proof 2 of the Phase 7 renderer (#47c). The

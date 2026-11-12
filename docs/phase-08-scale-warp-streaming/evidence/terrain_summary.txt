@@ -1,0 +1,8 @@
+8.6 terrain art-direction spike (#17d) - THROWAWAY; the look decision belongs to the user.
+body_radius_m=3000 relief_m=140 octaves=6 base_frequency=4.0 lacunarity=2.2 gain=0.5 stamps=4 (pad, 2 mesas, crater)
+grid_stylized=24 verts=20736 tris=6912
+grid_realistic=132 verts=106134 tris=209088
+painted_stylized=0.580055 painted_realistic=0.610685 look_diff=0.611934
+sky_rgb=135,171,209 size=1280x720
+frames_per_look=4 median_present_ms=85.7823
+gates: painted>=0.30 each, look_diff>=0.05, non-empty captures -> PASS

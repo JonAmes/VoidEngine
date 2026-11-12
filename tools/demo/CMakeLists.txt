@@ -8,6 +8,7 @@
 add_executable(ve_demo
     src/main.cpp
     src/png_out.cpp
+    src/terrain_mode.cpp
 )
 target_include_directories(ve_demo PRIVATE include ${CMAKE_SOURCE_DIR}/tests)
 # doctest::doctest is header-only and needed ONLY for tests/core/flight_scenario.h
