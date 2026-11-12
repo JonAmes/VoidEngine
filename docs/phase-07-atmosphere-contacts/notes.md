@@ -408,3 +408,35 @@ fire on any barrier/layout mistake).
 Trap: spin mode's record_frame never attaches the depth view — that is legal
 (a transitioned-but-unused attachment), don't "fix" it by adding a depth
 attachment to the triangle pass without also clearing it.
+
+## 7.16 / 7.16.2 — scripted-flight demo, proof 2 (4b63268)
+- The demo consumes `tests/core/flight_scenario.h` with `DOCTEST_CONFIG_DISABLE`
+  before the include (no doctest main in `ve_demo`): the fixture's REQUIREs
+  compile out, so the fixture needs `(void)added;` after one of them or the
+  demo TU trips -Werror on an unused local. The demo's own exit gates attest
+  everything instead (2 exit-unfinished, 4 unpainted/first==last, 5 fps floor,
+  3 validation problems — the 2.9 self-attesting contract).
+- doctest's FetchContent had to be hoisted to the top-level CMakeLists before
+  `add_subdirectory(tools)`: `ve_demo` links the header-only `doctest::doctest`
+  purely so the fixture header resolves. `tests/CMakeLists.txt` no longer
+  owns the fetch.
+- Trap: `depth_range` is a `ve::core::math` enum, not `ve::gfx` — camera.h
+  just reuses it.
+- Trap (fps gate): under lavapipe + validation a `capture_rgba8` readback
+  stalls ~40 ms, and because present/FIFO acquire waits on the queue, the
+  stall bleeds into the NEXT frame's timing too. With probe+evidence captures
+  every few frames, the naive mean fps read 28 fps while bare presents ran
+  4-7 ms. The gate now runs on capture-free frames (`disp_ms`: a frame with
+  no capture this frame or last) — evidence plumbing is not presentation
+  cost. Spin mode never hit this: its readbacks are sparse.
+- Evidence naming: `flight_tick<tick>.png` at whole-sim-30 s marks; `c`
+  prefix on the capture-window pair (tick 14760/14820 bracket the engage
+  tick 14786); last presented tick. `frames.csv` gained a tick column.
+- Cross-check discipline: the evidence PNGs were decoded independently of
+  the demo (pure-python PNG walk) — non-white pixel counts match the demo's
+  probe reads exactly (frame 0: 6862 both sides). A golden-decoder can lie
+  about itself; the probe and the file agreeing is the attestation.
+- `xvfb_flight_run.sh` deliberately NOT in ci_local: needs a virtual display
+  by design; the ctest suite stays display-free (7.15 test covers the same
+  scene path headless). The 7.16.1 depth attachment's runtime attestation is
+  this run's 0-problems-under-validation exit, nothing else.
