@@ -43,6 +43,10 @@ public:
 
     // --- presenter seam: the pass renders into the RT below, never the swapchain.
     VkImageView color_view() const override { return rt_view_; }
+    // Depth attachment for scene passes (7.16.1 — mirrors the offscreen
+    // presenter's 3.3 target). Always present; a hull pass with depth_test
+    // wires depth_view() into its VkRenderingInfo exactly like Tier 2 does.
+    VkImageView depth_view() const { return depth_view_; }
     VkFormat color_format() const override { return format_; }
     std::uint32_t width() const override { return width_; }
     std::uint32_t height() const override { return height_; }
@@ -90,6 +94,13 @@ private:
     VkDeviceMemory rt_memory_ = VK_NULL_HANDLE;
     VkImageView rt_view_ = VK_NULL_HANDLE;
 
+    // The depth target (7.16.1): always created with the RT, same D32 format
+    // the offscreen presenter ships (3.3). Scene passes cannot depth-test
+    // without it; like the RT it is torn down and rebuilt by recreate().
+    VkImage depth_ = VK_NULL_HANDLE;
+    VkDeviceMemory depth_memory_ = VK_NULL_HANDLE;
+    VkImageView depth_view_ = VK_NULL_HANDLE;
+
     VkBuffer readback_ = VK_NULL_HANDLE;
     VkDeviceMemory readback_memory_ = VK_NULL_HANDLE;
     VkDeviceSize readback_size_ = 0; // width*height*4, recomputed by create_targets
@@ -129,6 +140,10 @@ private:
     // Layout bookkeeping, same doctrine as offscreen_presenter: the presenter
     // owns its image's transitions, a pass may never barrier the target.
     VkImageLayout rt_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    // Depth never leaves {UNDEFINED, DEPTH_ATTACHMENT_OPTIMAL} here: nothing
+    // samples or reads it back on this presenter (no capture_depth, no shadow
+    // sampling), so begin_pass's barrier is the only transition it needs.
+    VkImageLayout depth_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
     VkFormat format_ = VK_FORMAT_UNDEFINED;
     VkColorSpaceKHR color_space_ = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 

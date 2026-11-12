@@ -48,6 +48,12 @@ TEST_CASE("gfx_wsi_compile_gate") {
     static_assert(std::is_same_v<decltype(needs_recreate), bool (ve::gfx::wsi_presenter::*)() const>);
     // No member here hands a VkImage or VkImageView of a swapchain image outward.
     static_assert(std::is_same_v<decltype(capture), std::vector<std::uint8_t> (ve::gfx::wsi_presenter::*)()>);
+    // (2a) Depth attachment (7.16.1): the scene passes of 7.16's demo flight
+    // need a depth view beside the color one — pinned at the same view-returning
+    // shape as the presenter seam's color_view.
+    auto depth_view = &ve::gfx::wsi_presenter::depth_view;
+    static_assert(std::is_same_v<decltype(depth_view),
+                                 VkImageView (ve::gfx::wsi_presenter::*)() const>);
     CHECK(acquire != nullptr);
     CHECK(begin_command != nullptr);
     CHECK(begin_pass != nullptr);

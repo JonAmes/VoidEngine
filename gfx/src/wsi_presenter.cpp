@@ -170,6 +170,37 @@ void transition(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageL
                          &barrier);
 }
 
+// Depth side of the presenter-owned transitions (7.16.1, mirroring the
+// offscreen presenter's 3.3 doctrine: a pass may never barrier its own
+// attachments). Simpler shape than offscreen's: this depth is never sampled
+// and never captured, so it only ever sits in UNDEFINED (fresh) or
+// DEPTH_ATTACHMENT_OPTIMAL. The fresh-frame barrier starts at TOP_OF_PIPE
+// with contents discarded (legal under every pass's LOAD_OP_CLEAR depth); the
+// steady-state barrier is a DEPTH_ATTACHMENT->DEPTH_ATTACHMENT self-transition
+// (WRITE->WRITE across EARLY_FRAGMENT_TESTS) — the execution dependency that
+// orders consecutive passes on this single queue.
+void transition_depth(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageLayout to) {
+    const bool fresh = from == VK_IMAGE_LAYOUT_UNDEFINED;
+    const VkImageMemoryBarrier barrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask =
+            fresh ? VkAccessFlags{0} : VkAccessFlags{VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT},
+        .dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        .oldLayout = from,
+        .newLayout = to,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+    };
+    vkCmdPipelineBarrier(cmd,
+                         fresh ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+                               : VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+                         VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                         &barrier);
+}
+
 // A swapchain image's layout is undefined every time it is acquired, so the
 // first barrier against it must start from UNDEFINED (old contents are garbage).
 constexpr VkImageLayout kSwapchainEntryLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -455,6 +486,75 @@ bool wsi_presenter::create_targets(std::uint32_t width, std::uint32_t height, st
         destroy_targets();
         return false;
     }
+    // --- depth target (7.16.1): scene passes need a depth attachment against
+    // the WSI RT; same D32 reversed-Z convention as the offscreen presenter
+    // (3.3). Usage stays minimal — nothing on this presenter samples or reads
+    // depth back, so no TRANSFER_SRC / SAMPLED bits (VUID-VkImageUsageFlags
+    // honesty over convenience).
+    const VkImageCreateInfo dmi{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = VK_FORMAT_D32_SFLOAT,
+        .extent = {extent.width, extent.height, 1},
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = nullptr,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    if (const VkResult r = vkCreateImage(device_, &dmi, nullptr, &depth_); r != VK_SUCCESS) {
+        err = "vkCreateImage (WSI depth target) failed";
+        destroy_targets();
+        return false;
+    }
+    VkMemoryRequirements depth_req{};
+    vkGetImageMemoryRequirements(device_, depth_, &depth_req);
+    const auto depth_type =
+        find_memory_type(physical_, depth_req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (!depth_type) {
+        err = "no device-local memory type for the WSI depth target";
+        destroy_targets();
+        return false;
+    }
+    const VkMemoryAllocateInfo depth_ai{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .allocationSize = depth_req.size,
+        .memoryTypeIndex = *depth_type,
+    };
+    if (vkAllocateMemory(device_, &depth_ai, nullptr, &depth_memory_) != VK_SUCCESS) {
+        err = "vkAllocateMemory (WSI depth target) failed";
+        destroy_targets();
+        return false;
+    }
+    if (vkBindImageMemory(device_, depth_, depth_memory_, 0) != VK_SUCCESS) {
+        err = "vkBindImageMemory (WSI depth target) failed";
+        destroy_targets();
+        return false;
+    }
+    const VkImageViewCreateInfo dvi{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .image = depth_,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = VK_FORMAT_D32_SFLOAT,
+        .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+                       VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+        .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
+    };
+    if (const VkResult r = vkCreateImageView(device_, &dvi, nullptr, &depth_view_); r != VK_SUCCESS) {
+        err = "vkCreateImageView (WSI depth target) failed";
+        destroy_targets();
+        return false;
+    }
+    depth_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
     // --- readback staging + command pool (capture_rgba8 and every helper blit)
     readback_size_ = static_cast<VkDeviceSize>(extent.width) * extent.height * 4u;
     const VkBufferCreateInfo rbi{
@@ -560,13 +660,25 @@ void wsi_presenter::destroy_targets() {
         vkDestroyImageView(device_, rt_view_, nullptr);
         rt_view_ = VK_NULL_HANDLE;
     }
+    if (depth_view_ != VK_NULL_HANDLE) {
+        vkDestroyImageView(device_, depth_view_, nullptr);
+        depth_view_ = VK_NULL_HANDLE;
+    }
     if (rt_ != VK_NULL_HANDLE) {
         vkDestroyImage(device_, rt_, nullptr);
         rt_ = VK_NULL_HANDLE;
     }
+    if (depth_ != VK_NULL_HANDLE) {
+        vkDestroyImage(device_, depth_, nullptr);
+        depth_ = VK_NULL_HANDLE;
+    }
     if (rt_memory_ != VK_NULL_HANDLE) {
         vkFreeMemory(device_, rt_memory_, nullptr);
         rt_memory_ = VK_NULL_HANDLE;
+    }
+    if (depth_memory_ != VK_NULL_HANDLE) {
+        vkFreeMemory(device_, depth_memory_, nullptr);
+        depth_memory_ = VK_NULL_HANDLE;
     }
     for (const VkImageView view : swapchain_views_) {
         vkDestroyImageView(device_, view, nullptr);
@@ -581,6 +693,7 @@ void wsi_presenter::destroy_targets() {
     height_ = 0;
     acquired_ = false;
     rt_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
 // Two frames in flight (2.10): acquire signals the per-slot image_available_,
@@ -667,6 +780,9 @@ wsi_presenter::wsi_presenter(wsi_presenter&& other) noexcept
       rt_(std::exchange(other.rt_, VK_NULL_HANDLE)),
       rt_memory_(std::exchange(other.rt_memory_, VK_NULL_HANDLE)),
       rt_view_(std::exchange(other.rt_view_, VK_NULL_HANDLE)),
+      depth_(std::exchange(other.depth_, VK_NULL_HANDLE)),
+      depth_memory_(std::exchange(other.depth_memory_, VK_NULL_HANDLE)),
+      depth_view_(std::exchange(other.depth_view_, VK_NULL_HANDLE)),
       readback_(std::exchange(other.readback_, VK_NULL_HANDLE)),
       readback_memory_(std::exchange(other.readback_memory_, VK_NULL_HANDLE)),
       readback_size_(std::exchange(other.readback_size_, 0)),
@@ -690,6 +806,7 @@ wsi_presenter::wsi_presenter(wsi_presenter&& other) noexcept
     other.image_available_.clear();
     other.slot_cmd_.clear();
     other.rt_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    other.depth_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
     other.format_ = VK_FORMAT_UNDEFINED;
 }
 
@@ -776,6 +893,14 @@ bool wsi_presenter::begin_pass(VkCommandBuffer cmd) {
     // exactly right for the first frame onto a fresh target.
     transition(cmd, rt_, rt_layout_, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     rt_layout_ = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    // Depth side of the same pass-begin (7.16.1): presenter-owned, bookkept
+    // old layout — a scene pass may never barrier the attachment it writes.
+    if (depth_ == VK_NULL_HANDLE) {
+        VE_LOG_ERROR("gfx: begin_pass without a depth target — create_targets lost it");
+        return false;
+    }
+    transition_depth(cmd, depth_, depth_layout_, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    depth_layout_ = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     return true;
 }
 
@@ -789,7 +914,9 @@ bool wsi_presenter::end_pass(VkCommandBuffer cmd) {
         return false;
     }
     // Straight into blit-ready: the frame's only other use for this image is as
-    // the source of the present blit.
+    // the source of the present blit. Depth stays put (7.16.1): nothing on this
+    // presenter samples or reads it back, so the only ordering it needs is the
+    // next begin_pass's self-transition barrier.
     transition(cmd, rt_, rt_layout_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     rt_layout_ = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     return true;
