@@ -11,16 +11,19 @@
 // Every named anchor (SOCK v2, kind 0 hardpoints AND kind 1..5 interior
 // empties) becomes a loadout socket: def components mount onto anchors
 // uniformly, which is what makes the #46a name pairing total. Section
-// boxes, wires, facets and seams are decoded for structural soundness but
-// not yet carried in the loadout model (wires -> Phase 6 stats, interior
-// graph -> 5.11+, seams -> station docking later).
+// boxes, facets and seams are decoded for structural soundness but not yet
+// carried in the loadout model (interior graph -> 5.11+, seams -> station
+// docking later). WIRES (6.12) are now carried in loaded_hull::wires so the
+// WiringReach BFS runs over the DEF0 network verbatim.
 
 #include <cstdint>
 #include <expected>
 #include <string>
+#include <vector>
 
 #include "ve/core/cooked.h"
 #include "ve/core/sim/loadout.h"
+#include "ve/core/sim/wiring.h"
 
 namespace ve::core::sim {
 
@@ -28,6 +31,7 @@ namespace ve::core::sim {
 struct loaded_hull {
     Loadout loadout;
     std::string mesh_unit_id;   // SOCK's content-ID link to the MESH unit
+    std::vector<wire_entry> wires;  // authored DEF0 wire network (6.12 BFS)
 };
 
 // Decode a DEF0-v2 + SOCK-v2 unit pair and assemble the loadout.

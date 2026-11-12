@@ -19,8 +19,30 @@ add_library(ve_core STATIC
     src/stats.cpp
     src/tags.cpp
     src/modifiers.cpp
+    src/stats_pipeline.cpp
+    src/stats_bus.cpp
+    src/stats_hash.cpp
+    src/effects.cpp
+    src/effect_bus.cpp
+    src/seat_link.cpp
+    src/reservoir.cpp
+    src/power.cpp
+    src/wiring.cpp
+    src/bands.cpp
+    src/curve.cpp
+    src/scrubber.cpp
     src/inertia.cpp
     src/thruster.cpp
+    src/terrain.cpp
+    src/swept.cpp
+    src/aero.cpp
+    src/aero_heat.cpp
+    src/contacts.cpp
+    src/capture.cpp
+    src/dock.cpp
+    src/docked.cpp
+    src/eva.cpp
+    src/doors.cpp
 )
 # The crash handler is POSIX by construction (sigaction + backtrace_symbols_fd +
 # execinfo.h, and it re-raises so the kernel reports the death). MSVC has no

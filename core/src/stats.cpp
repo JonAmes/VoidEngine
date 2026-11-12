@@ -20,25 +20,42 @@ bool StatsSet::set_base(std::string_view key, float v) {
         return false;  // empty key or NaN/inf: programming error, store nothing
     if (auto i = find_index(key); i != m_entries.size()) {
         m_entries[i].value.base = v;
-        // Until the modifier pipeline lands (6.4), derived tracks base so
-        // every reader goes through one door. 6.4 replaces this with the
-        // dirty-flag recompute.
+        // Stack-free mirror: a StatsSet with no pipeline attached stays
+        // self-consistent (derived == base). Once a StatsPipeline resolves
+        // an attribute, its revision stamp makes it the authority — this
+        // mirror only pre-seeds fresh entries.
         m_entries[i].value.derived = v;
     } else {
         m_entries.push_back({std::string(key), stat_value{v, v}});
     }
+    ++m_revision;
     return true;
 }
 
-bool StatsSet::remove(std::string_view key) {
+bool StatsSet::set_derived(std::string_view key, float v) {
+    if (!std::isfinite(v))
+        return false;  // the finiteness contract extends through the pipeline
     if (auto i = find_index(key); i != m_entries.size()) {
-        m_entries.erase(m_entries.begin() + static_cast<std::ptrdiff_t>(i));
+        m_entries[i].value.derived = v;
         return true;
     }
     return false;
 }
 
-void StatsSet::clear() { m_entries.clear(); }
+bool StatsSet::remove(std::string_view key) {
+    if (auto i = find_index(key); i != m_entries.size()) {
+        m_entries.erase(m_entries.begin() + static_cast<std::ptrdiff_t>(i));
+        ++m_revision;
+        return true;
+    }
+    return false;
+}
+
+void StatsSet::clear() {
+    if (!m_entries.empty())
+        ++m_revision;
+    m_entries.clear();
+}
 
 bool StatsSet::has(std::string_view key) const {
     return find_index(key) != m_entries.size();

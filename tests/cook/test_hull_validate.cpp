@@ -61,14 +61,19 @@ HullInputs mk_hull() {
     s.anchors = {mk_anchor("hp_engine", 0, 2.0, 0.0, -2.0),       // cell (1,0,-1) in A
                  mk_anchor("door_1", 1, 0.0, 0.0, -2.0),          // cell (0,0,-1) in A
                  mk_anchor("airlock_1", 1, 2.0, 0.0, -2.0),       // cell (1,0,-1) in A
-                 mk_anchor("seat_1", 2, 0.5, 0.55, -2.0)};        // subcell lattice
+                 mk_anchor("seat_1", 2, 0.5, 0.55, -2.0),         // subcell lattice
+                 mk_anchor("hp_dockport", 0, -2.0, 0.0, -2.0)};   // #47b utility hardpoint, cell A
     h.socks = {s};
     h.def.comps = {
         mk_comp("engine", "engine.fusion", "hp_engine"),
         mk_comp("door_1", "door.hatch", "door_1", 5),             // +z -> cell B
         mk_comp("airlock_1", "airlock.outer", "airlock_1", 1),    // +x -> no section
         mk_comp("seat_1", "seat.pilot", "seat_1"),
+        mk_comp("dockport_1", "dock.port", "hp_dockport"),        // #47b full-pass dock
     };
+    // G10 (#47b) contract: clamp strength + mass attrs, undock verb.
+    h.def.comps[4].attrs = {{"dock.clamp_strength", 500000.0}, {"mass", 800.0}};
+    h.def.comps[4].facets.push_back({"port.undock", "", 0});
     h.def.wires.push_back({"w1", 0, 1, 0, "engine", "hp_engine"});  // comp -> hardpoint
     h.def.comps[0].facets.push_back({"repair.target", "w1", 1});
     return h;
@@ -114,7 +119,7 @@ TEST_CASE("cook_hull_validate") {
     SockView back;
     REQUIRE(decode_sock_payload(b, back, &err));
     CHECK(encode_sock_payload(back) == b);
-    CHECK(back.anchors.size() == 4);
+    CHECK(back.anchors.size() == 5);
     CHECK(back.anchors[2].name == "airlock_1");
 }
 
@@ -263,6 +268,46 @@ TEST_CASE("cook_hull_validate_gates") {
         HullInputs h = mk_hull();
         h.def.comps[0].facets[0].target = "w_ghost";
         CHECK(run_fail(h).find("names no wire") != std::string::npos);
+    }
+    // G10 (#47b): dock ports are components: utility mount, positive
+    // clamp/mass attrs, undock verb. Full-pass hull already carries one.
+    {   // def-side category must be utility (def claims an engine mount)
+        HullInputs h = mk_hull();
+        h.def.comps[4].category = 0;
+        CHECK(run_fail(h).find("utility socket") != std::string::npos);
+    }
+    {   // mount anchor itself must be utility category
+        HullInputs h = mk_hull();
+        for (auto& a : h.socks[0].anchors)
+            if (a.name == "hp_dockport") a.category = 0;
+        CHECK(run_fail(h).find("not a utility anchor") != std::string::npos);
+    }
+    {   // clamp attr absent
+        HullInputs h = mk_hull();
+        h.def.comps[4].attrs = {{"mass", 800.0}};
+        CHECK(run_fail(h).find("dock.clamp_strength") != std::string::npos);
+    }
+    {   // clamp attr present but not positive
+        HullInputs h = mk_hull();
+        h.def.comps[4].attrs = {{"dock.clamp_strength", 0.0}, {"mass", 800.0}};
+        CHECK(run_fail(h).find("positive dock.clamp_strength") != std::string::npos);
+    }
+    {   // mass attr absent
+        HullInputs h = mk_hull();
+        h.def.comps[4].attrs = {{"dock.clamp_strength", 500000.0}};
+        CHECK(run_fail(h).find("positive mass") != std::string::npos);
+    }
+    {   // undock verb absent
+        HullInputs h = mk_hull();
+        h.def.comps[4].facets.clear();
+        CHECK(run_fail(h).find("port.undock facet") != std::string::npos);
+    }
+    {   // non-dock types ride the old gates: same bare comp must pass
+        HullInputs h = mk_hull();
+        h.def.comps[4].type = "coupling.kin";
+        h.def.comps[4].attrs.clear();
+        h.def.comps[4].facets.clear();
+        run_pass(h);
     }
     // Decoders reject wrong payload versions / truncation (module hygiene).
     {

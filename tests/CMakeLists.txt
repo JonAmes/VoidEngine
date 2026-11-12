@@ -32,6 +32,21 @@ add_executable(engine_tests
     core/test_math_quat.cpp
     core/test_math_dquat.cpp
     core/test_sim_rails.cpp
+    core/test_sim_spin.cpp
+    core/test_terrain_sampler.cpp
+    core/test_terrain_stamps.cpp
+    core/test_swept_contact.cpp
+    core/test_sim_aero.cpp
+    core/test_aero_heat.cpp
+    core/test_land_contacts.cpp
+    core/test_pad_capture.cpp
+    core/test_docking_clamp.cpp
+    core/test_docked_walk.cpp
+    core/test_eva_surface.cpp
+    core/test_airlock_cycle.cpp
+    core/test_foot_verb_events.cpp
+    core/test_flight_landing_scenario.cpp
+    gfx/test_flight_visible.cpp
     core/test_sim_gravity.cpp
     core/test_sim_well_blend.cpp
     core/test_sim_integrator.cpp
@@ -47,11 +62,29 @@ add_executable(engine_tests
     core/test_stats_set.cpp
     core/test_gameplay_tags.cpp
     core/test_modifier_stack.cpp
+    core/test_stats_aggregation.cpp
+    core/test_stats_event_bus.cpp
+    core/test_stats_hash.cpp
+    core/test_effects_conditions.cpp
+    core/test_effect_bus_rails.cpp
+    core/test_seat_stats_linkage.cpp
+    core/test_flight_stats_linkage.cpp
+    core/test_reservoir.cpp
+    core/test_power_pool.cpp
+    core/test_propellant_burn.cpp
+    core/test_wiring_reach.cpp
+    core/test_wiring_dark_set.cpp
+    core/test_market_price.cpp
+    core/test_reputation_tags.cpp
+    core/test_faction_power_bands.cpp
+    core/test_replay_scrubber.cpp
     core/test_ship_designer_flight.cpp
     core/test_sim_inertia.cpp
     core/test_sim_tensor.cpp
     core/test_sim_thruster.cpp
     game/test_game_attr_keys.cpp
+    game/test_scrubber_panel.cpp
+    core/test_stats_combat_scenario.cpp
     core/test_math_projection.cpp
     core/test_math_coords.cpp
     tools/test_container.cpp

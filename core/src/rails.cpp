@@ -29,6 +29,25 @@ std::optional<std::int32_t> rail_world::add_body(body_def def) {
         return std::nullopt;
     if (def.parent >= 0 && (def.orbit_period_s <= 0.0 || def.orbit_radius_m < 0.0))
         return std::nullopt;
+    // Spin (#41): a nonzero rate needs a usable axis; normalize ONCE here
+    // (never per eval) so orientation() is bit-stable across calls. A
+    // zero-length axis with zero rate stays as-authored: inert either way.
+    if (!std::isfinite(def.spin_rate_rad_s) || !std::isfinite(def.spin_axis.x) ||
+        !std::isfinite(def.spin_axis.y) || !std::isfinite(def.spin_axis.z))
+        return std::nullopt;
+    const double axis_len2 = math::length2(def.spin_axis);
+    if (def.spin_rate_rad_s != 0.0 && axis_len2 == 0.0)
+        return std::nullopt;
+    if (axis_len2 > 0.0) def.spin_axis = def.spin_axis * (1.0 / std::sqrt(axis_len2));
+    // Atmosphere (7.6/#17): an authored density needs a usable scale
+    // height AND a well — aero outside a well is forbidden by #17, so a
+    // well-less body with atmosphere is an authoring error, not a quirk.
+    if (!std::isfinite(def.atm_rho0_kg_m3) || !std::isfinite(def.atm_scale_height_m) ||
+        def.atm_rho0_kg_m3 < 0.0)
+        return std::nullopt;
+    if (def.atm_rho0_kg_m3 > 0.0 &&
+        !(def.atm_scale_height_m > 0.0 && def.well_radius > 0.0))
+        return std::nullopt;
     m_bodies.push_back(std::move(def));
     return static_cast<std::int32_t>(m_bodies.size() - 1);
 }
@@ -66,7 +85,7 @@ std::optional<dvec3> rail_world::position(std::int32_t id, tick_t t) const {
     return p;
 }
 
-std::optional<dvec3> rail_world::velocity(std::int32_t id, tick_t t) const {
+std::optional<math::dvec3> rail_world::velocity(std::int32_t id, tick_t t) const {
     if (!body(id)) return std::nullopt;
     // Central difference of the analytic position: pure function of the
     // integer tick, no stored state, bit-deterministic. Exact for static
@@ -75,6 +94,36 @@ std::optional<dvec3> rail_world::velocity(std::int32_t id, tick_t t) const {
     const auto p1 = position(id, t + 1);
     const auto p0 = position(id, t - 1);
     return (*p1 - *p0) * (0.5 * kSim_tick_hz);
+}
+
+math::dquat rail_world::local_spin_orient(const body_def& body, tick_t t) {
+    if (body.spin_rate_rad_s == 0.0) return math::dquat{};
+    // No pre-wrapping of the angle: libm argument reduction is exact for
+    // finite doubles and the unwrapped value stays bit-identical across
+    // calls (determinism #5, same discipline as local_rail_offset). Axis
+    // is already unit-normalized by add_body.
+    const double angle = body.spin_rate_rad_s * tick_to_seconds(t);
+    return math::quat_from_axis_angle(body.spin_axis, angle);
+}
+
+std::optional<math::dquat> rail_world::orientation(std::int32_t id, tick_t t) const {
+    const body_def* b = body(id);
+    if (!b) return std::nullopt;
+    // Chain is short (parent < id invariant); compose root-down. The axis
+    // is authored in the parent rail frame, so the local spin RIGHT-
+    // multiplies the parent's world attitude: world = parent_world * local.
+    std::vector<const body_def*> chain;
+    std::int32_t cur = id;
+    while (true) {
+        const body_def* cb = body(cur);  // parent < id invariant: always valid
+        chain.push_back(cb);
+        if (cb->parent == -1) break;
+        cur = cb->parent;
+    }
+    math::dquat q{};  // static root frame is identity (#45c)
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it)
+        q = q * local_spin_orient(**it, t);
+    return q;
 }
 
 } // namespace ve::core::sim

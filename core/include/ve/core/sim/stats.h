@@ -53,6 +53,19 @@ public:
     [[nodiscard]] std::optional<float> base(std::string_view key) const;
     [[nodiscard]] std::optional<float> derived(std::string_view key) const;
 
+    // Change clock (6.4): bumped on every successful mutation. The
+    // StatsPipeline stamps each attribute's last-recompute tick against
+    // max(this, ModifierStack::revision()) — recompute-on-read, never a
+    // per-tick pass over everything.
+    [[nodiscard]] std::uint64_t revision() const { return m_revision; }
+
+    // Pipeline-only write door for derived (6.4). Same finiteness contract
+    // as set_base: NaN/inf never reach consumers through StatsSet.
+    // Direct derived() readers outside a pipeline see whatever the last
+    // resolve left there — for a stack-free StatsSet that is set_base's
+    // mirror, so it stays self-consistent.
+    bool set_derived(std::string_view key, float v);
+
     [[nodiscard]] std::size_t size() const { return m_entries.size(); }
     [[nodiscard]] bool empty() const { return m_entries.empty(); }
 
@@ -69,6 +82,7 @@ private:
     [[nodiscard]] std::size_t find_index(std::string_view key) const;
 
     std::vector<entry> m_entries;  // insertion order = the only iteration order
+    std::uint64_t m_revision = 0;  // bumped on every successful mutation (6.4)
 };
 
 }  // namespace ve::core

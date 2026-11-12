@@ -3,6 +3,7 @@
 #include <bit>
 #include <cstring>
 
+#include "ve/core/fnv.h"
 #include "ve/core/math/quat.h"
 #include "ve/core/sim/assist.h"
 #include "ve/core/sim/well_blend.h"
@@ -11,44 +12,25 @@ namespace ve::core::sim {
 
 using ve::core::math::dvec3;
 
-namespace {
-// FNV-1a 64 (Q5): primes per the published spec.
-constexpr std::uint64_t kFnvOffset = 1469598103934665603ull;
-constexpr std::uint64_t kFnvPrime = 1099511628211ull;
-
-inline void fnv_mix_byte(std::uint64_t& h, std::uint8_t b) {
-    h ^= b;
-    h *= kFnvPrime;
-}
-
-// Byte order fixed MSB-first so the hash is byte-order independent.
-inline void fnv_mix_u64(std::uint64_t& h, std::uint64_t v) {
-    for (int shift = 56; shift >= 0; shift -= 8)
-        fnv_mix_byte(h, static_cast<std::uint8_t>(v >> shift));
-}
-
-inline void fnv_mix_double(std::uint64_t& h, double d) {
-    fnv_mix_u64(h, std::bit_cast<std::uint64_t>(d));
-}
-} // namespace
+// FNV mixing lives in ve/core/fnv.h (shared with the 6.5 stats hashes).
 
 std::uint64_t state_hash(tick_t tick, const rigid_state& s) {
-    std::uint64_t h = kFnvOffset;
-    fnv_mix_u64(h, std::bit_cast<std::uint64_t>(tick));
+    Fnv1a64 h;
+    h.mix_u64(std::bit_cast<std::uint64_t>(tick));
     const double reals[] = {s.pos.x,       s.pos.y,       s.pos.z,        s.vel.x,  s.vel.y,
                             s.vel.z,       s.att.w,       s.att.x,        s.att.y,  s.att.z,
                             s.omega_body.x, s.omega_body.y, s.omega_body.z};
     for (double d : reals)
-        fnv_mix_double(h, d);
-    return h;
+        h.mix_f64(d);
+    return h.value();
 }
 
 std::uint64_t replay_interval_hash(const std::vector<std::uint64_t>& tick_hashes,
                                    std::size_t first, std::size_t last) {
-    std::uint64_t h = kFnvOffset;
+    Fnv1a64 h;
     for (std::size_t i = first; i <= last && i < tick_hashes.size(); ++i)
-        fnv_mix_u64(h, tick_hashes[i]);
-    return h;
+        h.mix_u64(tick_hashes[i]);
+    return h.value();
 }
 
 void assemble_tick_inputs(const rail_world& w, const tick_command& cmd, tick_t tick,

@@ -258,6 +258,18 @@ TEST_CASE("cook_hull_def_gates") {
         CHECK(payload.size() > 8u);
     }
 
+    // #47b: ratified dock attrs + port.undock facet parse at cook time
+    // (bare SI numbers per #42; inline fixture, zero golden drift).
+    {
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs;
+        const std::string dock_def = minimal +
+            "[[component]]\nid = \"dp\"\ntype = \"dock.port\"\ncategory = \"utility\"\nsocket = \"hp\"\n"
+            "[component.attrs]\nmass = 800\ndock.clamp_strength = 500000\n"
+            "[[component.facet]]\naction = \"port.undock\"\nrange = \"1.2 m\"\n";
+        CHECK_MESSAGE(cook(dock_def, payload, refs), err);
+    }
+
     // schema gates: each must fail with the reason in err.
     auto must_fail = [&](const std::string& text, const std::string& why) {
         ve::cook::Bytes payload;
@@ -293,6 +305,11 @@ TEST_CASE("cook_hull_def_gates") {
               "[[component]]\nid = \"x\"\ntype = \"t\"\ncategory = \"main\"\nsocket = \"hp\"\n"
               "[component.attrs]\nwarp.drive = 1\n",
               "registry");                                       // ratified attr keys only (5.4)
+    must_fail("class_tag = \"class.mini\"\n"
+              "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+              "[[component]]\nid = \"x\"\ntype = \"dock.port\"\ncategory = \"utility\"\nsocket = \"hp\"\n"
+              "[component.attrs]\ndock.clamp_strengths = 500000\n",
+              "registry");                                       // #47b key must match exactly
     must_fail("class_tag = \"class.mini\"\n"
               "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
               "[[component]]\nid = \"x\"\ntype = \"t\"\ncategory = \"main\"\nsocket = \"hp\"\n"

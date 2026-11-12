@@ -49,6 +49,7 @@ struct DefView {
         std::string id, type, socket;
         std::uint8_t category = 0;
         std::uint8_t face = 0;  // 0 none, 1 +x, 2 -x, 3 +y, 4 -y, 5 +z, 6 -z (#46c1)
+        std::vector<std::pair<std::string, double>> attrs;  // #47b: G10 reads dock attrs
         std::vector<Facet> facets;
     };
     std::vector<Comp> comps;
