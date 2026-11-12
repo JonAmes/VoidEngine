@@ -79,3 +79,35 @@ is legal (rule 5: ordered container, explicit total order).
   on the floor — expand never fired; any button whose click is ignored
   silently no-ops. Tests for both actions go in the SAME commit as the
   panel (done-discipline).
+
+## 8.4 — manifest browser panel (the kit's def-selection spine)
+- Panel is **data-driven, file-free**: the host assembles `manifest_row`
+  snapshots (`read_manifest` + `file_size(units/<id>.ck)` + live-source
+  `sha256` vs entry `source_sha` = the watch-mode stale test) and injects
+  them. `def_source` provider likewise keeps file IO host-side, so
+  `ve_game` still links no `ve_cook` (#16 rule survives the browser).
+- **Def selection is panel state, NOT the 8.3 `selection_service`** — that
+  one is entity-keyed (`core::entity_id`); manifest rows are content IDs
+  (src-relative paths). 8.5 needs both: entities via the service, defs via
+  this panel's `def_handoff`. Don't merge the two selection models.
+- Handoff is the 8.2 contract: `{id, exact TOML text}` -> `def_forms_doc::
+  load(kHull_def_schema, source)`; provider returning nullopt (meshes/
+  fonts) clears it — forms never sees a non-def.
+- Manifest fixture pinned numerically at the HOST, not the panel: 3 rows,
+  `std::map` content-ID order (def, glb, sock), dep edges `def->glb`
+  (`refs =`), `sock->glb` (companion), glb leaf empty. Any future cooklet
+  change to manifest shape fails this test before any panel code.
+- UI gotchas reused from 8.3: layout budget uses the *public*
+  `ui_context::kRowH/kSpacing/kTitleH/kPad` constants (panel and layout
+  engine share one source of truth — scroll math stays exact);
+  scrolled-away rows get NO hit rect (click where a row "was" does
+  nothing); text-presence pins count frame verts, not cmds.
+- **Test-quality lesson (mutation checks caught a lying pin):** the STALE
+  badge pin initially compared glyph-vert counts across a *selection
+  change* — it passed even with both badges deleted. Baseline must be
+  taken with the same selection held, so only the badge itself can move
+  the count. Rule: any presence pin via vert-count delta needs a baseline
+  where the flagged artifact is the ONLY delta.
+- `NOT COOKED` badge proven by deleting the unit file then re-stats
+  (`file_size` 0-path); re-cook restores it — same staged-tree cooklet
+  doctrine as 8.2's recook hotswap.
