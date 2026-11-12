@@ -111,3 +111,38 @@ is legal (rule 5: ordered container, explicit total order).
 - `NOT COOKED` badge proven by deleting the unit file then re-stats
   (`file_size` 0-path); re-cook restores it — same staged-tree cooklet
   doctrine as 8.2's recook hotswap.
+
+## 8.5 — loadout editor dev panel (kit's last panel; #48 editor kit complete)
+
+- **Gates are the sim's, not the panel's.** Every mount/unmount candidate re-runs
+  `sim::Loadout::assemble(hull, sockets, types, candidate)`; a failing verdict
+  names the reason (fixed table over `loadout_error`) with the attempted part +
+  socket, the candidate never enters the working mount list. Mutation-checked:
+  bypassing the assemble check fails both cases; removing the REFUSED label
+  fails the presence pin; making emit keep removed regions fails 3 pins.
+- **On-entry refusal beats pre-filtering** (#48 "garbage hard to enter, easy to
+  fix" — the picker is NOT pre-filtered by socket category; the gate refuses
+  with a reason. Same doctrine as the 8.1 unit-suffix gate #42.)
+- **File-free boundary survives** (#16): host injects `loadout_snapshot`
+  {cooked DEF0+SOCK decoded via `load_hull_loadout`, live def TOML text,
+  host-built part catalog}; panel emits source text only. `ve_game` links no
+  `ve_cook` (re-verified).
+- **Selection split holds** (from 8.4): hull-def selection is panel state (per
+  hull option, each with its own working mount list — #24d swap replaces the
+  whole loadout); entity selection stays in the 8.3 `selection_service`.
+- **TOML emit semantics** (line-oriented, extends the 8.2 doc model): exact
+  `[[component]]` starts a region; `[component.attrs]` / `[[component.facet]]`
+  continue it; unmounted regions vanish; new blocks append after the last
+  region (EOF when the def had none); comments, wires, blank spacing, and #42
+  suffixes (`15 deg`, `150 km`) untouched. Reload equality: panel order ==
+  reloaded `mounts()` order == def component order (11/11 after edit+recook).
+- **UI test traps re-confirmed:** a click that changes state can insert/remove
+  label rows (REFUSED line, mount info), shifting later rows — the harness must
+  render a settle frame after each click before trusting `rect_for` again
+  (otherwise a click lands one row above the intended widget; caught live).
+  `sanitize_id` lowercases, so generated instance ids are lowercase-stable.
+- Readouts: `total_mass` = hull + `inertia_from_parts(mounts).total_mass`
+  (fixture pins: 100670 kg A / 51670 kg B); supply/draw sum game attr keys
+  (170000 W / 57300 W) — core never sees key names.
+- **Editor kit (#48) 8.1–8.5 complete.** Next: 8.6 terrain spike (throwaway,
+  ends with a user decision presentation), then world work 8.7+.
