@@ -380,3 +380,31 @@ lambda. dquat -> quatf needs explicit float() fields (narrowing dies under
 test never calls it; rig.compute() hides it). An untracked test file
 breaks the `git checkout --` mutant restore — cp a /tmp proven copy BEFORE
 the mutation pass and restore from that.
+
+## 7.16.1 — WSI presenter depth attachment (a17958e)
+
+Discovered at the 7.16 survey: `wsi_presenter` was built for the 2.9 flat triangle,
+so it only ever had a color target. A hull scene pass (depth-test ON, depth-write ON)
+cannot render against it — there is nothing to attach.
+
+Doctrine (mirrors the offscreen presenter's 3.3 target):
+- D32_SFLOAT, `DEPTH_STENCIL_ATTACHMENT` usage only — never SAMPLED, never
+  TRANSFER_SRC: the WSI presenter has no depth readback path, so it does not
+  pay for one.
+- Presenter owns the layout bookkeeping (`transition_depth`), exactly like the
+  color `transition`: a pass may never barrier its own attachments. Fresh image
+  barriers from UNDEFINED with TOP_OF_PIPE src access (contents discarded);
+  steady state is DEPTH_ATTACHMENT -> DEPTH_ATTACHMENT self-transition.
+- `begin_pass` fails loudly if the depth target is missing ("create_targets lost
+  it") rather than silently rendering without a depth buffer.
+- `recreate()` / move / destroy paths rebuild the target alongside the color one.
+
+Exercise: NOT in ctest (nothing headless can create a VkSurface). The pin is
+compile-level in the WSI gate (`depth_view` member-fn pinned at the color_view
+seam shape) plus the live 7.16.2 evidence run — a depth-attaching scene pass
+that validated clean under the Khronos layer is the attestation (exit 3 would
+fire on any barrier/layout mistake).
+
+Trap: spin mode's record_frame never attaches the depth view — that is legal
+(a transitioned-but-unused attachment), don't "fix" it by adding a depth
+attachment to the triangle pass without also clearing it.
