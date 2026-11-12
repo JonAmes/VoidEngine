@@ -83,6 +83,7 @@ add_executable(engine_tests
     game/test_def_forms_panel.cpp
     game/test_inspector_panel.cpp
     game/test_manifest_browser_panel.cpp
+    game/test_loadout_editor_panel.cpp
     core/test_stats_combat_scenario.cpp
     core/test_math_projection.cpp
     core/test_math_coords.cpp
