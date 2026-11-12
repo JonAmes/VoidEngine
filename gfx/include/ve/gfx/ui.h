@@ -49,6 +49,10 @@ struct ui_frame {
     std::vector<ui_draw_cmd> cmds; // draw order = emit order (painter's algorithm)
 };
 
+// Screen-pixel rect (layout/hit space). 8.2: public so panel layers can
+// store per-field hit rects (deterministic click targets in headless tests).
+struct rect { std::int32_t x, y, w, h; };
+
 class ui_context {
 public:
     void begin_frame(const ui_io& io, const font0& font,
@@ -60,7 +64,11 @@ public:
                       std::int32_t w, std::int32_t h, bool* open = nullptr);
     void end_window();
 
-    bool button(const char* label);                  // true on press+release over it
+    // id_salt scopes the widget id WITHOUT changing the displayed text:
+    // 8.2's forms panel has many same-spelled buttons in one window
+    // ("[pick]", enum option labels); salt = the field path keeps ids
+    // unique while labels stay clean.
+    bool button(const char* label, const char* id_salt = nullptr);  // true on press+release over it
     bool checkbox(const char* label, bool* value);   // true when toggled this frame
     void label(const char* text);                    // static text
     // Editable text: click focuses; chars/backspace edit while focused.
@@ -73,6 +81,10 @@ public:
     // (id = label + window scope hash).
     void refocus_text(const char* label) { focus_ = hash_id(label); }
 
+    // Rect of the last interactive widget drawn (text box / button /
+    // checkbox box). 8.2 panels capture it to record per-field hit rects.
+    rect last_rect() const { return last_rect_; }
+
     void end_frame(); // finalize draw list
     const ui_frame& frame() const { return frame_; }
 
@@ -81,9 +93,9 @@ public:
                          kBox = 12;
 
 private:
-    struct rect { std::int32_t x, y, w, h; };
-
+    // (rect is the namespace-scope ve::gfx::rect above — no local alias.)
     std::uint64_t hash_id(const char* s) const;      // label + window scope
+    std::uint64_t hash_scoped(const char* s, const char* salt) const;
     bool hot(std::uint64_t id, rect r);              // hover + records hot/capture
     void add_rect(rect r, std::uint8_t r8, std::uint8_t g8, std::uint8_t b8);
     void add_text(std::int32_t x, std::int32_t baseline_y, const char* text,
@@ -106,6 +118,7 @@ private:
     std::uint64_t win_id_ = 0;
     rect win_client_{};    // clip rect for emitted content
     std::int32_t cur_x_ = 0, cur_y_ = 0; // layout cursor
+    rect last_rect_{};                   // last interactive widget (8.2)
 };
 
 } // namespace ve::gfx

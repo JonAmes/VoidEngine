@@ -32,6 +32,16 @@ std::uint64_t ui_context::hash_id(const char* s) const {
     return h;
 }
 
+std::uint64_t ui_context::hash_scoped(const char* s, const char* salt) const {
+    // Same window mixing as hash_id; salt folded in so equal labels with
+    // different salts never collide (and frames stay byte-deterministic).
+    std::uint64_t h = fnv1a(s);
+    h ^= fnv1a(salt);
+    h ^= win_id_;
+    h *= 1099511628211ull;
+    return h;
+}
+
 void ui_context::begin_frame(const ui_io& io, const font0& font,
                              std::int32_t screen_w, std::int32_t screen_h) {
     frame_ = {};
@@ -142,8 +152,8 @@ void ui_context::add_text(std::int32_t x, std::int32_t baseline_y, const char* t
     }
 }
 
-bool ui_context::button(const char* label) {
-    const std::uint64_t id = hash_id(label);
+bool ui_context::button(const char* label, const char* id_salt) {
+    const std::uint64_t id = id_salt ? hash_scoped(label, id_salt) : hash_id(label);
     const std::int32_t tw = [&] {
         float w = 0.f;
         for (const char* p = label; *p; ++p)
@@ -151,6 +161,7 @@ bool ui_context::button(const char* label) {
         return static_cast<int>(w); // same truncation rule as add_text
     }();
     const rect r = {cur_x_, cur_y_, tw + 2 * kPad, kRowH};
+    last_rect_ = r;
     const bool hov = hot(id, r);
     if (hov && pressed_) held_ = id;
     const bool clicked = released_ && held_ == id && hov;
@@ -166,6 +177,7 @@ bool ui_context::button(const char* label) {
 bool ui_context::checkbox(const char* label, bool* value) {
     const std::uint64_t id = hash_id(label);
     const rect box = {cur_x_, cur_y_ + (kRowH - kBox) / 2, kBox, kBox};
+    last_rect_ = box;
     const rect row = {cur_x_, cur_y_, 200, kRowH}; // row hit covers box+label
     const bool hov = hot(id, row);
     const bool clicked = released_ && held_ == id && hov;
@@ -191,6 +203,7 @@ bool ui_context::text_field(const char* label, char* buf, std::size_t cap) {
     add_text(cur_x_, cur_y_ + font_->ascent, label, 232, 234, 240);
     cur_y_ += text_h + 2;
     const rect r = {cur_x_, cur_y_, win_client_.w - 2 * kPad, kRowH};
+    last_rect_ = r;
     const bool hov = hot(id, r);
     if (hov && pressed_) focus_ = id;
     if (focus_ == id) {

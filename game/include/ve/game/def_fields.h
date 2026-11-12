@@ -20,10 +20,14 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "ve/game/def_schema.h"  // unit_dim
 
-namespace ve::gfx { class ui_context; }
+namespace ve::gfx {
+class ui_context;
+struct rect;  // ve/gfx/ui.h — 8.2 panels capture widget hit rects
+}
 
 namespace ve::game {
 
@@ -32,7 +36,7 @@ enum class field_edit : std::uint8_t { none, committed, rejected };
 // Text-ish field state (unit/number/integer/text/tag). draft = live edit
 // buffer; committed = last validated authored text.
 struct edit_field {
-    char draft[64] = "";
+    char draft[256] = "";  // attr-map composites are long (8.2); 64 truncated them
     std::string committed;
     bool error = false;
     std::string message;  // why the current draft was rejected (shown under field)
@@ -44,12 +48,19 @@ void prime_field(edit_field& st, std::string_view authored);
 
 // Each draw renders label + input; returns an edit event for this frame.
 // ui ids derive from `label` — one field per label per window.
+// `out` (8.2): receives the primary widget's hit rect (text box / cycle
+// button / [pick] button / checkbox box) so a panel can record per-field
+// click targets without re-deriving layout math.
 field_edit draw_unit_field(gfx::ui_context& ui, const char* label, edit_field& st,
-                           unit_dim want);
-field_edit draw_number_field(gfx::ui_context& ui, const char* label, edit_field& st);
-field_edit draw_integer_field(gfx::ui_context& ui, const char* label, edit_field& st);
-field_edit draw_text_field(gfx::ui_context& ui, const char* label, edit_field& st);
-field_edit draw_tag_field(gfx::ui_context& ui, const char* label, edit_field& st);
+                           unit_dim want, gfx::rect* out = nullptr);
+field_edit draw_number_field(gfx::ui_context& ui, const char* label, edit_field& st,
+                             gfx::rect* out = nullptr);
+field_edit draw_integer_field(gfx::ui_context& ui, const char* label, edit_field& st,
+                              gfx::rect* out = nullptr);
+field_edit draw_text_field(gfx::ui_context& ui, const char* label, edit_field& st,
+                           gfx::rect* out = nullptr);
+field_edit draw_tag_field(gfx::ui_context& ui, const char* label, edit_field& st,
+                          gfx::rect* out = nullptr);
 
 // Enumeration field: shows the current option; clicking cycles the ratified
 // set (wraps). The value is only ever a ratified spelling — garbage is
@@ -60,20 +71,28 @@ struct enum_field {
     std::string_view set;
 };
 void prime_enum_field(enum_field& st, std::string_view set, std::string_view authored);
-field_edit draw_enum_field(gfx::ui_context& ui, const char* label, enum_field& st);
+field_edit draw_enum_field(gfx::ui_context& ui, const char* label, enum_field& st,
+                           gfx::rect* out = nullptr);
 
 // Candidate picker: current value as a label, "[pick]" toggles the
 // candidate list, clicking a candidate commits it (exactly, prefix
-// included — endpoint spellings "socket.<id>"/"component.<id>" arrive
-// pre-spelled from the caller). Nothing can be typed here at all.
+// included — endpoint spellings "socket.<id>"/"component.<id>"/"socket"
+// arrive pre-spelled from the caller). Nothing can be typed here at all.
+// Button ids are salted with `label` (8.2: many pickers in one window).
 struct picker_field {
     std::string committed;
     bool open = false;
 };
+// `cand_out` (8.2): receives the hit rect of every candidate button drawn
+// this frame (same order as `candidates`), so a panel can click a specific
+// candidate deterministically.
 field_edit draw_picker_field(gfx::ui_context& ui, const char* label, picker_field& st,
-                             std::span<const std::string> candidates);
+                             std::span<const std::string> candidates,
+                             gfx::rect* out = nullptr,
+                             std::vector<gfx::rect>* cand_out = nullptr);
 
 // Boolean field: ui checkbox wrapper (commit = any toggle).
-field_edit draw_bool_field(gfx::ui_context& ui, const char* label, bool& value);
+field_edit draw_bool_field(gfx::ui_context& ui, const char* label, bool& value,
+                           gfx::rect* out = nullptr);
 
 }  // namespace ve::game
