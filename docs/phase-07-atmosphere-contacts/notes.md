@@ -309,3 +309,42 @@ Design notes, findings, and gotchas worth keeping. One section per task number a
   first act (both suites).
 - **Deviation:** none. Suite names `airlock_cycle` + `foot_verb_events`
   as predicted by the checklist.
+
+## 7.14 — flight_landing_scenario harness (6e13864)
+Done-when (a) composition proof, test-only (no production code). One 19k-tick
+run: pad rest (legs squat 0.0075 = mg/4k) → thrust takeoff (rate-shaped
+climb) → cruise 300 m @ 45 m/s → 15 s stall excursion (aoa cmd 0.45) →
+30 s unpowered glide → approach steer + 3 m/s descent → capture engage
+(tick 14786, rel 2.87 < safe 6, pad-relative) → snap-to-rest → 4.2 km of
+pad ride. Every tick: state_hash → run==run bit-identical (216,050 asserts).
+
+Hard-won scenario lessons (all load-bearing in the test):
+1. **Capture arms only after leaving the pad.** The at-rest start sits
+   INSIDE the 100 m capture zone; an un-armed probe engages at tick 0.
+   Scenario gates the probe at alt > 150 m. (capture.h itself is stateless
+   by design — arming is caller policy.)
+2. **Drag proof = energy bleed, not speed decay.** An equilibrium unpowered
+   glide holds speed ~constant (along-path gravity ≈ induced drag). Pin
+   instead 0.5v² + g·h strictly decreasing (332 J/kg bled over the glide
+   window; ballistic would conserve it).
+3. **Takeoff guidance is rate-shaped, not a position spring.** PD
+   a_n = kp(h*-h) - kd·v overshoots wildly (v_n peak ~270 m/s, alt 643).
+   v_des = min(12, 0.06·(350-h)) eases onto the ceiling; keeps takeoff
+   speeds below the stats window so aoa/CL pins see flight, not liftoff.
+4. **aoa stats window speed_rel > 30**; transients (attitude slew vs fallback
+   tangent fwd below 5 m/s) otherwise register fake 1.57 rad "stalls".
+   Real transitions DO cross the rolloff lobe (aoa 0.92 > 2·a_max): CL
+   rolls off to ZERO there — forgiving lobe is a feature. Pin no-tumble
+   (aoa < 1.2) + cl_at_max >= 0 + cl_max in (0.5, lift_coeff], not a
+   stay-inside-the-lobe band.
+5. **Stand on a SPINNING pad coasts — by design.** 7.8 has NO sustained
+   tangential force (see test_land_contacts.cpp header: "tangential motion
+   coasts untouched"), so the snapped stand creeps across the surface
+   (~2 m/40 s at 1 m/s pad ride) while the deepest leg keeps riding the
+   curvature, depth pinned ~2× equilibrium. Pins encode that: per-tick
+   DEEPEST-leg depth in (0.002, 0.05), rel_pos < 10 m ≪ 100 m capture
+   radius, rel_v < 0.5. A gear brake / flat-pad friction frame is later
+   phase authored-data territory, not Phase 7 core.
+6. **doctest INFO scope trap:** an INFO() inside a for-loop body or a { }
+   block pops its context immediately — silently never prints at failure.
+   Accumulate into one std::string and emit a single INFO at test-body scope.
