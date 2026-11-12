@@ -234,3 +234,30 @@ is legal (rule 5: ordered container, explicit total order).
   - Cook output layout is `out/units/<id>.ck` + `out/manifest.bin` (readers in
     `core::cooked`), not `out/<id>.vecook` — copy paths from test_hulldef, not
     from memory.
+
+## 8.8 — world-def validation gates (commit ba283fe)
+- Second cook pass `cook_wrld_validate` (tools/cook/src/wrldvalidate.cpp) runs
+  after the 5.9b hull pass, over touched WRLD units in manifest (content-ID)
+  order, fixed gate order per class — deterministic first-error text, same
+  doctrine as hull validation. World/hull deps load transitively from the
+  manifest; a missing dep is a gate message, never a crash.
+- The pad-normal ∥ well-normal gate (#29c) is PROOF-BASED, not a tolerance
+  check: a pad POI rides a flatten/mesa stamp, whose full-weight core is
+  bit-constant height (terrain.h derivation), so the pad plane is parallel to
+  the well normal by construction. The gate instead pins the preconditions of
+  that proof: stamp type, radius covers footprint, and blend core still covers
+  footprint (a fat blend ring would let the pad sit on sloped falloff).
+- `resolve_ref` is purely lexical — existence of refs is validation's job.
+  Market anchors + waypoint bodies joined `collect_refs()` so they become
+  manifest edges (dangling ones now fail at the cook's ref stage); `poi:<name>`
+  anchors deliberately do NOT: they point inside member bodies and are
+  resolved by the wrld graph gates instead.
+- Fixture trap: relative refs resolve against the DEF's own directory — a ref
+  from `world/system.toml` to a root-level def is `../defs/...`, not
+  `defs/...`. Two variants failed for this alone.
+- Unreachable-by-TOML gates exist on purpose: duplicate faction names are
+  already a schema gate (8.7), so the wrldvalidate dup check is defensive.
+  Don't write a test chasing a message a schema gate always beats.
+- doctest `CHECK_MESSAGE(err.find(n) != npos, ...)` prints `npos` for BOTH
+  sides when the needle is a raw `const char*` streamed into the message —
+  wrap it in `std::string{}` or the failure log is two identical hex blobs.
