@@ -261,3 +261,33 @@ is legal (rule 5: ordered container, explicit total order).
 - doctest `CHECK_MESSAGE(err.find(n) != npos, ...)` prints `npos` for BOTH
   sides when the needle is a raw `const char*` streamed into the message —
   wrap it in `std::string{}` or the failure log is two identical hex blobs.
+
+## 8.9 — floating-origin rebasing + camera-relative rendering (commit 227772d)
+
+- `sim::OriginTracker` (core/include/ve/core/sim/origin.h, header-only) is the
+  sim-side origin state. The rebase rule is **evaluated exactly once per tick**
+  on post-step state: `advance(tick, focus_pos, threshold)` after each
+  `replay_step`. Strict `>` crossing at an exact tick; equality does NOT fire
+  (pinned: 8 m/tick, threshold 1000 m fires at 126/252/378, not 125).
+- Replay contract: rebasing mutates ONLY the tracker — positions stay absolute
+  fp64 (1.7 doctrine), dynamics never read the origin — so per-tick state
+  hashes (4.7) are bit-identical with and without rebasing, and the rebase
+  tick SEQUENCE itself replays identically for identical command logs
+  (`floating_origin` pins both).
+- `origin_frame::to_local_f32` (coords.h) is the ONLY sanctioned world→GPU
+  path: fp64 subtract FIRST, f32 cast SECOND. Pinned numerically at 1 AU:
+  fp32 ulp at 1.496e11 m is 16384 m; two bodies 10 m apart collapse onto one
+  bucket under the absolute-cast path (diff exactly 0, rounding error exactly
+  7998.5 m hand-computed), while the relative path keeps the 10 m separation
+  BIT-exact (binary-rational locals) through trs_compose + look_at_rh f32
+  (`camera_relative_precision`).
+- Render callers (7.15/7.16 chase-eye proofs) already composed camera-relative
+  (fp64 anchor subtract); the tracker centralizes the anchor + rule so 8.10
+  log-zoom, 8.19 authoring, FTL (8.11+), and terrain streaming (8.17/8.18)
+  share one origin instead of per-caller anchors.
+- Traps: `needs_shift` is const — a render frame probing it cannot move state
+  (tested). Threshold choice: the fall-world drift is only ~1 km/min, so a
+  5 km corridor rebases ONCE in the hash-equality run — use ~250 m there to
+  exercise multi-rebase sequences. Mutation-checked: `>` → `>=` reds the
+  exact-tick pins (11 assertions); cast-then-subtract in `to_local_f32` reds
+  the AU-scale collapse pins (2 assertions).
