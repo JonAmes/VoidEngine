@@ -491,3 +491,70 @@ forms; that single pin is what makes the divide load-bearing); collapse-guard re
 (dark drive keeps burning); integrator mult dropped (flow end_z port + warp distance);
 replay mult ignored (canary + determinism). Clean restore green, zero markers. Full
 suite 169 cases / 8,315,573 assertions; CI: see checklist box.
+
+
+## 8.13 — authored safe bubbles (decision #22c amended by #50)
+
+**#50 semantics (user decision 2026-11-13).** The bubble edge is a HARD WALL
+at warp. While `speed_mult > 1`, any tick whose position step would touch or
+cross a bubble surface resolves AT the surface: position truncates to the TOI,
+or stays pinned BIT-IDENTICAL at the surface when the step starts there (u==0
+re-pin returns `p0` verbatim — never re-derived via the centre, which would
+reintroduce fp noise). The wall holds EVERY warp tick until `speed_mult`
+returns to 1: the ship stops dead at the edge while the forced spool-down
+(the 8.12 disengage door) runs; momentum carries inward only sublight.
+Outward crossings resolve symmetrically with the exit root. A step that
+starts inside AND ends inside (or outside→outside without touching) is a
+non-event. An exact tangent graze (disc == 0 at the closest approach) is NOT
+a contact — measure-zero rule, shared with Phase 7 swept contacts.
+
+**Core split.** `core/sim/safe_bubble.h` holds only deterministic predicates
+and the contact resolver: `in_safe_bubble` (strict interior — d == r is NOT
+interior, so the engage door is open AT the surface) and `bubble_warp_contact`
+(event: tick, body, u, TOI pos, outward normal, step length). The engage door
+is glue composition (`engage only when !in_safe_bubble`) — pinned in the
+interior test against `ftl.h`'s state machine; core holds no live FTL policy.
+Impact damage VALUE is game-side only (`WorldDef::safe_impact`, negative
+`flat_add` on hull, once per crossing at the FIRST contact tick — the u==0
+re-pin is the same crossing, glue dedupes); it never reaches `body_def`.
+
+**Pinned quadratic.** Contact math is the quarter-coefficient form, one
+correctly-rounded op per step: `a = dot(disp,disp)`, `bq = dot(rel,disp)`,
+`cq = dot(rel,rel) - r*r`, roots `(-bq ± sqrt(bq*bq - a*cq)) / a`. Tests port
+the exact order; do not "simplify" (factoring changes bits, 8.12 doctrine).
+
+**Surface band (#50's fp hazard).** Truncation lands the next tick's start
+within an ulp of the sphere: without banding, an inside-by-1ulp residue takes
+the EXIT root and jumps the pinned ship by 2r. Classification only:
+`band = r*r*0x1p-40`; `f(0)`/`f(1)` snap to 0 inside the band. The band sits
+~2^12 above worst-case f evaluation noise and ~2^12 below any physically
+meaningful clearance — deterministic both ways. Root math stays raw.
+
+**Dyadic pin fixture.** r = 1024 m, entry from z = 2048 at 1200 m/step:
+u1 = fl(64/75) = 0.8533333333333334 and the TOI z' == 1024.0 BIT-EXACTLY;
+outward exit u2 = fl(32/75) = 0.4266666666666667, also lands exactly on the
+surface. Then per-tick engine-vs-port vector equality kills any drift.
+
+**Def pipeline.** `body_def.safe_bubble_radius` (0 = no wall) must be
+`>= max(well_radius, surface_radius)` and finite (`add_body` gate). Cook:
+`[safe]` table — `bubble` is a #42 unit string; `speed` and `impact` are BARE
+SI numbers (the ratified #42 suffix table has no velocity dim — `speed`
+follows the `surface_g = 9.81` precedent). Validator ladder (fixed order,
+first failure): fields >= 0 → bubble without speed → bubble inside well →
+bubble inside surface. WRLD body payload gained the safe trio → `kCookFormat`
+6 → 7 (no on-disk WRLD goldens to re-bake; the v7 trio rides the realscale
+Thalassa fixture round-trip).
+
+**Evidence.** Targeted `safe_bubble_interior` + `safe_bubble_crossing`:
+2 cases / 70 assertions green. Targeted cook+core combo
+(`safe_bubble_*,worlddef_validate_safe,realscale_world`): 10 cases /
+771 assertions green. Six mutations killed (fail counts 6/1/22/1/1/4):
+band removal, entry-root sign flip, TOI-pin→step-start in the replay hook,
+`&&`→`||` in the add_body geometry gate, well-vs-surface swap in the
+validator gate, and `bare`→`unit` on `[safe].speed`. MUT1 initially
+SURVIVED — the dyadic r=1024 fixture lands the TOI exactly on the surface,
+so band removal was unobservable there; the discriminating fixture is a
+non-dyadic entry (z0 = 1629.5) that truncates 1 ulp INSIDE. MUT4 initially
+SURVIVED — the rejecting fixture failed an UNRELATED gate (missing
+`well_taper_start`), masking the mutation; a mutation probe must isolate
+the gate it targets. Full suite 172 cases / 8,315,691 assertions green; ci_local GREEN, Total Test time 362.04 s (no display, ASan+UBSan).
