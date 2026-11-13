@@ -93,6 +93,7 @@ add_executable(engine_tests
     cook/test_hulldef.cpp
     cook/test_hull_validate.cpp
     cook/test_worlddef.cpp
+    cook/test_realscale_world.cpp
     tools/test_glb.cpp
     tools/test_mikktspace.cpp
     tools/test_incremental.cpp
