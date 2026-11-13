@@ -339,3 +339,80 @@ is legal (rule 5: ordered container, explicit total order).
   mirror sign flip reds `logzoom_projection`; deleting the refinement
   entirely (hyperbolic hw z only) reds the z-value pins — each pins one half
   of the matrix+shader pair.
+
+## 8.11 — real-scale slice world (commit 5faa8c1)
+
+**The fixture.** `world/realscale/sable_reach/` is the project's first world
+authored at REAL scale (#17c): Thalassa (Earth-class root, 1.0 AU from its
+star by implication, 6371 km radius, 8.87 m/s², day spin) with Ferrous
+(Mars-class) at a true **1.52 AU** separation on a 400,000-day orbit, Pale
+(Moon-class, airless, 384,400 km around Thalassa, 28-day orbit) and Haven
+(rail-pinned station, 620 km above Thalassa's surface, 5400 s period,
+`[[station]]` + build plans + pads + outpost POI `poi:rustflare` hosting the
+second market node #20a). Sable Reach carries the full world-graph payload
+(2 POIs with terrain stamps, 2 biomes, 2 market nodes, lane, 2 nav edges,
+waypoint, faction, build plan with 2 steps, 2 job steps) so 8.12–8.16 and
+8.21 have one fixture that exercises everything at the hard end of the scale
+range. The three existing synthetic worlds stay — they are the small-numbers
+fixtures where arithmetic stays eyeballable.
+
+**Wells stay bounded (#22a).** Real radii, real separations, but wells are
+still authored multiples of body radius: Thalassa 637,100 km = 100×,
+Ferrous 339,000 km ≈ 100×, Pale 172,980 km ≈ 50× — all inside the ratified
+10..100 band, asserted in-test. This is why AU-scale separations are
+representable without touching the well model: nesting is a per-body
+authority radius, not a gravitational domain.
+
+**"rails eval fp64-checked at AU scale" — hand-pinned, not self-referential.**
+Every pinned rail value was computed *before* the test ran, by a Python port
+of `core/src/rails.cpp` that mirrors the engine's exact operation order:
+`theta = ph + TAU*(sec/P)`, `s=sin, c=cos`,
+`x = c*R + (-s*R)`, `z = -(s*R) + (-c*R)` (two separate products then one
+addition each — NOT `(c±s)*R`), velocity from two full positions at t and
+t±1 tick times `(p1-p0)·(0.5·hz)` (60 Hz is exactly representable so the
+factor is bit-exact), and the left-to-right Hamilton association of
+`quat.h`'s `operator*` verbatim. The values come out bit-exact for the
+clean cases (Ferrous at t=0 with ph=30° lands `cos = 0.8660254037844387`
+bit-identically through `sin(x+π/2)` — the x=0 and y=0 components are exact
+zero pins, and the fp32 ulp at 1.52 AU is exactly 2^-9 m so `+0.0f` rounding
+is pinned too). Position/velocity at quarter-ticks are bit-exact because the
+angle sums land on exact π/2 multiples (`TAU*0.25` etc. round correctly).
+
+**Tidal lock is bit-exact.** Moon-class spin 12.857142857142858 deg/day =
+360/28 over the 28-day orbit: through the ratified `(pi/180)/86400` factor
+that is *the same double* as `tau/P`, so `spin*sec` and `TAU*(sec/P)`
+evaluate identically at every tick — at Pale's quarter-orbit tick
+(36,288,000 ticks = 604,800.0 s = exactly P/4) both angles are bit-equal
+(diff 0.0) and Pale's yaw quaternion exactly equals its orbit frame: the
+moon faces the parent with zero numerical drift, forever, and the test
+asserts that equality, not an approximation.
+
+**Station orientation = parent chain composition, first tick.** Haven's own
+spin is zero, so its orientation is the composed identity through
+{Thalassa, Haven} — the test pins it equals Thalassa's orientation
+bit-for-bit at tick 1, pinning the chain order in `rail_world::orientation`
+(root-first accumulation) as a checked contract, not an accident.
+
+**fp32 lesson re-proven, now at 1.52 AU.** The fp32 ulp at Ferrous's
+distance is 16384·1024 m (16.384 km) — 2.15e6× worse than the 8.9 AU pin.
+Naive float subtraction of the separation leaves zero metres of detail;
+`to_local_f32` (fp64 subtract first) keeps the exact 2 m gap. This is the
+#17c motivation stated as a number.
+
+**Cook-loop evidence.** The system def's manifest deps are exactly its four
+member refs (parent dedup works at world scale: Ferrous and Pale both point
+at Thalassa, Haven too, one edge each); `poi:rustflare` stays out of the
+file graph (8.8 rule); `[[build_plan]] module=` and waypoint `body=` resolve
+to file paths through `resolve_ref`; `[[world_ref]]` chains world→world and
+the validator walks it (a dangling world ref reddens the graph gate). The
+WORLD0 payload survives an encode/decode round trip with every unit-string
+value landing at its exact SI double (1.52 AU cook = `1.52 * kMeters_per_AU`
+bit-exact via the parser's divide-by-exact-reciprocal path, verified
+against the same C++ expression the test uses for its pins).
+
+**Mutations (chain in /tmp/ve811_mut.py, evidence kept):** dropping the
+authored orbit phase reddens 19 assertions (the 30°-phase pins are load
+bearing); doubling the velocity factor (0.5→1.0) reddens 8; multiplying the
+spin angle by 1.0000001 — a 1e-7 relative drift too small to matter
+physically — reddens 4 (quarter-tick exactness + tidal-lock equality). The
+rail pins are tight to the last ulp by construction.
