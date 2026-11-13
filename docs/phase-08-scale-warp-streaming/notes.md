@@ -416,3 +416,78 @@ bearing); doubling the velocity factor (0.5→1.0) reddens 8; multiplying the
 spin angle by 1.0000001 — a 1e-7 relative drift too small to matter
 physically — reddens 4 (quarter-tick exactness + tidal-lock equality). The
 rail pins are tight to the last ulp by construction.
+
+## 8.12 — FTL drive (commit 61b9a47)
+
+**Shape (PLAN #22b/#22d to the letter).** `drive.ftl` is a component; its attrs are
+`ftl.speed_mult` / `ftl.spool_s` / `ftl.flow` — the core holds the mechanics, not the names:
+`core/sim/ftl.h` is a pure state machine (`ftl_drive` aggregate value + `ftl_state` +
+`ftl_burning` drain gate), and the integrator gains one parameter:
+`integrate_step_warp(_dt)` advances position at `vel * speed_mult` inside the SAME
+semi-implicit Euler body — warp folds the *step*, not the state; `vel` stays physical
+sublight momentum. `speed_mult == 1.0` is bit-identical to pre-8.12 (x*1.0 is exact IEEE),
+pinned by a 20,000-tick randomized flight memcmp-equal through both paths. No second space, no gates.
+
+**Anchored analytic ramp, not an accumulator.** `mult(t) = anchor_mult ± ramp_rate *
+tick_to_seconds(t - anchor_tick)`. `tick_to_seconds` divides by 60.0 — a correctly-rounded
+divide is exact-by-construction for every integer tick — while multiplying by
+`kSim_tick_dt = fl(1/60)` is a *different fp64 value* at some ticks. The two forms agree
+suspiciously often (k=30..240 at the natural ramp pins all agree; only ~8% of k in
+1..1200 differ, first at k=23, 31, 46...) — so the k=23-elapsed up-ramp pin `{123,
+1.0 + 3.0*(23.0/60.0)}` is what makes the divide form LOAD-BEARING: MUT1 (swap in the
+single-product dt multiply) reddens exactly that pin. Discovered the hard way: a poisoned
+stale `.o` (see traps below) produced the dt-multiply result 2.1500000000000004-vs-
+2.1499999999999999 and the pin caught it before any test could bless the wrong form.
+
+**fp64 pin doctrine (same as 8.11 rails).** Decimal literals round the wrong way at the
+seams: the down-ramp at 239 elapsed ticks is `13 - 3*fl(239/60) = 1050000000000001×2⁻⁵⁰
+≈ 1.0500000000000007`, NOT decimal 1.05; the up-ramp at the same elapsed tick lands
+exactly on 12.95 only because fl(239/60) rounds UP. Where literal and expression disagree,
+pin the expression. Full-length ramps clamp BIT-exactly on their flip tick (13.0 and 1.0);
+an interrupted ramp lands `mult == 1` at the symmetric tick because the identical fp64
+product appears on both sides of `anchor_mult - ramp_rate*elapsed`.
+
+**Live-aggregate survival ("dark-not-dead").** The drive aggregate is recomputed every
+tick from stats; a function-zeroed or removed drive mid-ramp goes idle INSTANTLY
+(mult := 1, no fabricated down-ramp) — the flip branches never compare against or copy a
+dead target, so a `warped -> spooling_down -> warped` ping-pong on a changing aggregate
+is structurally impossible. `ftl_engage` refuses on an invalid aggregate (refusing is
+game-side policy; the core just can't ramp to a nonexistent ceiling).
+
+**Drain (#19e, 6.11 doctrine, zero stored burn state).** Per tick the glue asks
+`ftl_burning(state)` AFTER stepping the machine (the tick just taken is what burns), and
+writes the gated load attr: `flat_add(0)` then `mod(replace, ftl.flow*mult)` while
+burning, `flat_add(0)` alone otherwise (removes this tick's flow modifier at the same
+source so the base returns — source-keyed mod, never a stale value). The reservoir
+integrates exactly what it is shown. Bit-exact by construction: 120 kg/warp-s ×
+kSim_tick_dt = 2.0 kg/tick, and a 300-engage / 900-door cycle drains 840 ticks × 2.0 =
+1680.0 kg — every intermediate (spool ramp paid at tick 301, door tick 900 paid, 1140
+idle dry) pinned with `==`. "Burning" covers both spool directions: the ramp itself is
+paid for.
+
+**Replay/preview ride the command stream.** `tick_command` gains `speed_mult` (default
+1.0 — every pre-8.12 log replays bit-identical, and the 8.11 `realscale_world` goldens
+passed untouched). Warp legs replay, scrub, and preview from recorded commands alone,
+never from live drive state: mutating one recorded mult by (1+1e-6) diverges the leg
+(~1.6e-3 m, clears the ~1.1e-6 m position ulp at 5e9 m — a 1-ULP nudge is provably
+invisible at that scale, which is itself pinned doctrine); the divisor-1 ghost preview is
+BIT-identical to the fine roll through a warp leg, and divisor 4 lands at the same fp64
+endpoint (trajectory drift mid-leg is 8.14's shaping gate, endpoint identity is the
+integrator's).
+
+**Mutation-harness trap (cost a phantom failure).** Restoring a mutated source with
+`cp -p`/`shutil.move` preserves the BACKUP's older mtime, so ninja treats the .o built
+from the mutant as fresh — the library archive stays poisoned and later "clean" rebuilds
+keep linking the mutant. Symptom: a bit-pin "fails" against the supposedly-unmutated
+engine with off-by-1-ulp values that exactly match the mutation's form. Rule: always
+bump the mtime after any mutation restore (harness now `os.utime`s), and treat an
+unexpected bit-difference as a poisoned-build suspect first (verify via
+`objdump -dr` on the suspect .o).
+
+**Evidence.** Targeted `ftl_spool` + `ftl_flow`: 2 cases / 3,464 assertions green. Four
+mutations killed (fail counts 1/630/7/5): ramp->single-product-dt-multiply — killed by
+exactly ONE pin, the k=23-elapsed one (all other ramp pins are bit-equal under both
+forms; that single pin is what makes the divide load-bearing); collapse-guard removal
+(dark drive keeps burning); integrator mult dropped (flow end_z port + warp distance);
+replay mult ignored (canary + determinism). Clean restore green, zero markers. Full
+suite 169 cases / 8,315,573 assertions; CI: see checklist box.
