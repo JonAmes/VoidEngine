@@ -5,6 +5,7 @@ add_library(ve_core STATIC
     src/log.cpp
     src/assert.cpp
     src/cooked.cpp
+    src/ftl.cpp
     src/rails.cpp
     src/gravity.cpp
     src/rigid.cpp

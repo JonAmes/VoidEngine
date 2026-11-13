@@ -64,6 +64,16 @@ bool state_ok(const rigid_state& s);
 void integrate_step(rigid_state& s, const rigid_params& p, const math::dvec3& accel_world,
                     const math::dvec3& torque_body);
 
+// 8.12 (#22b) — the same integrator with the FTL speed multiplier: the
+// position step advances at vel * speed_mult while vel itself stays the
+// physical sublight momentum (space covers, the ship does not accelerate
+// into NaN). One space, one integrator — NO second physics path.
+// speed_mult == 1.0 is BIT-IDENTICAL to integrate_step (x*1.0 is exact in
+// IEEE; the Phase-4 replay-hash pins double as the identity proof, same
+// role as the 5.3 tensor-path identity).
+void integrate_step_warp(rigid_state& s, const rigid_params& p, const math::dvec3& accel_world,
+                         const math::dvec3& torque_body, double speed_mult);
+
 // Variable-dt core of integrate_step. SANCTIONED USE ONLY: the 4.10 ghost
 // preview, which rolls the SAME integrator at reduced substep rate with
 // dt = step_divisor*kSim_tick_dt (a rational multiple of the canonical
@@ -71,5 +81,9 @@ void integrate_step(rigid_state& s, const rigid_params& p, const math::dvec3& ac
 // always go through integrate_step.
 void integrate_step_dt(rigid_state& s, const rigid_params& p, const math::dvec3& accel_world,
                        const math::dvec3& torque_body, double dt);
+
+// Warp-aware variable-dt twin (8.12): same 1.0-identity guarantee.
+void integrate_step_warp_dt(rigid_state& s, const rigid_params& p, const math::dvec3& accel_world,
+                            const math::dvec3& torque_body, double speed_mult, double dt);
 
 } // namespace ve::core::sim

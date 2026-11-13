@@ -38,7 +38,11 @@ std::vector<rigid_state> ghost_preview(const rail_world& w, const ReplayLog& log
         // what the log says at these moments", not a re-optimized pilot.
         dvec3 accel_world, torque;
         assemble_tick_inputs(w, log.at(cmd_i), tick, p, s, accel_world, torque);
-        integrate_step_dt(s, p, accel_world, torque, dt);
+        // 8.12: the ghost consumes the RECORDED warp multiplier too — the
+        // preview trajectory stretches through a warp leg like the sim
+        // (same physics, same commands; only dt differs). 1.0 = identical
+        // to pre-8.12 preview. Full warp-preview shaping is 8.14's gate.
+        integrate_step_warp_dt(s, p, accel_world, torque, log.at(cmd_i).speed_mult, dt);
         out.push_back(s);
     }
     return out;

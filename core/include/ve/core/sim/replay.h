@@ -31,6 +31,12 @@ struct tick_command {
     // id; the target position/velocity come from the rails at the current
     // tick, so the log stays tiny and the ghost sim inherits it free.
     std::int32_t autopilot_body = -1;
+    // 8.12 (#22b): the FTL drive's ramped speed multiplier for THIS tick.
+    // Recorded IN the command log, not derived from sim state at replay —
+    // warp legs must replay and scrub from recorded commands alone
+    // (the ramp state machine is input, like throttle). 1.0 = sublight:
+    // bit-identical to pre-8.12 replay (x*1.0 exact).
+    double speed_mult = 1.0;
 };
 
 // Ordered per-tick command stream (#5: vector, indexed by tick offset).

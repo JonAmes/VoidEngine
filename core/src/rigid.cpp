@@ -39,14 +39,29 @@ bool state_ok(const rigid_state& s) {
 
 void integrate_step(rigid_state& s, const rigid_params& p, const dvec3& accel_world,
                     const dvec3& torque_body) {
-    integrate_step_dt(s, p, accel_world, torque_body, kSim_tick_dt);
+    integrate_step_warp(s, p, accel_world, torque_body, 1.0);
+}
+
+void integrate_step_warp(rigid_state& s, const rigid_params& p, const dvec3& accel_world,
+                         const dvec3& torque_body, double speed_mult) {
+    integrate_step_warp_dt(s, p, accel_world, torque_body, speed_mult, kSim_tick_dt);
 }
 
 void integrate_step_dt(rigid_state& s, const rigid_params& p, const dvec3& accel_world,
                        const dvec3& torque_body, double dt) {
+    integrate_step_warp_dt(s, p, accel_world, torque_body, 1.0, dt);
+}
+
+void integrate_step_warp_dt(rigid_state& s, const rigid_params& p, const dvec3& accel_world,
+                            const dvec3& torque_body, double speed_mult, double dt) {
     // Linear: semi-implicit Euler — vel first, then pos with the NEW vel.
+    // 8.12 warp: pos advances at vel*speed_mult; vel itself is untouched by
+    // the multiplier (it is real sublight momentum — warp folds the step,
+    // not the state). speed_mult=1.0: (vel*1.0) is vel BITWISE (IEEE), so
+    // the (vel*mult)*dt grouping here is bit-identical to the pre-8.12
+    // vel*dt — the Phase-4 hash pins are the identity proof.
     s.vel = s.vel + accel_world * dt;
-    s.pos = s.pos + s.vel * dt;
+    s.pos = s.pos + (s.vel * speed_mult) * dt;
     // Angular: Euler's equations in the body frame with diagonal I (see
     // header), advanced by EXPLICIT MIDPOINT (RK2), NOT plain Euler: the
     // linearized top has imaginary eigenvalues (|1+i*lam*dt| > 1) so a

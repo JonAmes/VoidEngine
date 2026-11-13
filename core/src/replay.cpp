@@ -70,7 +70,10 @@ void replay_step(const rail_world& w, const ReplayLog& log, std::size_t i, tick_
                  const rigid_params& p, rigid_state& s) {
     dvec3 accel_world, torque;
     assemble_tick_inputs(w, log.at(i), tick, p, s, accel_world, torque);
-    integrate_step(s, p, accel_world, torque);
+    // 8.12: the warp multiplier rides the RECORDED command (#22b) — replay
+    // and scrubber reproduce a warp leg from the log alone, never from a
+    // live drive state. 1.0 (every pre-8.12 log) = bit-identical replay.
+    integrate_step_warp(s, p, accel_world, torque, log.at(i).speed_mult);
 }
 
 } // namespace ve::core::sim
