@@ -46,6 +46,7 @@ add_executable(engine_tests
     core/test_sim_well_blend.cpp
     core/test_sim_integrator.cpp
     core/test_sim_replay.cpp
+    core/test_sim_origin.cpp
     core/test_sim_assist.cpp
     core/test_sim_assist_translation.cpp
     core/test_sim_ghost.cpp

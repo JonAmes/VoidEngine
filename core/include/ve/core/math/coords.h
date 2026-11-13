@@ -60,6 +60,15 @@ struct origin_frame {
     constexpr dvec3 to_local(const dvec3& world) const { return world - origin; }
     constexpr dvec3 to_world(const dvec3& local) const { return local + origin; }
 
+    // 8.9: the ONLY sanctioned path from world coords to GPU (fp32) space —
+    // subtract in fp64 FIRST, then cast. The reverse order destroys metre
+    // detail past ~1e7 m (fp32 ulp at 1 AU is 16 km); the order here keeps
+    // locals as close to the world delta as fp32 can represent.
+    constexpr vec3f to_local_f32(const dvec3& world) const {
+        const dvec3 l = to_local(world);
+        return vec3f{float(l.x), float(l.y), float(l.z)};
+    }
+
     // Pure comparison: decision depends only on these numbers (replay-safe).
     bool needs_shift(const dvec3& focus, double threshold) const {
         return length(focus - origin) > threshold;
