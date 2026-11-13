@@ -78,6 +78,49 @@ mat4<T> perspective(T fov_y_rad, T aspect, T n, T f,
     return perspective_offaxis(n, f, -r, r, -t, t, dr);
 }
 
+// 8.10 — log-zoom view depth: ONE pass spanning surface metres -> AU
+// separations (n ~ 1 m, f ~ 1e11 m). A logarithmic mapping CANNOT live in a
+// mat4 (clip.z/w is linear in view space), so the engine pairs:
+//   (1) an off-axis matrix with the reversed_inf_far z row — hardware z is
+//       then the hyperbolic n/d, already correctly ordered and contact-
+//       biased, a sane pre-refinement fallback; and
+//   (2) a fragment-shader refinement that rewrites the depth (the ONLY
+//       sanctioned GLSL, pinned by depth_zfight_golden):
+//          gl_FragDepth = clamp((log2(f) + log2(gl_FragCoord.w)) * inv_log2_span, 0, 1)
+//       GLSL window-coord trap: gl_FragCoord.w is 1/w_clip — i.e. 1/d for
+//       these builders — hence the PLUS sign: log2(d) = -log2(FragCoord.w).
+//   reversed orientation: near -> 1, far -> 0 (pairs the GREATER compare and
+//   depth-clear-to-0 of 3.3). w_clip == view distance d exactly for these
+//   pinhole builders (w = -z_view), so no extra varying is needed.
+// Resolution is CONSTANT RELATIVE across the whole span: one octave of depth
+// always costs 1/log2(f/n) of the [0,1] budget, so near AND far edges resolve
+// in one frame (#43 AU-scale authoring dependency). float depth (D32 — our
+// kDepthFormat since 3.3, comfortably above the 24-bit float budget in
+// PLAN) is required: UNORM depth would quantize the octaves uniformly.
+struct LogDepthParams {
+    float far_log2{};      // log2(f)         — shader term
+    float inv_log2_span{}; // 1 / log2(f / n) — shader multiplier
+};
+
+inline LogDepthParams logzoom_params(double n, double f) {
+    return {static_cast<float>(std::log2(f)),
+            static_cast<float>(1.0 / std::log2(f / n))};
+}
+
+// Host-side mirror of the shader mapping (pins, readback comparisons).
+inline double logzoom_ndc_z(double d, double n, double f) {
+    return (std::log2(f) - std::log2(d)) / std::log2(f / n);
+}
+
+// Matrix half of the log-zoom pair (see above): off-axis x/y/w exactly as
+// every other perspective builder (VR off-axis rule unchanged), z row from
+// reversed_inf_far. f must be FINITE here (the log mapping needs a finite
+// span); n, f > 0 with f > n.
+template <typename T>
+mat4<T> perspective_logzoom(T n, T f, T l, T r, T b, T t) {
+    return perspective_offaxis(n, f, l, r, b, t, depth_range::reversed_inf_far);
+}
+
 // Orthographic: UI/minimap passes, and any 2D-style pass. Same Vulkan NDC.
 template <typename T>
 mat4<T> ortho(T l, T r, T b, T t, T n, T f,

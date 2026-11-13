@@ -104,3 +104,64 @@ TEST_CASE("proj_offaxis") {
     const auto man = perspective_offaxis(1.f, 100.f, -2.f, 2.f, -1.f, 1.f);
     for (int i = 0; i < 16; ++i) CHECK(sym.m[i] == man.m[i]);
 }
+
+// test: logzoom_projection — 8.10 math half. The logarithmic depth mapping
+// spans surface metres -> AU in ONE pass (n=1 m, f=2^38 m ~ 2.75e11 m,
+// 38 octaves); the matrix half stays exactly the 1.6 off-axis builder so the
+// VR asymmetric per-eye shape (#43 AU-drag dependency) is untouched.
+TEST_CASE("logzoom_projection") {
+    // 2^38 = 274877906944.0 exact in double AND float; 38-octave span.
+    const double fspan = 274877906944.0; // = 2^38 exactly
+    const float ff = 274877906944.0f;
+
+    SUBCASE("mapping pins (reversed orientation: near -> 1, far -> 0)") {
+        CHECK(logzoom_ndc_z(1.0, 1.0, fspan) == 1.0);
+        CHECK(logzoom_ndc_z(fspan, 1.0, fspan) == 0.0);
+        // geometric mean of near/far maps to the exact middle of the budget
+        CHECK(logzoom_ndc_z(std::sqrt(fspan), 1.0, fspan) == 0.5);
+        // Octave linearity — every octave costs exactly 1/38 of the [0,1]
+        // budget, i.e. CONSTANT RELATIVE resolution from metres to AU.
+        for (int e = 0; e < 37; ++e) {
+            const double d = std::pow(2.0, e);
+            const double step = logzoom_ndc_z(d, 1.0, fspan) - logzoom_ndc_z(2.0 * d, 1.0, fspan);
+            CHECK(std::abs(step - 1.0 / 38.0) < 1e-12);
+        }
+        // fp32 depth buckets (D32 attachment): a relative nudge of 1e-4
+        // changes the stored float depth at EVERY octave — the whole span is
+        // representable, not just the near end.
+        for (int e = 0; e < 38; ++e) {
+            const double d = std::pow(2.0, e);
+            const float a = static_cast<float>(logzoom_ndc_z(d, 1.0, fspan));
+            const float b = static_cast<float>(logzoom_ndc_z(d * (1.0 + 1e-4), 1.0, fspan));
+            CHECK_MESSAGE(b < a, "octave " << e);
+        }
+    }
+
+    SUBCASE("shader refinement params") {
+        const auto p = logzoom_params(1.0, fspan);
+        CHECK(p.far_log2 == 38.0f);
+        CHECK(p.inv_log2_span == doctest::Approx(1.0f / 38.0f).epsilon(1e-7));
+    }
+
+    SUBCASE("matrix half = off-axis + reversed_inf_far z row, untouched VR shape") {
+        // Hand-authored HMD-style ASYMMETRIC tangents (a converged per-eye
+        // frustum shape): log-zoom must not perturb x/y at any depth.
+        const float l = -0.75f, r = 0.45f, b = -0.4f, t = 0.6f;
+        const auto P = perspective_logzoom(1.0f, ff, l, r, b, t);
+        const auto ref = perspective_offaxis(1.0f, ff, l, r, b, t, depth_range::reversed_inf_far);
+        for (int i = 0; i < 16; ++i) CHECK(P.m[i] == ref.m[i]);
+
+        // hardware fallback z = hyperbolic n/d (correctly ordered pre-refine)
+        CHECK(to_ndc(P, vec3f(0.f, 0.f, -2.f)).z == doctest::Approx(0.5).epsilon(1e-6));
+        CHECK(to_ndc(P, vec3f(0.f, 0.f, -100000000000.f)).z == doctest::Approx(1e-11).epsilon(1e-6));
+
+        // off-axis frustum edges pierce BOTH planes at ±1 (1.6 pin carried):
+        const float ds[2] = {1.f, ff};
+        for (const float d : ds) {
+            CHECK(approximately_equal(to_ndc(P, vec3f(l * d, 0.f, -d)).x, -1.f, 1e-6f));
+            CHECK(approximately_equal(to_ndc(P, vec3f(r * d, 0.f, -d)).x, 1.f, 1e-6f));
+            CHECK(approximately_equal(to_ndc(P, vec3f(0.f, b * d, -d)).y, 1.f, 1e-6f));
+            CHECK(approximately_equal(to_ndc(P, vec3f(0.f, t * d, -d)).y, -1.f, 1e-6f));
+        }
+    }
+}
