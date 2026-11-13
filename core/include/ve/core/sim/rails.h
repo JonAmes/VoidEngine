@@ -32,6 +32,16 @@ struct body_def {
     // surface_radius; aero only applies inside well_radius (#17).
     double atm_rho0_kg_m3 = 0.0;    // sea-level density, >= 0
     double atm_scale_height_m = 0.0; // > 0 whenever rho0 > 0
+    // Safe bubble (#22c amended by #50, 8.13): authored warp hard-wall
+    // radius about this body, m; 0 = no bubble. When > 0 it must reach
+    // >= max(surface_radius, well_radius) — the wall sits OUTSIDE the well
+    // and the terrain (add_body gate; cook gate in wrldvalidate). The
+    // wall's crossing math lives in safe_bubble.h; safe_speed is the
+    // authored sublight ceiling inside the bubble, consumed by game
+    // assist/autopilot glue (8.14+) — it rides here like the atm params.
+    // The impact damage VALUE is game-side data, never core.
+    double safe_bubble_radius = 0.0;
+    double safe_speed = 0.0;         // m/s; > 0 whenever a bubble exists
     // Kinematic rail (#17a). parent = -1 pins the body to the static root
     // anchor (world origin); otherwise a circular orbit about the parent.
     std::int32_t parent = -1;

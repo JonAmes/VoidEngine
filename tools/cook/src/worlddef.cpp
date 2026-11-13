@@ -272,6 +272,19 @@ bool cook_worlddef_source(const std::string& toml_text, core::cooked::Bytes& pay
                          false, 2.0)) return false;
             if (!sc.bare(tr->second.table, "gain", sc.def.terrain.gain, false, 0.5)) return false;
         }
+        // [safe] — #50 safe bubble (8.13): wall radius (#42 unit string),
+        // authored sublight speed ceiling, and the game-side FLAT impact
+        // value glue fires once per crossing. speed + impact are bare SI
+        // numbers like surface_g (the ratified #42 table has no velocity
+        // dim). All keys optional (0 = no bubble); the cross-field gates
+        // are wrldvalidate's job. The impact value never reaches the
+        // core — game WorldDef only.
+        if (const auto sf = root.table.find("safe"); sf != root.table.end()) {
+            if (!sf->second.is_table()) return sc.fail("safe", "expected a [safe] table");
+            if (!sc.unit(sf->second.table, "bubble", sc.def.rails.safe_bubble_radius, false)) return false;
+            if (!sc.bare(sf->second.table, "speed", sc.def.rails.safe_speed, false, 0.0)) return false;
+            if (!sc.bare(sf->second.table, "impact", sc.def.safe_impact, false, 0.0)) return false;
+        }
         if (const auto* rs = rows_of(root.table, "stamp")) {
             std::size_t i = 0;
             for (const auto& r : *rs) {

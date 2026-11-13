@@ -102,6 +102,28 @@ bool cook_wrld_validate(const std::string& self_id,
         }
     }
 
+    // ---- body [safe] gates (#50, 8.13), fixed order, first failure ----
+    // A bubble must reach past the well edge AND the surface (wall outside
+    // well outside body), needs its speed ceiling, and the impact value is
+    // a plain non-negative magnitude. All keys default 0 = no bubble.
+    if (self.world_class == WorldClass::body) {
+        const auto& sf = self.rails;
+        if (sf.safe_bubble_radius < 0.0 || sf.safe_speed < 0.0 || self.safe_impact < 0.0)
+            return fail("world '" + self_id + "': [safe] fields must be >= 0");
+        if (sf.safe_bubble_radius > 0.0) {
+            if (!(sf.safe_speed > 0.0))
+                return fail("world '" + self_id + "': [safe].bubble set without [safe].speed");
+            if (sf.safe_bubble_radius < sf.well_radius)
+                return fail("world '" + self_id + "': [safe].bubble " + m_num(sf.safe_bubble_radius) +
+                            " m is inside well_radius " + m_num(sf.well_radius) +
+                            " m — the warp wall cannot sit inside the gravity well");
+            if (sf.safe_bubble_radius < sf.surface_radius)
+                return fail("world '" + self_id + "': [safe].bubble " + m_num(sf.safe_bubble_radius) +
+                            " m is inside surface_radius " + m_num(sf.surface_radius) +
+                            " m — the warp wall cannot sit inside the terrain");
+        }
+    }
+
     // ---- system: the map graph itself (#20/#25/#27/#33/#39/#45) ----
     if (self.world_class == WorldClass::system) {
         // Members resolve and cooked as world defs (S1).

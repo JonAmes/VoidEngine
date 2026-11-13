@@ -181,6 +181,11 @@ spin_axis = [0.0, 1.0, 0.0]
 spin_rate = "360 deg/day"
 tags = ["owner.merchant_concord"]
 
+[safe]
+bubble = "1200000 km"
+speed = 3000
+impact = 250
+
 [terrain]
 seed = 4001
 relief = "8800 m"
@@ -439,6 +444,11 @@ TEST_CASE("realscale_world") {
     CHECK(thal->rails.atm_rho0_kg_m3 == doctest::Approx(1.225));
     CHECK(thal->rails.atm_scale_height_m == doctest::Approx(8500.0));
     CHECK(thal->rails.spin_rate_rad_s == 360.0 * kDeg_per_day);  // sidereal-day rate
+    // 8.13 [safe] trio rides the v7 payload (#50).
+    CHECK(thal->rails.safe_bubble_radius == 1.2e9);  // "1200000 km" >= well 6.371e8 (#22a band)
+    CHECK(thal->rails.safe_speed == 3000.0);         // bare SI m/s
+    CHECK(thal->safe_impact == 250.0);               // game-side flat value, never core
+    CHECK(fer->rails.safe_bubble_radius == 0.0);     // bodies without [safe]: no wall
 
     CHECK(fer->rails.surface_radius == 3.3895e6);        // Mars mean radius
     CHECK(fer->rails.well_radius == 3.3895e8);

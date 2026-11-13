@@ -586,6 +586,33 @@ TEST_CASE("worlddef_validate_stamps") {
 }
 
 
+TEST_CASE("worlddef_validate_safe") {
+    // [safe] body gates (#50, 8.13), fixed order, first failure only.
+    auto expect_gate = [&](std::vector<std::pair<std::string, std::string>> muts,
+                           const char* needle) {
+        const std::string err = gate_error(std::move(muts));
+        CHECK_MESSAGE(err.find(needle) != std::string::npos,
+                      "wanted '" << std::string{needle} << "', cook said: " << err);
+    };
+    const std::string safe_ok = repl(kVesper, "tags = [\"owner.vesper_authority\"]",
+        "tags = [\"owner.vesper_authority\"]\n[safe]\nbubble = \"9500 km\"\nspeed = 3000");
+    // control: a legal [safe] trio (wall 9500 km > well 9000 km) cooks green.
+    CHECK(gate_error({{kBody, safe_ok}}).empty());
+
+    // bubble inside the well: the warp wall cannot sit inside the well edge.
+    expect_gate({{kBody, repl(safe_ok, "bubble = \"9500 km\"", "bubble = \"7000 km\"")}},
+                "is inside well_radius");
+    // bubble without a speed ceiling: half-authored.
+    expect_gate({{kBody, repl(kVesper, "tags = [\"owner.vesper_authority\"]",
+        "tags = [\"owner.vesper_authority\"]\n[safe]\nbubble = \"9500 km\"")}},
+                "[safe].bubble set without [safe].speed");
+    // negative impact: the >= 0 gate fires FIRST even when the bubble is also
+    // inside the well (ladder pins the fixed order).
+    expect_gate({{kBody, repl(kVesper, "tags = [\"owner.vesper_authority\"]",
+        "tags = [\"owner.vesper_authority\"]\n[safe]\nbubble = \"7000 km\"\nspeed = 3000\nimpact = -5")}},
+                "[safe] fields must be >= 0");
+}
+
 TEST_CASE("worlddef_validate_graph_refs") {
     auto expect_gate = [&](std::vector<std::pair<std::string, std::string>> muts,
                            const char* needle) {

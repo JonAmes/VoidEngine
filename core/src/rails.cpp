@@ -48,6 +48,16 @@ std::optional<std::int32_t> rail_world::add_body(body_def def) {
     if (def.atm_rho0_kg_m3 > 0.0 &&
         !(def.atm_scale_height_m > 0.0 && def.well_radius > 0.0))
         return std::nullopt;
+    // Safe bubble (#50, 8.13): when authored, the wall must reach past
+    // both the well edge and the surface (bubble outside well outside
+    // body — the warp wall can never be inside terrain or the well).
+    // 0 = no bubble; NaN falls through the > 0 test into the finite gate.
+    if (def.safe_bubble_radius > 0.0 &&
+        !(def.safe_bubble_radius >= def.well_radius &&
+          def.safe_bubble_radius >= def.surface_radius))
+        return std::nullopt;
+    if (!std::isfinite(def.safe_bubble_radius) || !std::isfinite(def.safe_speed))
+        return std::nullopt;
     m_bodies.push_back(std::move(def));
     return static_cast<std::int32_t>(m_bodies.size() - 1);
 }

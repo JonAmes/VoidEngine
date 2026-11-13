@@ -8,8 +8,9 @@ add_library(ve_core STATIC
     src/ftl.cpp
     src/rails.cpp
     src/gravity.cpp
-    src/rigid.cpp
     src/replay.cpp
+    src/rigid.cpp
+    src/safe_bubble.cpp
     src/preview.cpp
     src/assist.cpp
     src/well_blend.cpp

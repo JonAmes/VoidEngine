@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "ve/core/math/vec.h"
+#include "ve/core/sim/safe_bubble.h"
 
 namespace ve::core::sim {
 
@@ -42,7 +43,17 @@ std::vector<rigid_state> ghost_preview(const rail_world& w, const ReplayLog& log
         // preview trajectory stretches through a warp leg like the sim
         // (same physics, same commands; only dt differs). 1.0 = identical
         // to pre-8.12 preview. Full warp-preview shaping is 8.14's gate.
+        const dvec3 p0 = s.pos;
         integrate_step_warp_dt(s, p, accel_world, torque, log.at(cmd_i).speed_mult, dt);
+        // #50 safe-bubble wall (8.13): same truncation the replay applies,
+        // sampled at the ghost's coarse step (the chord differs from the
+        // fine roll — same endpoint-vs-path caution 8.12 recorded for warp
+        // previews; the wall itself still pins the ghost outside the
+        // bubble, never inside it).
+        if (const double mult = log.at(cmd_i).speed_mult; mult > 1.0) {
+            const dvec3 disp = (s.vel * mult) * dt;  // integrator's exact grouping
+            if (const auto c = bubble_warp_contact(w, p0, disp, tick)) s.pos = c->pos;
+        }
         out.push_back(s);
     }
     return out;

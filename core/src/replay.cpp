@@ -6,6 +6,7 @@
 #include "ve/core/fnv.h"
 #include "ve/core/math/quat.h"
 #include "ve/core/sim/assist.h"
+#include "ve/core/sim/safe_bubble.h"
 #include "ve/core/sim/well_blend.h"
 
 namespace ve::core::sim {
@@ -73,7 +74,20 @@ void replay_step(const rail_world& w, const ReplayLog& log, std::size_t i, tick_
     // 8.12: the warp multiplier rides the RECORDED command (#22b) — replay
     // and scrubber reproduce a warp leg from the log alone, never from a
     // live drive state. 1.0 (every pre-8.12 log) = bit-identical replay.
+    const dvec3 p0 = s.pos;
     integrate_step_warp(s, p, accel_world, torque, log.at(i).speed_mult);
+    // #50 safe-bubble hard wall (8.13): a warp tick whose step touches or
+    // crosses an authored bubble surface resolves AT the surface (truncate
+    // to the TOI; re-pin bit-identically when the step starts there).
+    // Truncation is core-side and driven purely by state + recorded
+    // command, so replay and the scrubber resolve the wall bit-identically
+    // with the live sim. The forced decel itself is the recorded ramp-down
+    // (glue commands it in response to the crossing event — ftl.h's
+    // disengage door, authored and forced are one machinery).
+    if (const double mult = log.at(i).speed_mult; mult > 1.0) {
+        const dvec3 disp = (s.vel * mult) * kSim_tick_dt;  // integrator's exact grouping
+        if (const auto c = bubble_warp_contact(w, p0, disp, tick)) s.pos = c->pos;
+    }
 }
 
 } // namespace ve::core::sim

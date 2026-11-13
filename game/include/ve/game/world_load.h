@@ -128,6 +128,12 @@ struct WorldDef {
     // world assembly; here it stays a def-ref string).
     std::string parent_ref;                // '' = static root anchor (#45c)
     core::sim::body_def rails;             // well + atmos + orbit + spin, SI
+    // Safe bubble impact magnitude (#50c, 8.13): the FLAT damage points the
+    // glue applies (negative flat_add on hull, damage-as-data) once per
+    // bubble-edge crossing, at the first contact tick. Game-side value —
+    // the core body_def carries the wall (radius + safe_speed) but never
+    // a damage number. 0 = authored "no impact damage on crossing".
+    double safe_impact = 0.0;
     core::sim::terrain_def terrain;
     std::vector<core::sim::terrain_stamp> stamps;   // unnamed art stamps
     std::vector<WorldPoi> pois;

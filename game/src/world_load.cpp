@@ -152,6 +152,10 @@ core::cooked::Bytes encode_world(const WorldDef& def) {
         w.f64(r.orbit_period_s); w.f64(r.orbit_radius_m); w.f64(r.orbit_phase_rad);
         w.f64(r.spin_axis.x); w.f64(r.spin_axis.y); w.f64(r.spin_axis.z);
         w.f64(r.spin_rate_rad_s);
+        // #50 safe bubble trio (8.13): wall radius + sublight ceiling
+        // (core rails fields), then the game-side flat impact value.
+        w.f64(r.safe_bubble_radius); w.f64(r.safe_speed);
+        w.f64(def.safe_impact);
         w.u64(def.terrain.seed); w.f64(def.terrain.relief_m);
         w.f64(def.terrain.base_frequency); w.u32(static_cast<std::uint32_t>(def.terrain.octaves));
         w.f64(def.terrain.lacunarity); w.f64(def.terrain.gain);
@@ -243,6 +247,8 @@ std::expected<WorldDef, std::string> decode_world(const core::cooked::Bytes& pay
             b.orbit_phase_rad = r.f64();
             b.spin_axis = {r.f64(), r.f64(), r.f64()};
             b.spin_rate_rad_s = r.f64();
+            b.safe_bubble_radius = r.f64(); b.safe_speed = r.f64();
+            def.safe_impact = r.f64();
             b.parent = -1;  // refs resolve at assembly; payload never carries an index
             def.terrain.seed = r.u64(); def.terrain.relief_m = r.f64();
             def.terrain.base_frequency = r.f64();
