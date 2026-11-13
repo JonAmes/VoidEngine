@@ -291,3 +291,51 @@ is legal (rule 5: ordered container, explicit total order).
   exercise multi-rebase sequences. Mutation-checked: `>` → `>=` reds the
   exact-tick pins (11 assertions); cast-then-subtract in `to_local_f32` reds
   the AU-scale collapse pins (2 assertions).
+## 8.10 — log-zoom camera + reversed-Z float24 depth (commit beaf6a5)
+
+- A logarithmic depth mapping **cannot live in a `mat4`** (clip `z/w` is linear
+  in view space). The engine therefore pairs
+  (1) `perspective_logzoom` = off-axis x/y/w exactly as every other builder +
+  the `reversed_inf_far` z row — hardware z is then the hyperbolic `n/d`,
+  already correctly ordered, a sane pre-refinement fallback; and
+  (2) the ONE sanctioned GLSL refinement:
+  `gl_FragDepth = clamp((log2(f) + log2(gl_FragCoord.w)) * inv_log2_span, 0, 1)`.
+- **GLSL window-coord trap:** `gl_FragCoord.w` is `1/w_clip`, NOT `w_clip`.
+  For these pinhole builders `w_clip = -z_view = d`, so `log2(d) =
+  -log2(FragCoord.w)` and the sign in front of it is PLUS. The first pass of
+  the test shipped the minus sign: the depth gradient inverted, near/far edges
+  swapped in the golden and the readback flipped sign at 2^37 m — the pinned
+  color-vs-depth contradiction caught it ("C is green left of D" failed at
+  (8,24)). Pinned so the trap can never resurface silently.
+- Orientation stays **reversed: near -> 1, far -> 0** — pairs the existing
+  GREATER compare + depth-clear-to-0 of 3.3. Host mirror
+  `logzoom_ndc_z(d,n,f) = (log2 f - log2 d) / log2(f/n)`; resolution is
+  constant RELATIVE: one octave = 1/log2(f/n) of the [0,1] budget EVERYWHERE.
+  At AU (d ~ 1.37e11 m, span 38 octaves) the hyperbolic hw z puts one octave
+  at ~3.6e-12 (~4 f32 ulp); the log map puts it at 0.026 — ~50M times more
+  headroom, which is what "near AND far resolve in one frame" runs on.
+- Span pins n=1 m, f=2^38 m: 38 octaves; 2^38 exact in float (2^48 would not
+  be). Far pair at 2^37 m vs 2^37-2e6 m (2 m separation in front) — the
+  z-readback gap is ~3 f32 ulp, resolvable only because the mapping is log.
+- **float24+:** `kDepthFormat` is `D32_SFLOAT` since 3.3 (comfortably above
+  PLAN's float24 budget); UNORM depth would quantize octaves uniformly and is
+  disallowed for this pass. The test asserts the attachment format directly.
+- **VR off-axis rule survives untouched:** `perspective_logzoom` reuses the
+  off-axis builder, so log depth cannot perturb x/y. Tier-1 pins all four
+  asymmetric frustum edges + center ray + x/y rows independent of the z row;
+  Tier-2 renders an asymmetric frustum (l/r/b/t = -0.75/0.45/-0.4/0.6) and
+  predicts every quad's screen box from the 1.6 x/y map.
+- `gfx/camera.cpp` still selects `perspective_offaxis` per eye: the frustum
+  SWITCH to a log-zoom range rides 8.11, where the real-scale slice world
+  first supplies a real AU frustum. 8.10 pins the math + GPU contract named
+  by the checklist.
+- **Geometry pin trap (cost a debugging pass):** the debug VS square strip's
+  corner multipliers must be +-1 when `qa.xy` carries the half-extent; a +-0.5
+  set silently halves every quad and every predicted pixel box misses.
+  Cross-checked golden pixel boxes against hand-computed tangent->px
+  predictions (PIL) before accepting the golden; determinism via
+  byte-identical regeneration (cmp).
+- Mutations: plus->minus in the shader reds `depth_zfight_golden`; host-
+  mirror sign flip reds `logzoom_projection`; deleting the refinement
+  entirely (hyperbolic hw z only) reds the z-value pins — each pins one half
+  of the matrix+shader pair.
