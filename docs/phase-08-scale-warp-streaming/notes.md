@@ -558,3 +558,93 @@ non-dyadic entry (z0 = 1629.5) that truncates 1 ulp INSIDE. MUT4 initially
 SURVIVED — the rejecting fixture failed an UNRELATED gate (missing
 `well_taper_start`), masking the mutation; a mutation probe must isolate
 the gate it targets. Full suite 172 cases / 8,315,691 assertions green; ci_local GREEN, Total Test time 362.04 s (no display, ASan+UBSan).
+
+## 8.14 — first scripted warp leg at real system scale (test-only, no new engine code)
+
+`tests/core/test_warp_leg_scenario.cpp` runs Thalassa→Ferrous (1.52 AU fixture
+separation, 8.11 world) end-to-end on shipped machinery only: rail bodies +
+#50 bubbles + ftl machine + reservoir/stats glue + the 8.13 replay wall hook.
+Done-when (a) evidence. No core/gfx/game file changed — 8.13's machinery
+already covers every leg stage.
+
+**Pin authority: `tests/scenarios/port_warp_leg.py`** — an op-for-op fp64
+Python port (rails, well-blend total_accel with 0.25 dominance band, the
+warp half-step `vel += a·dt; pos += (vel·mult)·dt`, ftl ramps + anchors,
+reservoir closed form, Fnv1a64 over the same state_hash, replay wall hook
+with the quarter-coefficient roots + 2⁻⁴⁰ band + strict inside check,
+ascending-body scan, first hit wins). Pins come from the port; the
+interval-hash literal (0xB4305E2D05418068) matching bit-identically is the
+proof the port mirrored the C++ ops exactly. Keep the port next to the test:
+when engine math changes, re-run the port first and read the drift there.
+
+**Pinned leg:** sublight climb 17,312 ticks → door opens tick 17313
+(first tick strictly outside the departure bubble) → 600-tick spool ramp →
+cruise at mult 5000 (16.67 Mm/tick chords) → arrival-bubble crossing tick
+31391 (forced spool-down 600 ticks, hull.hp flat_add −(v·mult−v)²×1e-5 via
+the stats pipeline, #50c) → wall hold 1000 ticks → arrival predicate tick
+32324. Reservoir lands 35,000 − 17,400,000 propellant-seconds exactly
+(cruise load 1000 × 17,400 warp-s + closed-form ramp integral
+(s⁻¹·(m−1)²/2), hand-derived in the test). Replay-hash interval over all
+32,325 ticks pinned twice-equal.
+
+**Counterfactual (blind engage, tick 10000 deep inside the departure
+bubble):** the ftl machine accepts — enforcement lives in the wall layer,
+not the drive (#50a) — and the exit-root truncation pins the ship ON the
+departure wall from first contact (port pin: tick 10042) through full
+mult 5000; no warp passage ever; the leg can only end by sublight
+disengage. `b.wall == 10042` pinned.
+
+**Ghost preview across the leg (8.12's hook proven):** divisor-1 windows
+before/after crossing reproduce the recorded trajectory BIT-EXACT (the
+coarse dt = kSim_tick_dt·D is the canonical tick multiple, so rounding
+matches the recorder); divisor-2 coarse steps (D·kSim_tick_dt is NOT a
+canonical multiple — deliberate) stay on-track to ulp accumulation
+(<0.1 m over 700 coarse steps at 2e11 m — 8 orders below one 16.7 Mm
+warp step; the 0.25 band makes gravity bitwise-identical at every leg
+sample, so divergence is pure double-rounding).
+
+**Gotchas this box paid for:**
+- doctest "Expression Too Complex": any CHECK whose operand mixes
+  `a > b && a < c` or a temporary `std::optional<T>(0)` comparison fails
+  the static assert — hoist to a named bool / split comparisons.
+- Loop-break patterns inside doctest loops must be sentinel-guarded
+  (`bad = SIZE_MAX; if (...) { bad = t; break; } CHECK(bad == SIZE_MAX)`)
+  — a bare CHECK inside a break-path skips silently.
+- Coarse ghost step k lands on live tick `start + D·k + 1` (last tick it
+  consumed), not `start + D·k` — off-by-one when diffing against recorded
+  states.
+- Never pin bit-equality ACROSS implementations for distance: the port's
+  `math.dist` is correctly-rounded, C++ `length()` is `sqrt(fl(x²))`;
+  cross-impl distance checks ride a tolerance, hash pins carry the exact
+  fidelity proof.
+- doctest `-tc=` matches whole case names; partial names match nothing
+  (silent 0-run looked like a green suite).
+
+**8.14.5 — two ladder survivors, closed at their owners (ac4f8c8).**
+The mutation ladder (wall hook off / band 2⁻³⁰ / ramp +0.1% / reservoir dt
++0.01% / preview clamp / dominance band 0.5) killed 4/6 through the
+scenario; the 2⁻⁴⁰ surface band and the 0.25 dominance default SURVIVED —
+the leg's geometry never samples either discriminating window (its fp-slip
+residue is one ulp, inside every band up to 2⁻³⁰; its weak well is at
+ratio ~0.1 or ~1.0, outside the blend-vs-suppress corridor). Pinning a
+property at a sample that can't distinguish it is theatre — the pins went
+where they bite instead:
+- `safe_bubble_crossing` subcase "band window": 350 pm outside the wall
+  (|f0| = 7.17e-7 ≤ r²·2⁻⁴⁰ = 9.54e-7 → f0 := 0 → u=0 wall contact, pos
+  unchanged) vs 700 pm outside (|f0| = 1.43e-6 > band → raw start-outside,
+  outward entry root ≤ 0 → no contact). Any band narrower than 2⁻⁴⁰ flips
+  the first; any band ≥ 2⁻³⁹ flips the second. Both KILL the 2⁻³⁰ mutation.
+- new `sim_well_blend_dominance_band` case: on the planet→moon line at
+  9500 m, moon/planet well ratio = 0.5830 ∈ (0.5, 0.75): the 0.25 default
+  suppresses the moon to weight EXACTLY 0 (smoothstep clamp at the −0.667
+  ramp foot), w_sum = 1 → total_accel BIT-IDENTICAL to the planet's raw
+  accel; any default in (0.25, 0.583] gives the moon weight > 0 and the
+  equality check dies. Hand-pinned values: planet g = 2.3450788880540956
+  (u = 7500/11000 mid-ramp fp64 op-order), moon g = 1.3671875 (u = 3/8,
+  exact binary).
+
+Evidence (all headless, ASan+UBSan): targeted `warp_leg_scenario` 1 case /
+32,388 assertions; new pins green before/against mutation split verified by
+attr re-run (both rc=1 KILLED); full suite `./tools/ci_local.sh` GREEN
+359.13 s — 174 test cases / 8,348,093 assertions, 0 failed, replay goldens
+untouched (zero golden drift after 8.14).
