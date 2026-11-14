@@ -648,3 +648,53 @@ Evidence (all headless, ASan+UBSan): targeted `warp_leg_scenario` 1 case /
 attr re-run (both rc=1 KILLED); full suite `./tools/ci_local.sh` GREEN
 359.13 s — 174 test cases / 8,348,093 assertions, 0 failed, replay goldens
 untouched (zero golden drift after 8.14).
+
+**8.15 — time compression + physics LOD (decision #53).** World-time
+compression is *integer tick multiples*: a far body integrates once every
+m ticks, each coarse step advancing sim time by exactly the elapsed tick
+gap since that body's last step — a rational multiple of the canonical
+tick riding 4.10's authorized variable-dt path (`integrate_step_warp_dt`),
+never a free-float dt, never skipped sim time. Bands are observer-relative
+(#53a): plain distance thresholds re-evaluated EVERY tick through the
+hysteresis-free threshold-band contract (first match wins, no match =
+divisor 1); the payload is an integer step divisor 1..1000, not a tag.
+A coarse body samples gravity/assists/warp-mult ONCE at the interval-start
+tick (#53b) — the same recorded-command spine + shared
+`resolve_warp_bubble_wall` helper that `replay_step` uses, so live,
+replay, and scrub agree on the wall bit-for-bit.
+
+The lattice is PURE INTEGER state and, decisively, DERIVED: live run,
+determinism re-run, and scrubber each rebuild a body's phase in closed
+form from the RECORDED divisor schedule (`lod_lattice_at`) — transitions
+apply at their tick BEFORE that tick's due test, and a divisor drop
+resumes full rate on the switch tick itself, catching the whole elapsed
+gap in one authorized long step. Nothing mutates lattice state out of
+schedule order, which is why scrub hashes equal live-compressed hashes
+bit-for-bit at every tick (#53c) — the schedule equality operator makes
+"same run" an integer fact, not a float comparison. Pin 1 guards against
+a second physics implementation: divisor 1 through `lod_replay_step` is
+BIT-FOR-BIT `replay_step`.
+
+Evidence (all headless, ASan+UBSan): `lod_divisor1_equals_replay_step_bitwise`
+20k ticks hashes memcmp-equal vs the reference spine;
+`lod_lattice_schedule_closed_form` walks a 100→1000→1 schedule and pins
+the closed-form phase at every tick incl. the 5310 catch-up stride;
+`lod_band_contract` pins validator + first-match + no-match→1;
+`time_compression_lod` flies the 8.14 Thalassa→Ferrous leg with the
+observer 1e9 m / divisor 1000 — schedule exactly {17090→1000, 31090→1},
+arrival 31090 vs reference 29900 (1190-tick gap, well inside the ±3000
+pin), the far leg's 13,999 ticks covered by 14 coarse steps
+(17,105 total physics steps vs 29,901 full rate — 99.9% of far-leg
+physics skipped), crossing pinned at the 4.0e7 m wall (retained position
+NEVER inside while warp is engaged; sublight entry after the forced
+disengage is legal), bounded error pins at ±2000/±3000 ticks, and the scrubber replays the
+compressed capture bit-for-bit at every sampled tick (step_frame keeps
+lattice phase; rebuilt-from-zero scrub costs < half the full-rate steps);
+`compression_event_order` runs the compressed leg twice — identical hash
+vectors, schedules, and full event streams (order + seq), nav stats change
+only on step ticks while `warp.live_mult` fires on physics-FROZEN ticks
+inside the far interval, and the reservoir stays tick-dense: tank
+divergence is exactly the FTL flow over the bounded crossing offset
+(39.7 kg over 1190 ticks). Full gate `./tools/ci_local.sh` GREEN
+386.45 s — 179 test cases / 8,518,131 assertions, 0 failed, replay
+goldens untouched (zero golden drift after 8.15).
