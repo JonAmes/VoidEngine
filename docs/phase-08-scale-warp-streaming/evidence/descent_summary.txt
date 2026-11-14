@@ -1,0 +1,12 @@
+8.18 descent segment (HUMAN EYES; the pop/Z-fight proof is the
+terrain_descent_golden ctest test). Streaming chunks + morph
+skirts + log-zoom reversed-Z, ONE projection for the whole ride.
+world (DEMO-ONLY dramatized data, pinned goldens untouched):
+  r=6e6 m, seed 0xB17E5EED, relief 8 km @ base_freq 300 oct5
+  (~126 km -> ~8 km features), 1 crater stamp 0.02 rad 1 km deep
+  (the golden-test twin field is a 0.05%-slope plane at these
+  scales - locally invisible; shading = band x per-frame-normalized
+  height x soft slope shade, cosmetic only)
+camera: crater-slope axis 0.017 rad off crater center, 20 km -> 1500 m, 12 frames, fov tangents +-1
+chunks frame0=624 tris frame0=19968 | chunks last=74 tris last=2368 | worst painted=0.933325
+blue clear = hole probe (painted = non-blue); gate painted>=0.90 -> PASS

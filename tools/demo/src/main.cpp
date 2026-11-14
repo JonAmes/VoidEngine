@@ -35,6 +35,7 @@
 #include <ve/cook/cook.h>
 #include <ve/demo/png_out.h>
 #include <ve/demo/terrain_mode.h>
+#include <ve/demo/descent_mode.h>
 #include <ve/gfx/camera.h>
 #include <ve/gfx/descriptor.h>
 #include <ve/gfx/device.h>
@@ -677,8 +678,9 @@ int main(int argc, char** argv) {
                 stride = v;
             }
         } else if (arg == "--mode") {
-            if (value != "spin" && value != "flight" && value != "terrain") {
-                std::fprintf(stderr, "--mode takes spin, flight or terrain\n");
+            if (value != "spin" && value != "flight" && value != "terrain" &&
+                value != "descent") {
+                std::fprintf(stderr, "--mode takes spin, flight, terrain or descent\n");
                 return 2;
             }
             mode = value;
@@ -702,6 +704,7 @@ int main(int argc, char** argv) {
     }
     const bool flight_mode = (mode == "flight");
     const bool terrain_mode = (mode == "terrain"); // 8.6 spike (#17d)
+    const bool descent_mode = (mode == "descent"); // 8.18 descent segment
 
     std::error_code ec;
     const std::filesystem::path shaders = shaders_dir.empty()
@@ -754,7 +757,7 @@ int main(int argc, char** argv) {
     ve::core::cooked::Unit vert_unit;
     ve::core::cooked::Unit frag_unit;
     std::string err;
-    if (!flight_mode && !terrain_mode) {
+    if (!flight_mode && !terrain_mode && !descent_mode) {
         const std::filesystem::path vert_path = find_unit(units_dir, "demo_tri.vert");
         const std::filesystem::path frag_path = find_unit(units_dir, "demo_tri.frag");
         if (vert_path.empty() || frag_path.empty()) {
@@ -778,6 +781,8 @@ int main(int argc, char** argv) {
         static_cast<int>(width), static_cast<int>(height),
         flight_mode   ? "void-engine 7.16 - scripted flight"
         : terrain_mode ? "void-engine 8.6 - terrain look spike"
+        : descent_mode  ? "void-engine 8.18 - streamed descent"
+
                        : "void-engine 2.9 - rotating triangle");
     if (!win) {
         fail(win.error());
@@ -878,6 +883,9 @@ int main(int argc, char** argv) {
     // ==================================================================
     if (terrain_mode) {
         return finish(ve::demo::run_terrain_mode(*win, *dev, *pres, units_dir, out, frames));
+    }
+    if (descent_mode) {
+        return finish(ve::demo::run_descent_mode(*win, *dev, *pres, units_dir, out, frames));
     }
 
     // ==================================================================

@@ -20,3 +20,93 @@
 [INFO ] demo: presenter target 1280x720 VK_FORMAT_B8G8R8A8_UNORM
 [INFO ] terrain spike: stylized 20736 v / 6912 t, realistic 106134 v / 209088 t
 [INFO ] terrain spike: painted stylized=0.580 realistic=0.611 diff=0.612 median 85.8 ms
+[INFO ] demo: cooked 8, unchanged 0 -> docs/phase-08-scale-warp-streaming/evidence/cook
+[INFO ] gfx: VkInstance @API 1.3 created on 1 device(s), validation ON
+[INFO ] gfx: logical device 'llvmpipe (LLVM 21.1.8, 256 bits)' (family 0 graphics queue, present same family)
+[INFO ] gfx: WSI presenter up — 640x360, 4 swapchain image(s), FIFO, 2 frames in flight
+[INFO ] demo: presenter target 640x360 VK_FORMAT_B8G8R8A8_UNORM
+[INFO ] descent: frame 0 alt 20000 m  chunks 84  tris 2688  painted 1.000
+[INFO ] descent: frame 1 alt 15804 m  chunks 84  tris 2688  painted 1.000
+[INFO ] descent: frame 2 alt 12488 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 3 alt 9868 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 4 alt 7798 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 5 alt 6162 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 6 alt 4869 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 7 alt 3847 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 8 alt 3040 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 9 alt 2402 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 10 alt 1898 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 11 alt 1500 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: 12 frames, alt 20000 -> 1500 m, worst painted 1.000
+[INFO ] demo: cooked 1, unchanged 7 -> docs/phase-08-scale-warp-streaming/evidence/cook
+[INFO ] gfx: VkInstance @API 1.3 created on 1 device(s), validation ON
+[INFO ] gfx: logical device 'llvmpipe (LLVM 21.1.8, 256 bits)' (family 0 graphics queue, present same family)
+[INFO ] gfx: WSI presenter up — 640x360, 4 swapchain image(s), FIFO, 2 frames in flight
+[INFO ] demo: presenter target 640x360 VK_FORMAT_B8G8R8A8_UNORM
+[INFO ] descent: frame 0 alt 20000 m  chunks 72  tris 2304  painted 1.000
+[INFO ] descent: frame 1 alt 15804 m  chunks 72  tris 2304  painted 1.000
+[INFO ] descent: frame 2 alt 12488 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 3 alt 9868 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 4 alt 7798 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 5 alt 6162 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 6 alt 4869 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 7 alt 3847 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 8 alt 3040 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 9 alt 2402 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 10 alt 1898 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: frame 11 alt 1500 m  chunks 68  tris 2176  painted 1.000
+[INFO ] descent: 12 frames, alt 20000 -> 1500 m, worst painted 1.000
+[INFO ] demo: cooked 0, unchanged 8 -> docs/phase-08-scale-warp-streaming/evidence/cook
+[INFO ] gfx: VkInstance @API 1.3 created on 1 device(s), validation ON
+[INFO ] gfx: logical device 'llvmpipe (LLVM 21.1.8, 256 bits)' (family 0 graphics queue, present same family)
+[INFO ] gfx: WSI presenter up — 640x360, 4 swapchain image(s), FIFO, 2 frames in flight
+[INFO ] demo: presenter target 640x360 VK_FORMAT_B8G8R8A8_UNORM
+[INFO ] descent: frame 0 alt 20000 m  chunks 84  tris 2688  painted 1.000
+[INFO ] descent: frame 1 alt 15804 m  chunks 82  tris 2624  painted 1.000
+[INFO ] descent: frame 2 alt 12488 m  chunks 76  tris 2432  painted 1.000
+[INFO ] descent: frame 3 alt 9868 m  chunks 74  tris 2368  painted 1.000
+[INFO ] descent: frame 4 alt 7798 m  chunks 72  tris 2304  painted 1.000
+[INFO ] descent: frame 5 alt 6162 m  chunks 72  tris 2304  painted 1.000
+[INFO ] descent: frame 6 alt 4869 m  chunks 70  tris 2240  painted 1.000
+[INFO ] descent: frame 7 alt 3847 m  chunks 70  tris 2240  painted 1.000
+[INFO ] descent: frame 8 alt 3040 m  chunks 70  tris 2240  painted 1.000
+[INFO ] descent: frame 9 alt 2402 m  chunks 70  tris 2240  painted 1.000
+[INFO ] descent: frame 10 alt 1898 m  chunks 70  tris 2240  painted 1.000
+[INFO ] descent: frame 11 alt 1500 m  chunks 70  tris 2240  painted 1.000
+[INFO ] descent: 12 frames, alt 20000 -> 1500 m, worst painted 1.000
+[INFO ] demo: cooked 0, unchanged 8 -> docs/phase-08-scale-warp-streaming/evidence/cook
+[INFO ] gfx: VkInstance @API 1.3 created on 1 device(s), validation ON
+[INFO ] gfx: logical device 'llvmpipe (LLVM 21.1.8, 256 bits)' (family 0 graphics queue, present same family)
+[INFO ] gfx: WSI presenter up — 640x360, 4 swapchain image(s), FIFO, 2 frames in flight
+[INFO ] demo: presenter target 640x360 VK_FORMAT_B8G8R8A8_UNORM
+[INFO ] descent: frame 0 alt 20000 m  chunks 84  tris 2688  painted 1.000
+[INFO ] descent: frame 1 alt 15804 m  chunks 82  tris 2624  painted 1.000
+[INFO ] descent: frame 2 alt 12488 m  chunks 76  tris 2432  painted 1.000
+[INFO ] descent: frame 3 alt 9868 m  chunks 74  tris 2368  painted 1.000
+[INFO ] descent: frame 4 alt 7798 m  chunks 72  tris 2304  painted 1.000
+[INFO ] descent: frame 5 alt 6162 m  chunks 72  tris 2304  painted 1.000
+[INFO ] descent: frame 6 alt 4869 m  chunks 70  tris 2240  painted 1.000
+[INFO ] descent: frame 7 alt 3847 m  chunks 70  tris 2240  painted 1.000
+[INFO ] descent: frame 8 alt 3040 m  chunks 70  tris 2240  painted 1.000
+[INFO ] descent: frame 9 alt 2402 m  chunks 70  tris 2240  painted 1.000
+[INFO ] descent: frame 10 alt 1898 m  chunks 70  tris 2240  painted 1.000
+[INFO ] descent: frame 11 alt 1500 m  chunks 70  tris 2240  painted 1.000
+[INFO ] descent: 12 frames, alt 20000 -> 1500 m, worst painted 1.000
+[INFO ] demo: cooked 2, unchanged 6 -> docs/phase-08-scale-warp-streaming/evidence/cook
+[INFO ] gfx: VkInstance @API 1.3 created on 1 device(s), validation ON
+[INFO ] gfx: logical device 'llvmpipe (LLVM 21.1.8, 256 bits)' (family 0 graphics queue, present same family)
+[INFO ] gfx: WSI presenter up — 640x360, 4 swapchain image(s), FIFO, 2 frames in flight
+[INFO ] demo: presenter target 640x360 VK_FORMAT_B8G8R8A8_UNORM
+[INFO ] descent: frame 0 alt 20000 m  chunks 624  tris 19968  painted 1.000 hspan 23138 m
+[INFO ] descent: frame 1 alt 15804 m  chunks 399  tris 12768  painted 1.000 hspan 23138 m
+[INFO ] descent: frame 2 alt 12488 m  chunks 284  tris 9088  painted 1.000 hspan 23138 m
+[INFO ] descent: frame 3 alt 9868 m  chunks 217  tris 6944  painted 1.000 hspan 23138 m
+[INFO ] descent: frame 4 alt 7798 m  chunks 173  tris 5536  painted 1.000 hspan 23138 m
+[INFO ] descent: frame 5 alt 6162 m  chunks 134  tris 4288  painted 1.000 hspan 23138 m
+[INFO ] descent: frame 6 alt 4869 m  chunks 106  tris 3392  painted 1.000 hspan 23138 m
+[INFO ] descent: frame 7 alt 3847 m  chunks 98  tris 3136  painted 1.000 hspan 23138 m
+[INFO ] descent: frame 8 alt 3040 m  chunks 84  tris 2688  painted 0.988 hspan 23138 m
+[INFO ] descent: frame 9 alt 2402 m  chunks 84  tris 2688  painted 1.000 hspan 23138 m
+[INFO ] descent: frame 10 alt 1898 m  chunks 80  tris 2560  painted 0.953 hspan 23138 m
+[INFO ] descent: frame 11 alt 1500 m  chunks 74  tris 2368  painted 0.933 hspan 23138 m
+[INFO ] descent: 12 frames, alt 20000 -> 1500 m, worst painted 0.933
