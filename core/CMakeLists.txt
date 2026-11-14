@@ -34,6 +34,7 @@ add_library(ve_core STATIC
     src/bands.cpp
     src/curve.cpp
     src/scrubber.cpp
+    src/lod.cpp
     src/inertia.cpp
     src/thruster.cpp
     src/terrain.cpp

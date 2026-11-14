@@ -22,6 +22,7 @@
 
 #include "ve/core/math/quat.h"
 #include "ve/core/math/vec.h"
+#include "ve/core/sim/lod.h"
 #include "ve/core/sim/replay.h"
 #include "ve/core/sim/rigid.h"
 #include "ve/core/sim/time.h"
@@ -55,6 +56,16 @@ public:
     // STRICTLY ascending, within [-1, log size). Rejects (keeps old record,
     // returns false) on any violation — load is all-or-nothing.
     bool load(ReplayLog log, std::vector<sim_checkpoint> cps);
+
+    // 8.15 (#53c): load a COMPRESSED capture — the same tick-DENSE log and
+    // checkpoints, plus the recorded divisor schedule (strictly ascending
+    // ticks within [0, log size), divisors in [1, kLod_max_divisor]). The
+    // scrubber then replays with the exact lattice the live compressed run
+    // used (lod_replay_step per body phase rebuilt from sched), so scrub
+    // hashes == live-compressed hashes bit-for-bit at every tick. All-
+    // or-nothing like load(). An empty schedule = plain full-rate replay.
+    bool load_compressed(ReplayLog log, std::vector<sim_checkpoint> cps,
+                         std::vector<lod_transition> sched);
 
     std::size_t checkpoint_count() const { return m_cps.size(); }
     std::size_t log_size() const { return m_log.size(); }
@@ -94,6 +105,13 @@ private:
     rigid_params m_p;
     ReplayLog m_log;                    // owned copy of the stored record
     std::vector<sim_checkpoint> m_cps;  // ascending (ordered container, #5)
+    // 8.15 (#53c): compressed record — tick-dense log + recorded divisor
+    // schedule; the cursor's incremental lattice phase (m_body/m_sched_i)
+    // continues step_frame runs after a jump_to.
+    bool m_compressed = false;
+    std::vector<lod_transition> m_sched;
+    lod_body m_body{};
+    std::size_t m_sched_i = 0;
     bool m_have = false;
     tick_t m_cursor = -1;
     rigid_state m_s{};
