@@ -38,6 +38,7 @@ add_library(ve_core STATIC
     src/inertia.cpp
     src/thruster.cpp
     src/terrain.cpp
+    src/terrain_stream.cpp
     src/swept.cpp
     src/aero.cpp
     src/aero_heat.cpp

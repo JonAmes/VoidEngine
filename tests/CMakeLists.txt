@@ -37,6 +37,7 @@ add_executable(engine_tests
     core/test_sim_spin.cpp
     core/test_terrain_sampler.cpp
     core/test_terrain_stamps.cpp
+    core/test_terrain_streaming.cpp
     core/test_swept_contact.cpp
     core/test_ecs.cpp
     core/test_sim_aero.cpp
