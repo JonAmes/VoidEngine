@@ -1,0 +1,13 @@
+﻿{
+  "name": "void-engine",
+  "version": "0.0.0",
+  "dependencies": [
+    {
+      "name": "glslang",
+      "default-features": false,
+      "features": [
+        "tools"
+      ]
+    }
+  ]
+}
