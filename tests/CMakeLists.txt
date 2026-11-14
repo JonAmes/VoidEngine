@@ -71,6 +71,7 @@ add_executable(engine_tests
     core/test_ftl_flow.cpp
     core/test_ftl_spool.cpp
     core/test_safe_bubble.cpp
+    core/test_warp_leg_scenario.cpp
     core/test_wiring_reach.cpp
     core/test_wiring_dark_set.cpp
     core/test_market_price.cpp
