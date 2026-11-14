@@ -502,7 +502,9 @@ TEST_CASE("eva_round_trip") {
             (void)sim::eva_walk_step(s, kSuit, grav, g, kBoots, v_walk,
                                      sim::kAssist_auto_level |
                                          sim::kAssist_stabilizer);
-            depth.push_back(t);  // monotone tick marker
+            // monotone tick marker; explicit cast: int64->double trips MSVC
+            // C4244 under /WX (lossless here, kSpan = 2'400)
+            depth.push_back(static_cast<double>(t));
             air_v.push_back(air.value());
             h = mix_d(h, s.pos.x);
             h = mix_d(h, s.pos.y);

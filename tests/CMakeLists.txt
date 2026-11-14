@@ -12,6 +12,14 @@ if(MSVC)
     # doctest::doctest is an ALIAS; flags have to go on the real target (same
     # alias-vs-real rule as TracyClient in the top-level CMakeLists).
     target_compile_options(doctest INTERFACE /wd5285)
+    # MSVC 14.51 moved string_view's operator<< into __msvc_string_view.hpp,
+    # which needs the *complete* std::basic_ostream. doctest 2.4.11's default
+    # mode forward-declares it instead (UB per the standard), so any test TU
+    # that includes <string> without <ostream> fails to compile (badbit /
+    # undefined-type errors in test_occupancy.cpp were the first casualty).
+    # DOCTEST_CONFIG_USE_STD_HEADERS is doctest's supported switch to include
+    # the real std headers; scoped to MSVC so the Linux gate is untouched.
+    target_compile_definitions(doctest INTERFACE DOCTEST_CONFIG_USE_STD_HEADERS)
 endif()
 
 add_executable(engine_tests

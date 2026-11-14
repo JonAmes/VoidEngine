@@ -1,0 +1,11 @@
+# Linux-first repo, Windows-supported target (decision #38): the working tree
+# must be LF on every platform. core.autocrlf=true checkouts were turning the
+# TOML fixtures CRLF, which breaks the byte-exact line-splice pins in the 8.2
+# forms / 8.5 loadout-editor suites. eol=lf overrides autocrlf per-checkout.
+* text=auto eol=lf
+
+# Binary assets: never eol-converted.
+*.ttf binary
+*.glb binary
+*.png binary
+*.zip binary

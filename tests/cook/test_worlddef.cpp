@@ -40,7 +40,7 @@ struct Tree {
     Tree() {
         static int n = 0;
         auto base = std::filesystem::temp_directory_path() /
-                    ("ve_worlddef_" + std::to_string(getpid()) + "_" + std::to_string(++n));
+                    ("ve_worlddef_" + std::to_string(ve_test::pid()) + "_" + std::to_string(++n));
         src = base / "src";
         out = base / "out";
         std::filesystem::remove_all(base);
@@ -266,7 +266,7 @@ void write_slice(const Tree& t) {
 core::cooked::Unit unit_of(const Tree& t, const std::string& id) {
     core::cooked::Unit u;
     std::string err;
-    REQUIRE_MESSAGE(core::cooked::read_unit_file(t.out / ("units/" + id + ".ck"), u, &err), err);
+    REQUIRE_MESSAGE(core::cooked::read_unit_file((t.out / ("units/" + id + ".ck")).string(), u, &err), err);
     return u;
 }
 
@@ -416,7 +416,7 @@ TEST_CASE("worlddef_manifest_deps") {
 
     core::cooked::Manifest m;
     std::string err;
-    REQUIRE(core::cooked::read_manifest(t.out / "manifest.bin", m, &err));
+    REQUIRE(core::cooked::read_manifest((t.out / "manifest.bin").string(), m, &err));
 
     const auto* sys = entry_of(m, "world/system.toml");
     REQUIRE(sys);

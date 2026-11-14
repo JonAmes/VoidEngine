@@ -6,8 +6,6 @@
 // write -> REAL watch-mode cook (cook_incremental) -> reload -> mount
 // equality. Selection split per 8.4: hull def selection is the panel's own
 // working state (entity selection stays in the 8.3 selection_service).
-#include <unistd.h>  // getpid: unique staging roots
-
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
@@ -135,7 +133,7 @@ game::loadout_snapshot snapshot_from(const std::string& def_id, const std::strin
 TEST_CASE("loadout_editor_panel") {
     // ---- stage + COOK the real fixture tree (8.2/8.4 doctrine) ------------
     const auto root = std::filesystem::temp_directory_path() /
-                      ("ve_ldt_tree_" + std::to_string(::getpid()));
+                      ("ve_ldt_tree_" + std::to_string(ve_test::pid()));
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root / "defs");
     std::filesystem::create_directories(root / "samples");

@@ -235,9 +235,9 @@ TEST_CASE("seat_stats_linkage") {
                                     mk("crew.output", "t", mod_op::multiplier, 1.25f)};
             link.add_affordance(p_aff);
             bus.begin_tick(3);
-            link.sit(7, "seat_pilot", crew);
+            REQUIRE(link.sit(7, "seat_pilot", crew).has_value());
             const float d = *cp.derived("crew.output");  // (8*1.33)*1.25 order-pinned
-            link.stand(7, "seat_pilot", crew);
+            REQUIRE(link.stand(7, "seat_pilot", crew).has_value());
             const float d0 = *cp.derived("crew.output");
             return std::vector<std::uint32_t>{
                 std::bit_cast<std::uint32_t>(d), std::bit_cast<std::uint32_t>(d0),

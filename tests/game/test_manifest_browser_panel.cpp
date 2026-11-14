@@ -8,8 +8,6 @@
 // finds its leaves); dep clicks navigate the graph; stale + NOT COOKED
 // badges change the draw; scroll clamps and scrolled-away rows lose hit
 // rects; a selection that leaves the snapshot drops with its handoff.
-#include <unistd.h>  // getpid: unique staging roots
-
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -104,7 +102,7 @@ std::string read_text(const std::filesystem::path& p) {
 TEST_CASE("manifest_browser_panel") {
     // ---- stage + COOK the real fixture tree (same doctrine as 8.2) ------
     const auto root = std::filesystem::temp_directory_path() /
-                      ("ve_mani_tree_" + std::to_string(::getpid()));
+                      ("ve_mani_tree_" + std::to_string(ve_test::pid()));
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root / "defs");
     std::filesystem::create_directories(root / "samples");

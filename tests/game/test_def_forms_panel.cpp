@@ -25,8 +25,6 @@
 //     the entry grammar cannot know about;
 //   - recook_hotswap: edit -> TOML delta -> re-cook -> the cooked payload
 //     on disk carries the new stat and not the old one (#16 loop closed).
-#include <unistd.h>  // getpid: unique staging roots
-
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -156,7 +154,7 @@ struct cook_gate {
     std::string last_error;
     explicit cook_gate(const char* tag)
         : root(std::filesystem::temp_directory_path() /
-               ("ve_forms_" + std::string(tag) + "_" + std::to_string(::getpid()))) {
+               ("ve_forms_" + std::string(tag) + "_" + std::to_string(ve_test::pid()))) {
         std::filesystem::remove_all(root);
         std::filesystem::create_directories(root / "samples");
         std::filesystem::create_directories(root / "defs");

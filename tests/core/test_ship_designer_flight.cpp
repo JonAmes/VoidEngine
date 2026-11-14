@@ -54,7 +54,9 @@ std::string tmp_root(const char* name) {
              (std::string("ve_flight513_") + name + "_" + std::to_string(ve_test::pid()));
     std::filesystem::remove_all(p);
     std::filesystem::create_directories(p);
-    return p;
+    // .string() explicitly: path's implicit conversion is to the native
+    // string type, which is wide on Windows (#38).
+    return p.string();
 }
 
 // ---- hand-computed pins (exact rational arithmetic, see notes.md 5.13) ----
