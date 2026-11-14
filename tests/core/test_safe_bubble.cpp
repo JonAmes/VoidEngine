@@ -172,6 +172,28 @@ TEST_CASE("safe_bubble_crossing") {
         CHECK(!bubble_warp_contact(w, p0, disp, 0).has_value());
     }
 
+    SUBCASE("band window: offsets bracketing r^2*2^-40 classify opposite ways") {
+        // The band width is a PINNED property, not a free parameter:
+        //   350 pm outside -> |f0| = 7.168e-7 <= r^2*2^-40 (9.5367e-7):
+        //     f0 := 0 -> the wall IS here -> u=0 contact, pos unchanged.
+        //   700 pm outside -> |f0| = 1.4336e-6  > band: raw f0 > 0 ->
+        //     start-outside, outward chord's entry root <= 0 -> NO contact.
+        // Any band NARROWER than 2^-40 flips the 350 pm case (raw f0 -> no
+        // contact); any band WIDER than 2^-39 flips the 700 pm case (f0 := 0
+        // -> false wall contact). 8.14's mutation of 2^-40 -> 2^-30 dies
+        // here (the warp-leg scenario's samples miss this annulus entirely).
+        const math::dvec3 pin_start{0.0, 0.0, 1024.0 + 350e-12};
+        const math::dvec3 up{0.0, 0.0, 500.0};
+        const auto c = bubble_warp_contact(w, pin_start, up, 0);
+        REQUIRE(c.has_value());
+        CHECK(c->u == 0.0);
+        CHECK_FALSE(c->inward);
+        CHECK(c->pos == pin_start);
+        const auto free_pass = bubble_warp_contact(
+            w, math::dvec3{0.0, 0.0, 1024.0 + 700e-12}, up, 0);
+        CHECK_FALSE(free_pass.has_value());
+    }
+
     SUBCASE("warp leg: pinned dead at the wall every tick, sublight drift after") {
         // 10 ticks: 0-4 warp (mult 12), 5-9 sublight (mult 1). Wall holds
         // BIT-IDENTICALLY for ticks 1-4 (u == 0 re-pin, #50a), then

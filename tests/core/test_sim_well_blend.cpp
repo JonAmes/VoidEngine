@@ -147,3 +147,28 @@ TEST_CASE("sim_well_blend") {
     tr2.update(w, stand, t0);
     CHECK(sim::total_accel(w, off, 12345) == sim::total_accel(w, off, 12345));
 }
+
+TEST_CASE("sim_well_blend_dominance_band") {
+    // The 0.25 dominance_band DEFAULT is a pinned engine property: the
+    // warp-leg scenario (8.14) never samples a ratio in the discriminating
+    // window, so this case is the band's owner. At (9500,0,0) on the
+    // planet->moon line: planet g = 2.3450788880540956 (u = 7500/11000
+    // mid-ramp, op-order pin from the fp64 port), moon g = 1.3671875
+    // (u = 0.375, exact binary), moon/planet = 0.5830 — inside (0.5, 0.75).
+    // Band 0.25: moon weight = smoothstep01(clamp((0.583-0.75)/0.25)) = 0
+    // EXACTLY -> planet weight 1, w_sum 1 -> total_accel BIT-IDENTICAL to
+    // the planet's raw accel. Any band in (0.25, 0.583] gives the moon a
+    // nonzero weight -> equality dies. 8.14's mutation of 0.25 -> 0.5 dies
+    // here.
+    rail_world w;
+    add_moon_testbed(w);
+    const dvec3 pos(9500, 0, 0);
+    const dvec3 planet_raw = sim::well_accel(w, 0, pos, 0);
+    CHECK(math::approximately_equal(length(planet_raw), 2.3450788880540956, 1e-12));
+    CHECK(math::approximately_equal(length(sim::well_accel(w, 1, pos, 0)), 1.3671875, 1e-12));
+    const dvec3 net = sim::total_accel(w, pos, 0);  // DEFAULT band
+    CHECK(net == planet_raw);  // exact suppression, bit-identical
+    CHECK(net.y == 0.0);
+    CHECK(net.z == 0.0);
+    CHECK(net.x < 0.0);  // planet at origin pulls -x
+}
