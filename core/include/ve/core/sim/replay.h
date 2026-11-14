@@ -76,4 +76,14 @@ void assemble_tick_inputs(const rail_world& w, const tick_command& cmd, tick_t t
 void replay_step(const rail_world& w, const ReplayLog& log, std::size_t i, tick_t tick,
                  const rigid_params& p, rigid_state& s);
 
+// #50 safe-bubble wall resolution for one warp step that has ALREADY
+// integrated (8.13 hook, 8.15 extracted helper): if speed_mult > 1, the
+// position sweep (s.vel * mult * dt, the integrator's exact grouping) is
+// resolved against bubble surfaces and the position truncated/re-pinned
+// at the surface. Shared verbatim by replay_step (dt = kSim_tick_dt) and
+// the lod.cpp lattice step (dt = divisor ticks) so live-compressed,
+// reference, and scrubbed runs agree on the wall bit-for-bit.
+void resolve_warp_bubble_wall(const rail_world& w, const math::dvec3& p0,
+                              rigid_state& s, double speed_mult, double dt, tick_t tick);
+
 } // namespace ve::core::sim

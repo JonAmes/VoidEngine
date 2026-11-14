@@ -85,7 +85,18 @@ void replay_step(const rail_world& w, const ReplayLog& log, std::size_t i, tick_
     // (glue commands it in response to the crossing event — ftl.h's
     // disengage door, authored and forced are one machinery).
     if (const double mult = log.at(i).speed_mult; mult > 1.0) {
-        const dvec3 disp = (s.vel * mult) * kSim_tick_dt;  // integrator's exact grouping
+        resolve_warp_bubble_wall(w, p0, s, mult, kSim_tick_dt, tick);
+    }
+}
+
+// 8.15 helper (8.13 hook verbatim): see replay.h. dt parameterizes the
+// sweep length; replay_step passes kSim_tick_dt, the LOD lattice passes
+// tick_to_seconds(elapsed ticks). Same grouping (s.vel * mult) * dt as
+// the integrator's position step — bit-identical TOI on either caller.
+void resolve_warp_bubble_wall(const rail_world& w, const dvec3& p0, rigid_state& s,
+                              double speed_mult, double dt, tick_t tick) {
+    if (speed_mult > 1.0) {
+        const dvec3 disp = (s.vel * speed_mult) * dt;  // integrator's exact grouping
         if (const auto c = bubble_warp_contact(w, p0, disp, tick)) s.pos = c->pos;
     }
 }
