@@ -698,3 +698,42 @@ divergence is exactly the FTL flow over the bounded crossing offset
 (39.7 kg over 1190 ticks). Full gate `./tools/ci_local.sh` GREEN
 386.45 s — 179 test cases / 8,518,131 assertions, 0 failed, replay
 goldens untouched (zero golden drift after 8.15).
+
+
+8.16 — nested moving wells under compression (done-when (d)). Hand-authored
+Tier-1 testbed: planet (g 9.8, reach 13 km, taper 2 km) + moon rail inside it
+(g 2.0, reach 5 km, orbit 12 km, period 36000 s — pad drift ~2 m/s, so one
+divisor-1000 step slides the WHOLE moon well ~34 m under a frozen ship), pad
+on the sub-planet point in the spin-0 locked frame. `moon_landing_down`:
+spawn co-moving 1300 m up the pad column (past the ~10.1 km crossover, blend
+residual 0.3783 m/s² at spawn), home=moon every tick of the 90k-tick horizon
+(1 switch = tick-0 acquisition only — never a flip near the crossover, none
+while the pad carries the ship); scripted PD + shipped-blend feed-forward
+descent lands at tick 7999 on EIGHT physics steps (all coarse, divisor 1000
+from tick 0; closed-form lattice agrees step-for-step through the landing),
+full-rate reference at 21730 — bounded error 13.7 coarse steps (≤ 15000
+ticks pinned: under 1000× the feed-forward sample goes stale for 16.7 s, so
+the coarse spine free-falls the gap and lands ~14 steps early; arrival
+ORDERING is the contract here, the tight pin was 8.15's cruise). Blend goes
+bit-exact moon by tick 1000 (coarse) / 1588 (ref); the residual ENVELOPE
+never re-grows across coarse intervals (tick-dense sampling, ±1e-3 wobble
+band — a stale sample never re-lights the crossfade; strict per-tick
+monotonicity FAILED on benign equal + orbital-wobble samples, the envelope
+pin is the honest shape). Capture rest: total == moon well BIT-EXACT every
+carried tick while the moon orbits. `nested_wells_compressed`: distant parked
+ship hovers at (0,0,9000) under divisor 1000 while the moon (phase π) swings
+overhead: closest approach measured EXACT at tick 540000 (quarter period =
+9000 s = 540000 ticks at 60 Hz — the first tick-math attempt used seconds
+and missed by 60×), 3000.000 m, deep inside the 5 km reach, moon pull
+0.3395 of home's — genuinely lit, 2× under the 0.75 suppression floor, so
+home stays planet across 1M tick-dense feeds and the blend returns the
+planet's pull EXACTLY at every physics step, flyby included; 1000 steps vs
+1,000,001 full rate; two runs hash bit-for-bit. Geometry pins live on the
+FINAL minima, not inside the run loop (the tick-dense closest-approach
+tracker and the coarse physics are different clocks; conflating them made
+the pin chase the lattice). Mutation ladder: dominance-band default
+0.25→0.1 KILLS moon_landing_down (spawn drops out of the crossfade band);
+removing the blend weight's clamp01 KILLS BOTH cases (unclamped smoothstep
+at ratio 0.34 evaluates to ~16, not 0). Gate `./tools/ci_local.sh` GREEN
+561.76 s — 181 test cases / 13,314,231 assertions, 0 failed, replay goldens
+untouched (zero golden drift after 8.16).
