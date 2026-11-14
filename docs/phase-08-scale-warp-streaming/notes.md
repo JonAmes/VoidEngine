@@ -737,3 +737,76 @@ removing the blend weight's clamp01 KILLS BOTH cases (unclamped smoothstep
 at ratio 0.34 evaluates to ~16, not 0). Gate `./tools/ci_local.sh` GREEN
 561.76 s — 181 test cases / 13,314,231 assertions, 0 failed, replay goldens
 untouched (zero golden drift after 8.16).
+
+## 8.17 — terrain streaming + seeded scatter (commit 7185da0)
+
+- `core/sim/terrain_stream.{h,cpp}` is the single sampler-backed source:
+  `gen_chunk(def, stamps, seed, chunk_key)` produces a display mesh whose
+  shared-edge knot heights are computed from the *direction* of the edge
+  lattice point, not the chunk — so neighbours agree bit-exactly at every
+  LOD pair (the `terrain_chunks` neighbour_delta pin) and morph skirts
+  stitch seams during level changes. Sim code calls the same
+  `terrain_height` the mesh builder uses (#29 "zero baked meshes").
+- Quadtree chunk key = (level, x, y) over the cube-face chart; the leaf
+  rule + morph band match what `terrain_descent_golden` and the demo walk.
+- Biome surface bands are def data (#29d): band index per triangle from
+  the height/latitude table; palette card = the band's colour, so
+  renderer and goldens agree byte-for-byte.
+- `scatter_seed`: seeded deterministic instance field (seed + authored
+  density tables, clamped inside the stamp bounds — the bounds pin is
+  what "stays inside authored bounds" means in a test).
+- Tests: `terrain_chunks` + `scatter_seed` = 2 cases / 3,076 assertions.
+
+## 8.18 — land + zoom render proof (commits 207c6b2 test, b91df4f demo)
+
+`tests/gfx/test_terrain_descent_golden.cpp`, 642/642 assertions,
+192×192 surfaceless llvmpipe, four fixed poses (20 km / 12 km / 2.5 km /
+1200 km) byte-exact against `tests/gfx/goldens/terrain_descent_*.png`:
+
+- Coverage contract: blue clear count == 0 in every pose (the quadtree
+  walk + screen-margin cull at ndc ±1.6 — 0.6 margin covers the morph
+  skirt ring — must leave no holes inside the pinned region |ndc| <= 1).
+- No Z-fighting: marker planes at constant w get EXACT mirror depth pins
+  (host computes zexp(4000)/zexp(4150) itself; |Δ| < 1e-4 per pinned px)
+  plus the 1200 km near-field pin (< 3e-4). Lesson: for a constant-
+  `z_view` plane, pin the constant-w analytic value — ray-distance
+  formulas (`frag_d`) are the wrong mirror and pass only by luck.
+- No pops: the D section binary-searches the *first lattice flip* along
+  altitude (selection predicate is monotone above 265 km; scan ranges
+  that don't provably bracket the flip silently test nothing) and pins
+  the two frames around it **bit-identical** — morph skirts fully absorb
+  the 1 m camera step across 32 chunk swaps (delta 0 %; guard-rail band
+  0.4 % only if a future morph change breaks equality). A fixed-altitude
+  "pair" that never crosses the flip boundary proves nothing — that was
+  the first version's bug.
+- 1200 km pose: the log-depth span across the visible hemisphere is
+  ~0.012 log2 by the 8.13 budget design — span-based expectations were
+  wrong; exact mirror pins are right.
+
+Demo (`b91df4f`): own `--mode descent` segment (documented deviation:
+checklist said "flight mode extended", but the 7.14 flight scenario data
+is test-pinned core fixture data — own segment keeps fixtures untouched).
+Runner `tools/dev/xvfb_descent_run.sh` -> 12 PNGs 20 km→1.5 km +
+`descent_frames.csv` + `descent_summary.txt` in evidence/; exit 0 only if
+every frame paints >= 0.90 non-blue (blue clear doubles as the
+hole/swap-gap probe; worst painted 0.933).
+Demo-only world deviation (documented in the summary): the golden-twin
+field is a 0.05 %-slope plane at these scales — locally invisible — so
+the descent fixture dramatizes relief (8 km @ base_freq 300 oct5, 1 km
+crater) and uses kLmax=12; the pinned goldens keep the twin field and
+kLmax=9 untouched. Shading (band × per-frame-normalized height × soft
+slope) is cosmetic; coverage/depth contracts unchanged.
+
+Debug lessons that generalize (cost real hours; all bit twice):
+- VS varying `gl_Position` must stay location 0 (fixed); if the FS reads
+  a VS `out`, pin matching explicit locations — implicit numbering
+  silently mismatched and the FS received CLIP POSITION as the colour
+  (flat-clamped uniform field was the symptom).
+- llvmpipe's Vulkan driver name is `lvp`: `VK_LOADER_DRIVERS_SELECT=llvmpipe`
+  filters ALL drivers out (instance create fails).
+- `wsi_capture` bytes carry swapchain memory order (BGRA on this stack);
+  a colour probe must match both orders or the gate is vacuous.
+- A selection cull shortcut derived from a face-normal camera (project
+  corners along the axis) silently culls everything for a tilted camera;
+  use the real view basis (f/s/u from the same look_at the presenter
+  uses) in any fixed-pose cull.
