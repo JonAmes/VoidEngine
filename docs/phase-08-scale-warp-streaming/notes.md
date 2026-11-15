@@ -886,3 +886,38 @@ Test-scenario traps (bit twice, cost a full rebuild cycle each):
   floats accept exponent notation.
 - selection trap: schematic nodes without a live entity (waypoints) must
   CLEAR the shared 8.3 service, never leave a stale entity selected.
+
+## 8.21 — station build plans, runtime assembly (74d7789, 95df75e)
+
+- The growth schedule is a **pure function of def data** (8.21.0,
+  `game/src/station_growth.cpp`): clamp tick = ceil(at_time_s * 60) plus a
+  congestion delay from FNV-1a-64(seed, plan id, step idx, spawn rows
+  anchored on the body the station rails to) >> 32, mod
+  kMaxBuildDelayTicks. No stored RNG anywhere — replay recomputes every
+  clamp tick from seed + def alone (#20d pattern, done-when (e)).
+- Core `Loadout` is immutable after `assemble`, so landing a step
+  re-assembles (current mounts + prefab module on step.target_socket).
+  Refusals are assemble's own first violation, wording `loadout: <kind>`;
+  the old loadout is kept untouched on refusal.
+- Stats merge: existing fp32 bases `+=`, new keys append, insertion order
+  kept, all-or-nothing finiteness gate on the attrs.
+- **doctest trap:** `Approx(x).epsilon(0.0)` FAILS even on bit-identical
+  values (within_epsilon is a strict inequality scaled by epsilon). For
+  dyadic/hand-computed stat pins use exact float `==` — which is also the
+  stronger pin for determinism.
+- **Swept-engage geometry trap:** `capture_engage` probes the swept segment
+  `[pos(t) .. pos(t)+vel*dt]` at tick t. To make the first sphere crossing
+  land exactly at tick T, pos(T) must sit ABOVE the boundary by less than
+  one tick of travel (tick T's segment dips under; T-1's stays fully
+  outside). Starting pos(T) below the boundary engages one tick early —
+  the OFF-BY-ONE hides in which end of the segment crosses.
+- Replay stamp for the scenario: per-tick FNV mix of
+  `state_hash(t, module)` and `stats_state_hash(station stats)` — the
+  interval hash therefore covers the aggregate-stats landing, not just the
+  docked pose; a no-merge canary run diverges exactly at/after T and is
+  bit-identical before, pinning that.
+- Fixture traps: `StatsSet`/`stats_state_hash` live in `ve::core`, not
+  `core::sim`; `WorldStation` parent is the plain `parent_ref` field;
+  `Loadout::assemble` validates the hull grid — a bare `hull_info` fixture
+  fails until it carries a `grid_block`; `WorldSpawn` rows need
+  faction/ship_class/rate populated.
