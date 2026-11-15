@@ -1,0 +1,17 @@
+# Editor Kit — ve_edit (interlude, decision #54)
+Status: in progress
+
+Not a PLAN phase: user-commissioned tooling interlude between Phase 8 and Phase 9. Same process spine: one task = one commit, tests named up front, gate before DONE. No new dependencies (#54 uses GLFW/Volk/stb only). No display-dependent ctest tests — ve_edit itself is evidenced by the self-attesting-exit-code + Xvfb driver pattern (2.9), never added to ci_local.
+
+## Tasks — execute top to bottom, one commit each
+- [ ] EK.1 Promote the UI GPU render pass from the test harness into gfx — `gfx::ui_renderer` (pipeline + pixels-top-left→NDC shader + VB/IB staging + recording a `ui_frame`'s cmds/verts/idx onto a caller-supplied render target) built from the Tier-2 GPU half embedded in `tests/gfx/test_ui_immediate.cpp`; the test then CONSUMES gfx::ui_renderer — test: `gfx_ui_immediate` (pre-refactor counts recorded first; EQUAL case/assert counts after = extraction proof per refactor rule) — commit: —
+- [ ] EK.2 platform GLFW→ui_io adapter — `platform/include/ve/platform/input_adapter.h` + src: pure raw-event mapping (cursor px, button press/release frames, chars, backspace) → per-frame `gfx::ui_io`, GLFW callbacks call the mapping; keep the mapping Tier-1-testable (no GLFW in the test) — test: `input_adapter` — commit: —
+- [ ] EK.3 Empty-world bootstrap — minimal system def TOML (name + seed, zero bodies/stations/lanes/rows) as a fixture src tree; opens through the real cook path — test: `world_empty` (cooks + wrldvalidate green, world_load decodes zero rows, schematic_nodes(0) empty, re-cook hash stable) — commit: —
+- [ ] EK.4 ve_edit host skeleton — new `tools/edit/ve_edit`: GLFW window + platform presenter frame loop (acquire→record→present), font ttf cooked on demand via cook_incremental + FONT0 load, flat clear-color background (no world rendering), UI pass via EK.1 renderer, EK.2 adapter feeding `gfx::ui_io`; wire **schematic panel + forms** against an `author_world` opened on the EK.3 empty tree — evidence: self-attesting exit codes + `tools/dev/xvfb_edit_run.sh` (Xvfb+lavapipe, outside ctest) — commit: —
+- [ ] EK.5 Wire the remaining panels into ve_edit — inspector (8.2), asset browser (8.3), loadout editor (8.4): snapshots from author_world/manifest, side-by-side windows, def-selection stays panel state (8.3 doctrine) — evidence: same driver script exit code + evidence PNG cross-checked by independent decode — commit: —
+- [ ] EK.6 Evidence pass — notes.md findings, README status line, checklist reconcile, full ci_local gate — commit: —
+
+## Done-when (all checked = interlude DONE)
+- [ ] (a) ve_edit opens a window showing all five live panels over an empty world; the ONLY asset is the cooked font — EK.4/EK.5
+- [ ] (b) every panel edit round-trips through the real incremental-cooker gates; refusals revert bit-exact (host adds no in-memory-only mutation path) — EK.4/EK.5
+- [ ] (c) ui render pass lives in gfx/, Tier-2-tested in ctest; ci_local green headless with the interlude merged — EK.1/EK.6
