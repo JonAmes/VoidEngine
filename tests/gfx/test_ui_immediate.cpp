@@ -12,6 +12,7 @@
 // strict ui_64.png golden (decision #35).
 #include <doctest/doctest.h>
 
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -583,4 +584,58 @@ TEST_CASE("gfx_ui_immediate") {
     ib.destroy(*dev);
     vkDestroySampler(dev->handle(), *sampler, nullptr);
     vkDestroyPipelineLayout(dev->handle(), layout, nullptr);
+}
+
+TEST_CASE("ui_line_primitive") {
+    // 8.20.0: the schematic map's stroke primitive. CPU half only —
+    // draw-list pins, no GPU pass (the big gfx_ui_immediate case already
+    // proves slot-0 quads rasterize; a line is the same quad shape, rotated).
+    const auto font_src =
+        std::filesystem::path(VE_SOURCE_DIR) / "assets/fonts/DejaVuSansMono.ttf";
+    REQUIRE(std::filesystem::exists(font_src));
+    const std::string src = tmp_root("line_src");
+    const std::string out = tmp_root("line_out");
+    std::filesystem::copy_file(font_src, std::filesystem::path(src) / "DejaVuSansMono.ttf");
+    std::string err;
+    REQUIRE_MESSAGE(ve::cook::cook_incremental(src, out).ok, err);
+    ve::gfx::font0 font;
+    REQUIRE_MESSAGE(ve::gfx::load_cooked_font_file(out + "/units/DejaVuSansMono.ttf.ck",
+                                                   font, &err),
+                    err);
+
+    ve::gfx::ui_io io{0.f, 0.f, false, {}, false, false, false};
+    ve::gfx::ui_context ui;
+    ui.begin_frame(io, font, 200, 200);
+    REQUIRE(ui.begin_window("Map", 10, 10, 180, 180));
+    const std::size_t v_in = ui.frame().verts.size();  // window chrome emitted
+    const std::size_t c_in = ui.frame().cmds.size();
+    ui.line(20, 20, 120, 70, 255, 128, 0, 3);
+    ui.line(30, 30, 30, 30, 1, 2, 3);   // zero-length: nothing emitted
+    ui.line(0, 0, 5, 0, 9, 9, 9);       // inside window: emitted
+    ui.end_window();
+    ui.line(50, 50, 60, 60, 0, 0, 0);   // outside any window: nothing
+    ui.end_frame();
+    const auto& f = ui.frame();
+
+    // Two lines -> 8 verts / 12 indices / 2 cmds appended; colors pinned on
+    // the first quad's verts (flat fill: r/g/b/a all four identical).
+    CHECK(f.verts.size() == v_in + 8);
+    CHECK(f.indices.size() == (v_in / 4) * 6 + 12);
+    CHECK(f.cmds.size() == c_in + 2);
+    // dx=100 dy=50 len=hypot: normal (−dy,dx)/len * half(thickness=3)=1.5.
+    const double len = std::hypot(100.0, 50.0);
+    const double nx = -50.0 / len * 1.5, ny = 100.0 / len * 1.5;
+    const auto& q = f.verts[f.verts.size() - 8];
+    CHECK(q.x == doctest::Approx(20.0 + nx).epsilon(1e-6));
+    CHECK(q.y == doctest::Approx(20.0 + ny).epsilon(1e-6));
+    CHECK(q.r == doctest::Approx(1.0).epsilon(1e-6));
+    CHECK(q.g == doctest::Approx(128.0 / 255.0).epsilon(1e-6));
+    CHECK(q.b == doctest::Approx(0.0));
+    CHECK(q.a == doctest::Approx(1.0).epsilon(1e-6));
+    // Second line's cmd: own draw call, window client clip.
+    const auto& cmd = f.cmds[f.cmds.size() - 1];
+    CHECK(cmd.texture_slot == 0);
+    CHECK(cmd.idx_count == 6);
+    CHECK(cmd.clip_x == 10);
+    CHECK(cmd.clip_y == 10);
 }

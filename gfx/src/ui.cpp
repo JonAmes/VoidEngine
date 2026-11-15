@@ -3,6 +3,7 @@
 #include "ve/gfx/font.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace ve::gfx {
@@ -129,6 +130,30 @@ void ui_context::quad(rect r, float u0, float v0, float u1, float v1,
 
 void ui_context::add_rect(rect r, std::uint8_t r8, std::uint8_t g8, std::uint8_t b8) {
     quad(r, 0.5f, 0.5f, 0.5f, 0.5f, c(r8), c(g8), c(b8), 1.f, 0);
+}
+
+void ui_context::line(std::int32_t x0, std::int32_t y0, std::int32_t x1, std::int32_t y1,
+                      std::uint8_t r8, std::uint8_t g8, std::uint8_t b8,
+                      std::int32_t thickness) {
+    // 8.20.0: rotated quad about the segment. The normal offset makes the
+    // stroke thickness px wide regardless of direction — an axis-aligned
+    // bbox quad would vanish for diagonals, which are the whole point here.
+    if (!in_window_) return;
+    const float dx = float(x1) - float(x0), dy = float(y1) - float(y0);
+    const float len = std::hypot(dx, dy);
+    if (len == 0.f) return;
+    const float half = 0.5f * float(std::max(1, thickness));
+    const float nx = (-dy / len) * half, ny = (dx / len) * half;
+    const std::uint32_t base = static_cast<std::uint32_t>(frame_.verts.size());
+    frame_.verts.push_back({float(x0) + nx, float(y0) + ny, 0.5f, 0.5f, c(r8), c(g8), c(b8), 1.f});
+    frame_.verts.push_back({float(x1) + nx, float(y1) + ny, 0.5f, 0.5f, c(r8), c(g8), c(b8), 1.f});
+    frame_.verts.push_back({float(x1) - nx, float(y1) - ny, 0.5f, 0.5f, c(r8), c(g8), c(b8), 1.f});
+    frame_.verts.push_back({float(x0) - nx, float(y0) - ny, 0.5f, 0.5f, c(r8), c(g8), c(b8), 1.f});
+    frame_.indices.insert(frame_.indices.end(), {base, base + 1, base + 2,
+                                                 base, base + 2, base + 3});
+    frame_.cmds.push_back({0,
+                           static_cast<std::uint32_t>(frame_.indices.size()) - 6, 6,
+                           win_client_.x, win_client_.y, win_client_.w, win_client_.h});
 }
 
 void ui_context::add_text(std::int32_t x, std::int32_t baseline_y, const char* text,

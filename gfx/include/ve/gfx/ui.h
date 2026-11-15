@@ -85,6 +85,14 @@ public:
     // checkbox box). 8.2 panels capture it to record per-field hit rects.
     rect last_rect() const { return last_rect_; }
 
+    // 8.20.0: screen-px line segment — the schematic map's edge strokes
+    // (#43 mode B) and future gizmo lines. Flat color (slot 0), emitted as
+    // a rotated quad about the segment (NOT an axis-aligned bbox);
+    // zero-length draws nothing; only draws inside a window.
+    void line(std::int32_t x0, std::int32_t y0, std::int32_t x1, std::int32_t y1,
+              std::uint8_t r8, std::uint8_t g8, std::uint8_t b8,
+              std::int32_t thickness = 1);
+
     void end_frame(); // finalize draw list
     const ui_frame& frame() const { return frame_; }
 
