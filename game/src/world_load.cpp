@@ -139,7 +139,7 @@ struct Reader {
 
 core::cooked::Bytes encode_world(const WorldDef& def) {
     Writer w;
-    w.u32(1);  // payload_ver
+    w.u32(2);  // payload_ver (v2: + [[spawn]] tables, 8.20.1)
     w.u8(static_cast<std::uint8_t>(def.world_class));
     w.str(def.name);
 
@@ -223,6 +223,11 @@ core::cooked::Bytes encode_world(const WorldDef& def) {
             w.u32(static_cast<std::uint32_t>(j.steps.size()));
             for (const auto& s : j.steps) { w.str(s.verb); w.str(s.target_ref); w.f64(s.amount); }
         }
+        w.u32(static_cast<std::uint32_t>(def.spawns.size()));
+        for (const auto& sp : def.spawns) {
+            w.str(sp.id); w.str(sp.at); w.str(sp.faction); w.str(sp.ship_class);
+            w.f64(sp.rate);
+        }
     }
     return std::move(w.b);
 }
@@ -230,7 +235,7 @@ core::cooked::Bytes encode_world(const WorldDef& def) {
 std::expected<WorldDef, std::string> decode_world(const core::cooked::Bytes& payload) {
     Reader r{payload};
     WorldDef def;
-    if (r.u32() != 1) return std::unexpected("WRLD payload_ver must be 1");
+    if (r.u32() != 2) return std::unexpected("WRLD payload_ver must be 2");
     const std::uint8_t cls = r.u8();
     if (cls > 2) return std::unexpected("WRLD world_class byte out of range");
     def.world_class = static_cast<WorldClass>(cls);
@@ -275,7 +280,7 @@ std::expected<WorldDef, std::string> decode_world(const core::cooked::Bytes& pay
                 !def.build_plans.empty() || def.seed != 0 || !def.members.empty() ||
                 !def.factions.empty() || !def.markets.empty() || !def.lanes.empty() ||
                 !def.waypoints.empty() || !def.nav_edges.empty() ||
-                !def.job_templates.empty())
+                !def.job_templates.empty() || !def.spawns.empty())
                 return std::unexpected("WRLD body payload carries system/station sections");
             break;
         }
@@ -305,7 +310,8 @@ std::expected<WorldDef, std::string> decode_world(const core::cooked::Bytes& pay
             if (!def.stamps.empty() || !def.pois.empty() || !def.biomes.empty() ||
                 def.seed != 0 || !def.members.empty() || !def.factions.empty() ||
                 !def.markets.empty() || !def.lanes.empty() || !def.waypoints.empty() ||
-                !def.nav_edges.empty() || !def.job_templates.empty())
+                !def.nav_edges.empty() || !def.job_templates.empty() ||
+                !def.spawns.empty())
                 return std::unexpected("WRLD station payload carries system/body sections");
             break;
         }
@@ -356,6 +362,12 @@ std::expected<WorldDef, std::string> decode_world(const core::cooked::Bytes& pay
                     j.steps.push_back(std::move(s));
                 }
                 def.job_templates.push_back(std::move(j));
+            }
+            for (auto n = r.u32(); n-- && !r.bad;) {
+                WorldSpawn sp;
+                sp.id = r.str(); sp.at = r.str(); sp.faction = r.str();
+                sp.ship_class = r.str(); sp.rate = r.f64();
+                def.spawns.push_back(std::move(sp));
             }
             if (!def.stamps.empty() || !def.pois.empty() || !def.biomes.empty() ||
                 !def.hull_def_ref.empty() || !def.root_socket.empty() ||

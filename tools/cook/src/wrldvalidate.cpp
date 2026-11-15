@@ -278,6 +278,20 @@ bool cook_wrld_validate(const std::string& self_id,
                                 "' names no node, lane or station (#33a)");
             }
         }
+
+        // Spawn tables (#39): at-names a market/waypoint node (the same node
+        // set the nav gates built); faction is authored (#25a). Class strings
+        // are free-form tags (#31a: class.* is art direction, not a cage) —
+        // only non-emptiness is schema-gated.
+        for (const auto& sp : self.spawns) {
+            if (sp.id.empty()) return fail("spawn with empty id (#39)");
+            if (!node_ids.count(sp.at))
+                return fail("spawn '" + sp.id + "' at '" + sp.at +
+                            "' names no market or waypoint node (#39)");
+            if (!factions.count(sp.faction))
+                return fail("spawn '" + sp.id + "' faction '" + sp.faction +
+                            "' names undefined faction (#39)");
+        }
     }
 
     // ---- station: hull pin + build-plan clamp pairing (#24a/#24b/#46d) ----

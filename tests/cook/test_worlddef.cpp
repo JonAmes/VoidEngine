@@ -137,6 +137,20 @@ amount = 2500.0
 job = "opening_cargo_run"
 verb = "dock"
 target = "vesper_orbit_market"
+
+[[spawn]]
+id = "pirate_patrol_lanes"
+at = "wp_patrol_gate"
+faction = "pirate_confederacy"
+class = "fighter"
+rate = 0.0003
+
+[[spawn]]
+id = "merchant_haul_kepler"
+at = "kepler_market"
+faction = "vesper_authority"
+class = "light_freighter"
+rate = 0.001
 )toml";
 
 constexpr const char* kVesper = R"toml(
@@ -337,6 +351,14 @@ TEST_CASE("worlddef_cook") {
     CHECK(sys->job_templates[0].steps[1].verb == "cargo_run");
     CHECK(sys->job_templates[0].steps[1].target_ref == "lane_ore_kepler_vesper");
     CHECK(sys->job_templates[0].steps[1].amount == 2500.0);
+    REQUIRE(sys->spawns.size() == 2);
+    CHECK(sys->spawns[0].id == "pirate_patrol_lanes");
+    CHECK(sys->spawns[0].at == "wp_patrol_gate");
+    CHECK(sys->spawns[0].faction == "pirate_confederacy");
+    CHECK(sys->spawns[0].ship_class == "fighter");
+    CHECK(sys->spawns[0].rate == doctest::Approx(0.0003));
+    CHECK(sys->spawns[1].at == "kepler_market");
+    CHECK(sys->spawns[1].ship_class == "light_freighter");
 
     auto v = game::decode_world(unit_of(t, "world/bodies/vesper.toml").payload);
     REQUIRE(v);
@@ -680,6 +702,13 @@ TEST_CASE("worlddef_validate_graph_refs") {
     expect_gate({{kSys, repl(kSystem, "target = \"vesper_orbit_market\"",
                              "target = \"nowhere\"")}},
                 "names no node, lane or station (#33a)");
+
+    // ---- spawn tables (#39, 8.20.1): at-node + faction resolve ----
+    expect_gate({{kSys, repl(kSystem, "at = \"wp_patrol_gate\"", "at = \"wp_ghost\"")}},
+                "spawn 'pirate_patrol_lanes' at 'wp_ghost' names no market or waypoint node (#39)");
+    expect_gate({{kSys, repl(kSystem, "faction = \"pirate_confederacy\"",
+                             "faction = \"mars_republic\"")}},
+                "spawn 'pirate_patrol_lanes' faction 'mars_republic' names undefined faction (#39)");
 
     // two simultaneous system faults: faction gates run before lane gates —
     // identical inputs, identical first-error text.

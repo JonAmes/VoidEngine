@@ -482,6 +482,23 @@ bool cook_worlddef_source(const std::string& toml_text, core::cooked::Bytes& pay
                 sc.job_step_rows.push_back(std::move(s));
             }
         }
+        if (const auto* rs = rows_of(root.table, "spawn")) {
+            for (const auto& r : *rs) {
+                if (!r.is_table()) { return sc.bad(sc.ctx + ": [[spawn]] rows must be tables"); }
+                ve::game::WorldSpawn sp;
+                if (!sc.strf(r.table, "id", sp.id, true) || sp.id.empty())
+                    return sc.fail("id", "spawn id missing or empty");
+                if (!sc.strf(r.table, "at", sp.at, true) || sp.at.empty())
+                    return sc.fail("at", "spawn row needs at (a market/waypoint node id)");
+                if (!sc.strf(r.table, "faction", sp.faction, true) || sp.faction.empty())
+                    return sc.fail("faction", "spawn row needs a faction (#25a)");
+                if (!sc.strf(r.table, "class", sp.ship_class, true) || sp.ship_class.empty())
+                    return sc.fail("class", "spawn row needs a hull class (#31a)");
+                if (!sc.bare(r.table, "rate", sp.rate, true)) return false;
+                if (!(sp.rate >= 0.0)) return sc.fail("rate", "spawn rate must be >= 0");
+                sc.def.spawns.push_back(std::move(sp));
+            }
+        }
     }
 
     // G5: duplicates within the doc.
@@ -508,6 +525,9 @@ bool cook_worlddef_source(const std::string& toml_text, core::cooked::Bytes& pay
         names.clear();
         for (const auto& j : sc.def.job_templates) names.push_back(j.id);
         if (Schema::has_dup(names)) { return sc.bad(sc.ctx + ": duplicate job id"); }
+        names.clear();
+        for (const auto& sp : sc.def.spawns) names.push_back(sp.id);
+        if (Schema::has_dup(names)) { return sc.bad(sc.ctx + ": duplicate spawn id"); }
     }
 
     // G6: in-doc row joins (cross-FILE resolution is 8.8). Flat rows fold

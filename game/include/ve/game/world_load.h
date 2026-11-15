@@ -115,6 +115,14 @@ struct WorldJobTemplate {
     std::vector<WorldJobStep> steps;
 };
 
+struct WorldSpawn {                          // #39 system glue: NPC spawn row
+    std::string id;                          // unique within the table
+    std::string at;                          // market/waypoint node id (8.8 resolves)
+    std::string faction;                     // authored faction name (#25a)
+    std::string ship_class;                  // hull class tag name (#31a)
+    double rate = 0.0;                       // bare rate: baseline NPC ships /s
+};
+
 // One decoded world def: the class byte says which sections are populated
 // (decode rejects cross-class sections, so a re-encode reproduces the exact
 // bytes — the round-trip pin in tests/cook/test_worlddef.cpp).
@@ -154,6 +162,7 @@ struct WorldDef {
     std::vector<WorldNavNode> waypoints;
     std::vector<WorldNavEdge> nav_edges;
     std::vector<WorldJobTemplate> job_templates;
+    std::vector<WorldSpawn> spawns;          // spawn tables (#39, #31c readers)
 
     // Ref strings that must become manifest dep edges (members, parents,
     // hull defs, build-plan modules). The cook resolves them with the same
