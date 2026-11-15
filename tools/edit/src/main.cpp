@@ -29,6 +29,7 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -39,11 +40,15 @@
 
 #include <ve/cook/author_gizmos.h>
 #include <ve/cook/cook.h>
+#include <ve/core/cooked.h>
+#include <ve/core/ecs.h>
 #include <ve/core/log.h>
 #include <ve/demo/png_out.h>
 #include <ve/game/def_forms_panel.h>
 #include <ve/game/def_schema.h>
 #include <ve/game/inspector_panel.h>
+#include <ve/game/loadout_editor_panel.h>
+#include <ve/game/manifest_browser_panel.h>
 #include <ve/gfx/font.h>
 #include <ve/gfx/instance.h>
 #include <ve/gfx/texture.h>
@@ -110,7 +115,8 @@ std::size_t ink_pixels(const std::vector<std::uint8_t>& px, std::uint32_t w, std
 // field from the previous frame's rects and start clicking (the recipe is
 // test_def_forms_panel's: click down, click up, erase N chars, retype +
 // enter). Everything else is idle frames.
-enum class script_stage { idle, locate, down, up, erase, type, settle };
+enum class script_stage { idle, locate, down, up, erase, type, settle,
+                          blocate, bdown, bump };
 
 struct scripted_edit {
     script_stage stage = script_stage::idle;
@@ -232,8 +238,52 @@ int main(int argc, char** argv) {
         return "";
     };
     game::selection_service sel;
-    game::inspector_panel insp(sel);
-    insp.begin_schematic(&aw); // mode-B map over the live authoring world
+    // The panel holds ONE hit-rect map that render() clears each frame, so
+    // the 8.2 tree side and the 8.20 schematic side get separate panel
+    // instances (selection state they share lives in the service).
+    game::inspector_panel insp_schem(sel);
+    game::inspector_panel insp_tree(sel);
+    insp_schem.begin_schematic(&aw); // mode-B map over the live authoring world
+
+    // EK.5 — the other three panels. All file-free by contract: the HOST
+    // assembles snapshots (8.3/8.4 doctrine), so the browser rows are
+    // rebuilt from the work tree's manifest + unit stats + source hashes,
+    // and the loadout/inspector carry what an EMPTY world actually has:
+    // no hulls, no entities.
+    constexpr const char* kSysId = "world/system.toml"; // manifest content id
+    game::manifest_browser_panel browser;
+    browser.def_source = [&](const std::string& id) -> std::optional<std::string> {
+        // Form-editable defs are the world TOMLs; meshes/fonts/shaders are
+        // browsable but not form-editable (8.4 handoff rule).
+        if (id.size() < 5 || id.compare(id.size() - 5, 5, ".toml") != 0) return std::nullopt;
+        const std::string text = read_text(src / id);
+        if (text.empty() && !std::filesystem::exists(src / id)) return std::nullopt;
+        return text;
+    };
+    game::loadout_editor_panel loadout;
+    loadout.set_hulls({}); // empty world: no hulldefs; the panel still draws
+    core::ecs_world empty_tree; // inspector tree side over an empty world
+    auto rebuild_rows = [&] {
+        core::cooked::Manifest man;
+        std::string merr;
+        if (!core::cooked::read_manifest((cooked / "manifest.bin").string(), man, &merr)) return;
+        std::vector<game::manifest_row> rows;
+        for (const auto& [id, e] : man) {
+            game::manifest_row r;
+            r.id = id;
+            r.deps = e.deps;
+            std::error_code szec;
+            const auto ck = cooked / "units" / (id + ".ck");
+            if (const auto sz = std::filesystem::file_size(ck, szec); !szec) r.cooked_size = sz;
+            core::cooked::Bytes live; // stale = live src sha != manifest sha
+            if (core::cooked::read_file_bytes((src / id).string(), live, &merr))
+                r.stale = core::cooked::sha256(live) != e.source_sha;
+            rows.push_back(std::move(r));
+        }
+        browser.set_rows(std::move(rows));
+    };
+    rebuild_rows();
+    std::string loaded_form_id{kSysId}; // forms start on the only def
 
     // --- 3. platform seam --------------------------------------------------------
     auto w = platform::window::create(static_cast<int>(width), static_cast<int>(height),
@@ -334,7 +384,29 @@ int main(int argc, char** argv) {
                 }
                 break;
             case script_stage::type:
+                if (frame >= 11) script.stage = script_stage::blocate;
+                break;
             case script_stage::settle:
+                break;
+            // EK.5: click the asset browser's row for the one def — the
+            // same down/up recipe, rects from the previous frame.
+            case script_stage::blocate: {
+                const auto r = browser.rect_for(std::string("mrow:") + kSysId);
+                if (!r) { fail("asset browser has no row for " + std::string(kSysId)); ok = false; break; }
+                script.cx = static_cast<float>(r->x + r->w / 2);
+                script.cy = static_cast<float>(r->y + r->h / 2);
+                script.stage = script_stage::bdown;
+                break;
+            }
+            case script_stage::bdown:
+                ad.cursor(script.cx, script.cy);
+                ad.mouse(platform::input_adapter::button::left, true);
+                script.stage = script_stage::bump;
+                break;
+            case script_stage::bump:
+                ad.cursor(script.cx, script.cy);
+                ad.mouse(platform::input_adapter::button::left, false);
+                script.stage = script_stage::settle;
                 break;
             }
         }
@@ -342,13 +414,32 @@ int main(int argc, char** argv) {
         const gfx::ui_io io = ad.next_frame();
         ui.begin_frame(io, font, static_cast<std::int32_t>(width), static_cast<std::int32_t>(height));
         // Panels draw their own frames (8.2 contract) — no ui.begin_window here.
-        forms.render(ui, "system.toml", 16, 16, 460, static_cast<std::int32_t>(height) - 32);
+        const auto W = static_cast<std::int32_t>(width), H = static_cast<std::int32_t>(height);
+        const auto half = (H - 40) / 2; // two right-hand rows + 8px gutter
+        rebuild_rows(); // browser badges stay live against on-disk state
+        forms.render(ui, "system.toml", 16, 16, 460, H - 32);
+        browser.render(ui, 492, 16, 430, half);
+        loadout.render(ui, 492, 16 + half + 8, 430, half);
         // Mode-B map (EK.4): host-driven render_schematic + per-frame click
-        // select (the panel's rising-edge contract). The ECS tree side comes
-        // with the live world in EK.5 — an empty authoring world has none.
-        insp.click_schematic(io);
-        insp.render_schematic(ui, 492, 16, static_cast<std::int32_t>(width) - 508,
-                              static_cast<std::int32_t>(height) - 32);
+        // select (the panel's rising-edge contract).
+        insp_schem.click_schematic(io);
+        insp_schem.render_schematic(ui, 938, 16, W - 954, half);
+        // EK.5: the 8.2 ECS/stats tree over the empty authoring world (zero
+        // entities now — the window, twisties and scroll buttons are real).
+        const game::inspector_data idata{&empty_tree, {}, {}, {}};
+        insp_tree.render(ui, idata, 938, 16 + half + 8, W - 954, half);
+        // Forms stay the single loaded def doc; a browser handoff for a
+        // DIFFERENT def swaps it (8.4 spine). Empty world = one def, so this
+        // no-ops today; the spine is wired and exercised by the click.
+        if (const auto* ho = browser.handoff(); ho && ho->id != loaded_form_id) {
+            game::def_forms_doc swapped;
+            if (swapped.load(game::kWorld_system_def_schema, ho->source, &err)) {
+                auto gate = forms.gate;
+                forms = game::def_forms_panel(std::move(swapped));
+                forms.gate = std::move(gate);
+                loaded_form_id = ho->id;
+            }
+        }
         ui.end_frame();
 
         auto idx = pres->acquire();
@@ -411,6 +502,14 @@ int main(int argc, char** argv) {
     if (!forms.last_gate_error().empty()) { fail("gate error left showing: " + forms.last_gate_error()); return 3; }
     const std::string on_disk = read_text(src / "world/system.toml");
     if (on_disk.find("EmptyX") == std::string::npos) { fail("edited name never reached the file"); return 3; }
+    // EK.5 panel proofs: the browser showed the manifest and the scripted
+    // click selected the def; the inspector tree window drew its controls.
+    if (browser.row_count() == 0) { fail("asset browser shows no manifest rows"); return 3; }
+    if (!browser.selected_id() || *browser.selected_id() != kSysId) {
+        fail("scripted browser click did not select the def"); return 3;
+    }
+    if (!insp_tree.rect_for("scroll_up")) { fail("inspector tree window never rendered"); return 3; }
+    if (browser.handoff() == nullptr) { fail("browser selection produced no forms handoff"); return 3; }
     if (cap_first.empty() || cap_last.size() != cap_first.size()) { fail("capture plumbing broke"); return 2; }
     if (ink_pixels(cap_last, width, height) < 3000) { fail("UI never painted (ink too low)"); return 3; }
     if (cap_first == cap_last) { fail("final capture identical to frame 0 — edit not on screen"); return 4; }
