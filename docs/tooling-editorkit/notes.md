@@ -84,3 +84,22 @@
   layer manifest present), `-screen 0 1600x1000x24`, evidence PNGs into
   docs/tooling-editorkit/evidence/. GLFW init is the only display-dependent
   layer; everything under it stays surfaceless-capable. Never in ci_local.
+
+## EK.5 — remaining panels wired (fb9707e)
+- **One inspector_panel cannot show both sides at once:** the panel keeps a
+  single hit-rect map and render() clears it every frame — the 8.2 tree side
+  and the 8.20 schematic side get separate panel instances over the SAME
+  selection_service (shared state lives in the service, view state in the
+  panel, per 8.2 doctrine).
+- **Browser rows are host-assembled** (8.3 contract): read_manifest on the
+  work tree's manifest.bin, per-unit file_size for cooked bytes, and stale =
+  core::cooked::sha256(live src) != entry.source_sha. Rebuilt every frame —
+  a few entries, dev tool, badges stay honest against disk.
+- **Loadout/inspector on an empty world:** set_hulls({}) and an empty
+  ecs_world still draw real windows (frames, scroll buttons, "(no live
+  selection)") — the panels' empty states are first-class, so EK.5 needed no
+  fake data.
+- **Handoff spine:** browser selection for a def id the forms is NOT showing
+  swaps the forms doc and re-attaches the host gate lambda; same-id
+  selection no-ops. The scripted run clicks the real "mrow:world/system.toml"
+  rect from the previous frame and asserts selected_id + handoff.
