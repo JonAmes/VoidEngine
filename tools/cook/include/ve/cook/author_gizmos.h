@@ -61,7 +61,10 @@ struct gizmo_view {
 std::optional<std::pair<double, double>> project_px(const core::math::dvec3& world,
                                                     const gizmo_view& view);
 
-class author_world {
+// The cooklet's authoring service implements the game-side schematic source
+// interface (8.20, #43): the mode-B panel edits this same live source tree,
+// so mode A and mode B can never drift into two data models.
+class author_world : public ve::game::schematic_source {
 public:
     // Load every def source (map key = src-tree-relative path, e.g.
     // "world/system.toml"; values = TOML text). The texts are written to
@@ -80,6 +83,22 @@ public:
     core::sim::rail_world& rails() { return m_rails; }
     const core::sim::rail_world& rails() const { return m_rails; }
     std::int32_t body_id(std::string_view path) const;  // -1 = not a body/station
+
+    // ---- schematic_source (8.20 mode B) ----
+    // stations (def-path order), then waypoints, then market nodes; positions
+    // are the same analytic rail evaluations the gizmo handles ride.
+    std::vector<ve::game::schematic_node_input> schematic_nodes(std::int32_t tick) const override;
+    const ve::game::WorldDef* sys_def() const override;   // the system-class def
+    // Glue-row writes ride the SAME recook gate as the scalar drags:
+    // accepted = the new/edited row is in the live source text and cooked;
+    // refused = zero bytes changed (bit-exact revert + old tree re-cooked).
+    // fields/values are TOML literals as authored (quote strings yourself).
+    bool add_glue_row(const std::string& table,
+                      const std::vector<std::pair<std::string, std::string>>& fields,
+                      std::string* err) override;
+    bool set_glue_field(const std::string& table, const std::string& key_field,
+                        const std::string& key_value, const std::string& field,
+                        const std::string& value_literal, std::string* err) override;
 
     // Bind the 8.3 selection service + a def-path -> entity map (the game
     // world's entities for these defs). pick_at then selects through it.
@@ -126,6 +145,7 @@ public:
                                         std::int32_t tick) const;
 
 private:
+    std::string sys_path() const;  // path key of the system-class def ('' none)
     struct cooked_def {
         ve::game::WorldDef def;
     };

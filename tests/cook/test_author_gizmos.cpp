@@ -440,4 +440,83 @@ TEST_CASE("author_gizmos") {
     CHECK(*sel.selected() == (core::entity_id{3, 7}));
 }
 
+// test: author_glue_rows — 8.20.2 mode-B glue write-back: add_row /
+// set_row_field on the SYSTEM def, riding the same recook gate with
+// bit-exact revert (checklist: good [[edge]] lands in source; dangling
+// edge refused with ZERO bytes changed; lane flow edit).
+TEST_CASE("author_glue_rows") {
+    AuthorTree t;
+    author_world aw;
+    std::string err;
+    REQUIRE_MESSAGE(aw.load(t.sources, t.src.string(), t.out.string(), &err), err);
+
+    // ---- schematic_source side: nodes = station + waypoint + markets,
+    // positions are the analytic rail evaluations at the tick.
+    const auto nodes = aw.schematic_nodes(0);
+    REQUIRE(nodes.size() == 4);
+    CHECK(nodes[0].key == kKep);
+    CHECK(nodes[0].station);
+    const auto kid = aw.body_id(kKep);
+    const auto kp = aw.rails().position(kid, 0);
+    REQUIRE(kp);
+    CHECK(nodes[0].pos == *kp);
+    CHECK(nodes[1].key == "node:wp_patrol_gate");  // anchored to vesper at (0,0,0)
+    CHECK(nodes[1].pos == core::math::dvec3{7500000.0, 0.0, 0.0});
+    CHECK(nodes[2].key == "node:kepler_market");
+    CHECK(nodes[2].pos == *kp);
+    CHECK(nodes[3].key == "node:vesper_orbit_market");
+    CHECK(nodes[3].pos == core::math::dvec3{0.0, 0.0, 0.0});
+    REQUIRE(aw.sys_def());
+    CHECK(aw.sys_def()->lanes.size() == 1);
+    CHECK(aw.sys_def()->nav_edges.size() == 2);
+
+    // ---- accepted add: the new [[edge]] block lands in the live source
+    // text, on disk, and in the freshly cooked def.
+    const std::string sys_before = aw.sources().at(kSys);
+    REQUIRE_MESSAGE(aw.add_glue_row(
+        "edge", {{"kind", "\"lane\""}, {"from", "\"wp_patrol_gate\""},
+                 {"to", "\"vesper_orbit_market\""}}, &err), err);
+    const std::string& sys_after = aw.sources().at(kSys);
+    CHECK(sys_after.rfind("[[edge]]\nkind = \"lane\"\nfrom = \"wp_patrol_gate\"\n"
+                          "to = \"vesper_orbit_market\"") != std::string::npos);
+    CHECK(read_all(t.src / kSys) == sys_after);
+    CHECK(aw.sys_def()->nav_edges.size() == 3);
+    const auto b0 = lines_of(sys_before), a0 = lines_of(sys_after);
+    bool prefix_same = a0.size() > b0.size();
+    for (std::size_t i = 0; i < b0.size() && prefix_same; ++i)
+        if (b0[i] != a0[i]) prefix_same = false;
+    CHECK(prefix_same);  // append-only: existing lines untouched
+
+    // ---- refused add: dangling endpoint -> the 8.8 gate fails the recook;
+    // live text, disk text and cooked def all stay BIT-EXACT, rails live.
+    const std::string sys_ok = aw.sources().at(kSys);
+    CHECK_FALSE(aw.add_glue_row(
+        "edge", {{"kind", "\"lane\""}, {"from", "\"wp_patrol_gate\""},
+                 {"to", "\"ghost_node\""}}, &err));
+    CHECK(!err.empty());
+    CHECK(aw.sources().at(kSys) == sys_ok);
+    CHECK(read_all(t.src / kSys) == sys_ok);
+    CHECK(aw.sys_def()->nav_edges.size() == 3);
+    CHECK(aw.rails().position(kid, 0).has_value());  // revert re-cooked the old tree
+
+    // ---- glue-field edit: [[lane]] flow 1.75 -> 2.25 rides the same gate;
+    // exactly one source line changes.
+    REQUIRE_MESSAGE(aw.set_glue_field("lane", "id", "lane_ore_kepler_vesper",
+                                      "flow", "2.25", &err), err);
+    CHECK(aw.sources().at(kSys).find("flow = 2.25") != std::string::npos);
+    CHECK(aw.sys_def()->lanes[0].flow_rate == doctest::Approx(2.25));
+    const auto a1 = lines_of(aw.sources().at(kSys));
+    REQUIRE(a1.size() == a0.size());
+    int changed = 0;
+    for (std::size_t i = 0; i < a1.size(); ++i)
+        if (a1[i] != a0[i]) ++changed;
+    CHECK(changed == 1);
+
+    // refused field edit (no such row): zero bytes changed
+    const std::string sys_ok2 = aw.sources().at(kSys);
+    CHECK_FALSE(aw.set_glue_field("lane", "id", "lane_ghost", "flow", "9.0", &err));
+    CHECK(!err.empty());
+    CHECK(aw.sources().at(kSys) == sys_ok2);
+}
+
 }  // namespace ve::cook

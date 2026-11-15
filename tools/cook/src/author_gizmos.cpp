@@ -466,4 +466,148 @@ std::optional<gizmo_handle> author_world::pick_at(double px, double py, double r
     return best;
 }
 
+// ---- 8.20 mode B: schematic_source (the panel edits THIS live source) ----
+
+std::string author_world::sys_path() const {
+    for (const auto& [path, cd] : m_defs)
+        if (cd.def.world_class == game::WorldClass::system) return path;
+    return {};
+}
+
+const WorldDef* author_world::sys_def() const {
+    const auto it = m_defs.find(sys_path());
+    return it == m_defs.end() ? nullptr : &it->second.def;
+}
+
+std::vector<game::schematic_node_input> author_world::schematic_nodes(
+        std::int32_t tick) const {
+    using game::schematic_node_input;
+    std::vector<schematic_node_input> out;
+    // Stations first (they center the map), def-path order.
+    for (const auto& [path, cd] : m_defs) {
+        if (cd.def.world_class != game::WorldClass::station) continue;
+        schematic_node_input n;
+        n.key = path;
+        n.label = cd.def.name.empty()
+                      ? std::filesystem::path(path).stem().string()
+                      : cd.def.name;
+        n.detail = "station";
+        if (const auto e = m_entities.find(path); e != m_entities.end())
+            n.ent = e->second;
+        n.station = true;
+        const auto id = body_id(path);
+        if (id >= 0)
+            if (const auto p = m_rails.position(id, tick)) n.pos = *p;
+        out.push_back(std::move(n));
+    }
+    const auto sp = sys_path();
+    const auto sit = m_defs.find(sp);
+    if (sit == m_defs.end()) return out;
+    const auto& sys = sit->second.def;
+    const std::string dir = std::filesystem::path(sp).parent_path().generic_string();
+
+    // Resolve a def ref or "poi:<name>" to a rail position + owning body's
+    // def path (for entity binding).
+    auto anchor = [&](const std::string& ref, dvec3* pos, std::string* owner) -> bool {
+        if (ref.rfind("poi:", 0) == 0) {
+            const std::string pname = ref.substr(4);
+            for (const auto& [bp, cd] : m_defs) {
+                const auto id = body_id(bp);
+                if (id < 0) continue;
+                const auto p = m_rails.position(id, tick);
+                if (!p) continue;
+                for (const auto& poi : cd.def.pois) {
+                    if (poi.name != pname) continue;
+                    *pos = *p + poi.stamp.center_dir * cd.def.rails.surface_radius;
+                    *owner = bp;
+                    return true;
+                }
+            }
+            return false;
+        }
+        const auto pk = resolve_ref(dir, ref);
+        const auto id = body_id(pk);
+        if (id < 0) return false;
+        const auto p = m_rails.position(id, tick);
+        if (!p) return false;
+        *pos = *p;
+        *owner = pk;
+        return true;
+    };
+
+    for (const auto& wp : sys.waypoints) {
+        schematic_node_input n;
+        n.key = "node:" + wp.id;
+        n.label = wp.id;
+        n.detail = wp.body_ref.empty() ? "waypoint (fixed)" : "waypoint (anchored)";
+        n.pos = dvec3{wp.offset[0], wp.offset[1], wp.offset[2]};
+        if (!wp.body_ref.empty()) {
+            dvec3 bpos{0.0, 0.0, 0.0};
+            std::string owner;
+            if (anchor(wp.body_ref, &bpos, &owner)) n.pos = n.pos + bpos;
+        }
+        out.push_back(std::move(n));
+    }
+    for (const auto& mk : sys.markets) {
+        schematic_node_input n;
+        n.key = "node:" + mk.id;
+        n.label = mk.id;
+        n.detail = "market";
+        dvec3 pos{0.0, 0.0, 0.0};
+        std::string owner;
+        if (anchor(mk.anchor_ref, &pos, &owner)) {
+            if (const auto e = m_entities.find(owner); e != m_entities.end())
+                n.ent = e->second;
+        }
+        n.pos = pos;
+        out.push_back(std::move(n));
+    }
+    return out;
+}
+
+bool author_world::add_glue_row(
+        const std::string& table,
+        const std::vector<std::pair<std::string, std::string>>& fields,
+        std::string* err) {
+    const auto fail = [&](const std::string& m) { if (err) *err = m; return false; };
+    const std::string path = sys_path();
+    if (path.empty()) return fail("no system-class def loaded");
+    if (table.empty()) return fail("empty row table");
+    for (const auto& [k, v] : fields)
+        if (k.empty() || v.empty()) return fail("glue row field needs key + literal");
+    const std::string old_text = m_sources[path];
+    const bool trailing_nl = !old_text.empty() && old_text.back() == '\n';
+    auto lines = split_lines(old_text);
+    // Schema-shaped block appended at EOF: [[table]] + one key = literal row.
+    if (!lines.empty() && !trim(lines.back()).empty()) lines.push_back("");
+    lines.push_back("[[" + table + "]]");
+    for (const auto& [k, v] : fields) lines.push_back(k + " = " + v);
+    m_sources[path] = join_lines(lines, trailing_nl);
+    if (!recook_and_swap(err)) {
+        revert(path, old_text);   // gate refused: zero bytes changed
+        return false;
+    }
+    return true;
+}
+
+bool author_world::set_glue_field(const std::string& table, const std::string& key_field,
+                                  const std::string& key_value, const std::string& field,
+                                  const std::string& value_literal, std::string* err) {
+    const auto fail = [&](const std::string& m) { if (err) *err = m; return false; };
+    const std::string path = sys_path();
+    if (path.empty()) return fail("no system-class def loaded");
+    const std::string old_text = m_sources[path];
+    const bool trailing_nl = !old_text.empty() && old_text.back() == '\n';
+    auto lines = split_lines(old_text);
+    const auto block = find_row_block(lines, table, key_field, key_value);
+    if (!block) return fail("no [[" + table + "]] with " + key_field + "='" + key_value + "'");
+    set_row_key(lines, *block, field, value_literal);
+    m_sources[path] = join_lines(lines, trailing_nl);
+    if (!recook_and_swap(err)) {
+        revert(path, old_text);   // gate refused: zero bytes changed
+        return false;
+    }
+    return true;
+}
+
 }  // namespace ve::cook
