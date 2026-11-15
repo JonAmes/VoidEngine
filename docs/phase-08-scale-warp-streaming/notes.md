@@ -854,3 +854,35 @@ Test-scenario traps (bit twice, cost a full rebuild cycle each):
 - Adding a tools/cook source file needs BOTH tests/CMakeLists.txt (test
   cpp) and tools/cook/CMakeLists.txt (impl cpp) or the link stage fails
   with undefined references the test registration alone won't show.
+
+
+## 8.20 — mode B: 2D system schematic (e32e028, 0abd339, 2bb9089, 1a8180e, 6f40064)
+
+- Same data, second projection (#43): the schematic reads the cooked
+  WorldDef through `schematic_source` (declared in the GAME header,
+  implemented by the cooklet's `author_world`) — mode A and mode B can
+  never drift into two models, and the game layer never links the cooklet.
+- The checklist premise "same ui.h line primitive the loadout lines use"
+  was false — loadout's "lines" are TEXT lines; ui_context had no stroke.
+  8.20.0 added `ui_context::line` (rotated flat-color quad about the
+  segment; an axis-aligned quad vanishes on diagonals).
+- `[[spawn]]` rows (8.20.1) grew WRLD payload_ver 1->2: precedent is glb
+  payload_ver bumps on format change; no committed WORLD .ck fixtures pin
+  the layout, so append-after-job_templates was free.
+- Every schematic EDIT is a text edit through `add_glue_row`/
+  `set_glue_field` -> the real incremental cooker + wrldvalidate gate
+  (8.20.2). Refused = source bit-exact + old tree re-cooked. There is no
+  in-memory-only mutation path in mode B either.
+- Node drag is waypoint-only: the px->world inverse uses the CURRENT view
+  (center org + scale), anchor = tick-0 rail pos minus authored offset, so
+  anchored waypoints keep following their body. Stations/bodies belong to
+  mode A drags; market nodes are refs, not positions — refuse.
+- Fixture trap: hull seam pairing is socket-exact on BOTH sides — station
+  seam `partner ring_module socket hp_engine_R` requires ring_module to
+  declare a seam on hp_engine_R (a transcription slip ->
+  "module declares no clamp seam pairing socket ...").
+- std::format("{}", 0.0003) prints 3e-04 — panel readout rows use {:g}
+  (human "0.0003"); the TOML literal write-back can keep {} since TOML
+  floats accept exponent notation.
+- selection trap: schematic nodes without a live entity (waypoints) must
+  CLEAR the shared 8.3 service, never leave a stale entity selected.
