@@ -4,6 +4,7 @@
 # byte-identical cooked bytes out (golden test 0.9 enforces this).
 add_library(ve_cooklet STATIC
     src/cook.cpp
+    src/author_gizmos.cpp
     src/font.cpp
     src/glb.cpp
     src/json.cpp

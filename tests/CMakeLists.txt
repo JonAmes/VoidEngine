@@ -109,6 +109,7 @@ add_executable(engine_tests
     cook/test_hull_validate.cpp
     cook/test_worlddef.cpp
     cook/test_realscale_world.cpp
+    cook/test_author_gizmos.cpp
     tools/test_glb.cpp
     tools/test_mikktspace.cpp
     tools/test_incremental.cpp
@@ -128,6 +129,7 @@ add_executable(engine_tests
     gfx/test_camera_rig.cpp
     gfx/test_depth_reversed_z.cpp
     gfx/test_logzoom_depth.cpp
+    gfx/test_author_gizmo_pick.cpp
     gfx/test_terrain_descent_golden.cpp
     gfx/test_pipeline_cache.cpp
     gfx/test_mesh_upload.cpp
