@@ -142,6 +142,7 @@ add_executable(engine_tests
     gfx/test_text_draw.cpp
     gfx/test_ui_immediate.cpp
     cook/test_world_empty.cpp
+    cook/test_def_schema_world.cpp
     platform/test_input_adapter.cpp
     gfx/test_world_canvas.cpp
     gfx/test_scene_orbit.cpp

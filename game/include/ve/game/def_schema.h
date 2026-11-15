@@ -36,6 +36,12 @@ inline constexpr std::array<std::string_view, 6> kFace_axis_names = {
 // Wire type codes: 0 power, 1 signal, 2 power+signal.
 inline constexpr std::array<std::string_view, 3> kWire_type_names = {
     "power", "signal", "power+signal"};
+// World def classes (EK.4.0); index order is arbitrary (codec keeps its own
+// WorldClass enum). Nav kind names match game::NavKind values (lane=0...).
+inline constexpr std::array<std::string_view, 3> kWorld_class_names = {
+    "system", "body", "station"};
+inline constexpr std::array<std::string_view, 3> kNav_kind_names = {
+    "lane", "patrol", "local"};
 
 // Enumeration fields name their set; empty span = unknown set (forms bug).
 constexpr std::span<const std::string_view> enum_options(std::string_view set) {
@@ -43,6 +49,8 @@ constexpr std::span<const std::string_view> enum_options(std::string_view set) {
     if (set == "face") return kFace_axis_names;
     if (set == "wire_type") return kWire_type_names;
     if (set == "facet_action") return kPhase5_facet_actions;
+    if (set == "world_class") return kWorld_class_names;
+    if (set == "nav_kind") return kNav_kind_names;
     return {};
 }
 
@@ -135,5 +143,81 @@ inline constexpr std::array kHull_rows = {
     def_row{"seam", kSeam_fields},
 };
 inline constexpr def_schema kHull_def_schema{"hull", kHull_scalars, kHull_rows};
+
+// ---- WORLD system-def schema (EK.4.0; mirrors tools/cook/src/worlddef.cpp's
+// system-class parse exactly — same fields, same requiredness, same closed
+// sets; keep in lock-step per #43: the gate judges values, the forms speak
+// shape) ----
+inline constexpr std::array kWorld_system_scalars = {
+    def_field{"world_class", field_kind::enumeration, 1, true, std::nullopt, "world_class"},
+    def_field{"name", field_kind::text, 1, true, std::nullopt, {}},
+    def_field{"seed", field_kind::integer, 1, false, std::nullopt, {}},
+    def_field{"members", field_kind::path_list, 0, false, std::nullopt, {}},
+};
+inline constexpr std::array kFaction_fields = {
+    def_field{"name", field_kind::id, 1, true, std::nullopt, {}},
+    def_field{"power", field_kind::number_si, 1, false, std::nullopt, {}},
+    def_field{"stance", field_kind::tag_list, 0, false, std::nullopt, {}},
+};
+inline constexpr std::array kMarket_fields = {
+    def_field{"id", field_kind::id, 1, true, std::nullopt, {}},
+    // anchor is a DEF-PATH (manifest edge, 8.8) — or a "poi:<name>" string
+    // resolved inside a member body by the wrld graph gates; forms emit it
+    // verbatim either way.
+    def_field{"anchor", field_kind::def_path, 1, true, std::nullopt, {}},
+};
+inline constexpr std::array kProduction_fields = {
+    def_field{"market", field_kind::name_ref, 1, true, std::nullopt, {}},
+    def_field{"commodity", field_kind::text, 1, true, std::nullopt, {}},
+    def_field{"rate", field_kind::number_si, 1, true, std::nullopt, {}},
+};
+inline constexpr std::array kLane_fields = {
+    def_field{"id", field_kind::id, 1, true, std::nullopt, {}},
+    def_field{"from", field_kind::name_ref, 1, true, std::nullopt, {}},
+    def_field{"to", field_kind::name_ref, 1, true, std::nullopt, {}},
+    def_field{"commodity", field_kind::text, 1, true, std::nullopt, {}},
+    def_field{"flow", field_kind::number_si, 1, true, std::nullopt, {}},
+};
+inline constexpr std::array kWaypoint_fields = {
+    def_field{"id", field_kind::id, 1, true, std::nullopt, {}},
+    def_field{"kind", field_kind::enumeration, 1, true, std::nullopt, "nav_kind"},
+    def_field{"body", field_kind::def_path, 1, false, std::nullopt, {}},
+    // `at` is a bare-SI triple (metres), like hull attrs — no ratified
+    // #42 suffix for positions yet.
+    def_field{"at", field_kind::number_si, 3, false, std::nullopt, {}},
+};
+inline constexpr std::array kNavEdge_fields = {
+    def_field{"kind", field_kind::enumeration, 1, true, std::nullopt, "nav_kind"},
+    def_field{"from", field_kind::name_ref, 1, true, std::nullopt, {}},
+    def_field{"to", field_kind::name_ref, 1, true, std::nullopt, {}},
+};
+inline constexpr std::array kJob_fields = {
+    def_field{"id", field_kind::id, 1, true, std::nullopt, {}},
+};
+inline constexpr std::array kJobStep_fields = {
+    def_field{"job", field_kind::name_ref, 1, true, std::nullopt, {}},
+    def_field{"verb", field_kind::text, 1, true, std::nullopt, {}},
+    def_field{"target", field_kind::text, 1, false, std::nullopt, {}},
+    def_field{"amount", field_kind::number_si, 1, false, std::nullopt, {}},
+};
+inline constexpr std::array kSpawn_fields = {
+    def_field{"id", field_kind::id, 1, true, std::nullopt, {}},
+    def_field{"at", field_kind::name_ref, 1, true, std::nullopt, {}},
+    def_field{"faction", field_kind::name_ref, 1, true, std::nullopt, {}},
+    def_field{"class", field_kind::text, 1, true, std::nullopt, {}},  // hull class
+    def_field{"rate", field_kind::number_si, 1, true, std::nullopt, {}},
+};
+inline constexpr std::array kWorld_system_rows = {
+    def_row{"faction", kFaction_fields},
+    def_row{"market", kMarket_fields},
+    def_row{"production", kProduction_fields},
+    def_row{"lane", kLane_fields},
+    def_row{"waypoint", kWaypoint_fields},
+    def_row{"edge", kNavEdge_fields},
+    def_row{"job", kJob_fields},
+    def_row{"job_step", kJobStep_fields},
+    def_row{"spawn", kSpawn_fields},
+};
+inline constexpr def_schema kWorld_system_def_schema{"world_system", kWorld_system_scalars, kWorld_system_rows};
 
 }  // namespace ve::game
