@@ -141,6 +141,7 @@ add_executable(engine_tests
     gfx/test_shadow_map.cpp
     gfx/test_text_draw.cpp
     gfx/test_ui_immediate.cpp
+    platform/test_input_adapter.cpp
     gfx/test_world_canvas.cpp
     gfx/test_scene_orbit.cpp
     gfx/test_wsi_compile.cpp

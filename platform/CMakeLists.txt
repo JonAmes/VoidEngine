@@ -38,12 +38,12 @@ endif()
 # platform/xr/ (OpenXR) and platform/xr_mock/ arrive in later phases; XR API
 # calls live ONLY here (AGENTS.md boundary 2). 2.8 adds the desktop window half:
 # ve_platform is the one and only GLFW consumer; gfx/ receives a VkSurfaceKHR.
-add_library(ve_platform STATIC src/version.cpp src/window.cpp)
+add_library(ve_platform STATIC src/version.cpp src/window.cpp src/input_adapter.cpp)
 target_include_directories(ve_platform PUBLIC include)
 # ve_glfw is PRIVATE on purpose: window.h exposes only VkSurfaceKHR + void*, so
 # nothing outside platform/ needs a GLFW include. PUBLIC here would hand every
 # consumer (gfx/, tools/demo) a GLFW include path and let boundary 2 rot into a
 # code-review convention; PRIVATE makes an accidental `#include <GLFW/glfw3.h>`
 # upstream a compile error. volk stays PUBLIC — window.h includes <volk.h>.
-target_link_libraries(ve_platform PUBLIC ve_core volk PRIVATE ve_glfw)
+target_link_libraries(ve_platform PUBLIC ve_core ve_gfx volk PRIVATE ve_glfw)
 
