@@ -55,6 +55,11 @@ public:
     // must match the framebuffer, which is what a HiDPI resize actually changes.)
     std::pair<std::uint32_t, std::uint32_t> frame_size() const;
 
+    // Raw GLFWwindow* for the platform input shim (install_glfw_input, EK.2).
+    // Same void*-handle convention as create_surface()'s VkSurfaceKHR: the
+    // caller never includes GLFW itself; the shim lives in this library.
+    void* glfw_handle() const { return glfw_; }
+
 private:
     window() = default;
     void* glfw_ = nullptr; // GLFWwindow*
