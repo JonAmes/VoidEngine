@@ -810,3 +810,47 @@ Debug lessons that generalize (cost real hours; all bit twice):
   corners along the axis) silently culls everything for a tilted camera;
   use the real view basis (f/s/u from the same look_at the presenter
   uses) in any fixed-pose cull.
+
+## 8.19 — mode A authoring gizmos (b10655d)
+
+Author_world lives in the cooklet lib (tools/cook), not core/game: the whole
+point is that an edit is a TEXT edit of the TOML source def, round-tripped
+through the real incremental cooker + wrldvalidate before anything live
+moves. No in-memory-only mutation path exists. Gate refusal = bit-exact
+revert of the source text + re-cook of the old tree, so disk / cooked units
+/ assembled rails all snap back and only the error string survives.
+
+Design decisions baked in:
+- Handles ride the assembled rail_world; positions are analytic rail
+  evaluation at the current tick (no render-readback on the CPU side).
+- Emitted scalars ride unit-suffix literals ("m" / "rad") so the cooker's
+  unit coercion re-parses them exactly; triples are bare SI (hull-attr rule).
+- Fixed-decimal emission (%.6f / %.9f) keeps the git diff of a drag
+  human-reviewable; the round-trip contract is "source text decodes to the
+  drag target within emitted precision", NOT bit-exact normalization
+  (a 45-deg poi center comes back as 0.707107, and that is correct).
+- drag_body on a root-anchor def refuses outright (#45c); the test pins
+  that no bytes change and no re-cook state moved.
+- Station defs get the established rails stand-in surface_radius=100 m in
+  assemble_rails only (hull extent lives in DEF0 geometry; add_body gate
+  wants > 0 — same stand-in as the realscale rails test). Never written to
+  the source text.
+
+Tier-2 pick proof (author_gizmo_pick, lavapipe + validation ON): draw the
+same screen-space quads at project_px positions with the same off-axis
+log-zoom matrix the CPU pick uses; pins are marker pixels land where
+project_px predicted, nearer handle wins overlaps in BOTH draw orders, and
+the two captures are byte-identical — stronger than a golden PNG.
+
+Test-scenario traps (bit twice, cost a full rebuild cycle each):
+- Nearest-pick scenarios are collinearity traps: with the eye on an axis,
+  root-at-origin + surface poi + rail waypoint can all project to the SAME
+  pixel, and the deepest-looking candidate wins for the wrong reason. Pin
+  the scenario geometry (park the nearer handle on the exact eye->target
+  ray, keep the root handle outside the cursor radius) so the tie-break is
+  actually under test.
+- doctest "Expression Too Complex": REQUIRE/CHECK with && operands are
+  rejected by this build's config — split into separate assertions.
+- Adding a tools/cook source file needs BOTH tests/CMakeLists.txt (test
+  cpp) and tools/cook/CMakeLists.txt (impl cpp) or the link stage fails
+  with undefined references the test registration alone won't show.
