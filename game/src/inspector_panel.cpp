@@ -165,6 +165,25 @@ bool inspector_panel::schematic_set_flow(const std::string& lane_id, double flow
                                   std::format("{}", flow), err);
 }
 
+bool inspector_panel::schematic_drag_node(std::string_view key, float to_x_px,
+                                          float to_y_px, std::string* err) {
+    if (!m_ssrc) { if (err) *err = "no schematic source"; return false; }
+    const auto v = schematic_view();
+    const auto nit = std::ranges::find(v.nodes, key, &schem_view_node::key);
+    if (nit == v.nodes.end()) { if (err) *err = "no such node on the map"; return false; }
+    // Inverse of the top-down projection (px = ((pos-org).x, -(pos-org).z)
+    // * scale): world target about the current view center.
+    const auto inputs = m_ssrc->schematic_nodes(0);
+    const auto cit = std::ranges::find(inputs, v.center_key,
+                                       &schematic_node_input::key);
+    const core::math::dvec3 org =
+        cit != inputs.end() ? cit->pos : core::math::dvec3{0.0, 0.0, 0.0};
+    const double inv = v.scale > 0.0 ? 1.0 / v.scale : 0.0;
+    const core::math::dvec3 target{org.x + double(to_x_px) * inv, org.y,
+                                   org.z - double(to_y_px) * inv};
+    return m_ssrc->move_def_waypoint(std::string(key), target, err);
+}
+
 void inspector_panel::render_schematic(gfx::ui_context& ui, std::int32_t x,
                                        std::int32_t y, std::int32_t w,
                                        std::int32_t h) {

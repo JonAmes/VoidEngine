@@ -70,7 +70,13 @@ public:
     // Nodes: stations (member order), then waypoints, then markets.
     virtual std::vector<schematic_node_input> schematic_nodes(std::int32_t tick) const = 0;
     // Cooked system def (edges/lanes/spawns/stances side fields).
-    virtual const ve::game::WorldDef* sys_def() const = 0;
+    virtual const WorldDef* sys_def() const = 0;
+    // Move a waypoint node to a world target (#43 node drag on the map).
+    // Stations/bodies drag in mode A; market nodes are refs, not
+    // positions -> false + *err for those kinds.
+    virtual bool move_def_waypoint(const std::string& node_key,
+                                   const core::math::dvec3& world_target,
+                                   std::string* err) = 0;
     // Same gate as 8.19 scalar drags: accepted = recooked + hot-swapped;
     // refused = ZERO bytes changed, *err = the gate's first message.
     virtual bool add_glue_row(const std::string& table,
@@ -141,6 +147,12 @@ public:
     bool schematic_add_edge(const std::string& from_id, const std::string& to_id,
                             std::string* err);
     bool schematic_set_flow(const std::string& lane_id, double flow, std::string* err);
+    // #43 node drag: inverse-projects the target px through the current
+    // view and rewrites the waypoint row (recook gate; refused = zero
+    // bytes). Other node kinds refuse (mode A drags bodies; markets are
+    // refs).
+    bool schematic_drag_node(std::string_view key, float to_x_px, float to_y_px,
+                             std::string* err);
 
     // Layout constants (tests pin against these exactly).
     static constexpr float kSchemRadiusPx = 400.f;  // max-range ring

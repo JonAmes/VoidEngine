@@ -99,6 +99,12 @@ public:
     bool set_glue_field(const std::string& table, const std::string& key_field,
                         const std::string& key_value, const std::string& field,
                         const std::string& value_literal, std::string* err) override;
+    // #43 map drag: rewrite the waypoint's `at` triple so its rail pos at
+    // tick 0 lands on world_target (anchor body motion preserved). Same
+    // recook gate as every other write.
+    bool move_def_waypoint(const std::string& node_key,
+                           const core::math::dvec3& world_target,
+                           std::string* err) override;
 
     // Bind the 8.3 selection service + a def-path -> entity map (the game
     // world's entities for these defs). pick_at then selects through it.

@@ -370,6 +370,41 @@ TEST_CASE("inspector_panel_schematic") {
     edges = panel.schematic_edges();
     CHECK(edges[3].flow == doctest::Approx(2.25));
 
+    // ---- node drag (#43): map px inverse-projects to world; only
+    // [[waypoint]] rows rewrite (stations/bodies drag in mode A; markets
+    // are refs, not positions).
+    const auto v3 = panel.schematic_view();  // centered on vesper market
+    CHECK(v3.center_key == "node:vesper_orbit_market");
+    const auto* w3 = find_node(v3.nodes, "node:wp_patrol_gate");
+    REQUIRE(w3);
+    CHECK(w3->x == doctest::Approx(400.0f));  // 7.5e6 m is the range -> ring
+    const std::string pre_drag = aw.sources().at(kSys);
+    REQUIRE_MESSAGE(panel.schematic_drag_node("node:wp_patrol_gate", 200.0f, -150.0f, &err), err);
+    // target = (0,0,0) + (200, ., +150)/scale; anchored on vesper (0,0,0)
+    // at tick 0, so at_new == target. fmt_triple emits exact .6f.
+    const double sc = v3.scale;
+    const game::WorldNavNode* wwd = nullptr;
+    for (const auto& wp : aw.sys_def()->waypoints)
+        if (wp.id == "wp_patrol_gate") wwd = &wp;
+    REQUIRE(wwd);
+    CHECK(wwd->offset[0] == doctest::Approx(200.0 / sc));
+    CHECK(wwd->offset[1] == doctest::Approx(0.0));
+    CHECK(wwd->offset[2] == doctest::Approx(150.0 / sc));
+    {  // only the `at` line changed
+        std::istringstream a(pre_drag), b(aw.sources().at(kSys));
+        std::string la, lb;
+        int diff = 0;
+        while (std::getline(a, la) && std::getline(b, lb))
+            if (la != lb) ++diff;
+        CHECK(diff == 1);
+    }
+    CHECK(panel.schematic_edges().size() == 4);  // wp id survived the drag
+    // refused: station node -> no write, zero bytes.
+    const std::string post_drag = aw.sources().at(kSys);
+    CHECK_FALSE(panel.schematic_drag_node(kKep, 10.0f, 10.0f, &err));
+    CHECK(!err.empty());
+    CHECK(aw.sources().at(kSys) == post_drag);
+
     // leaving schematic mode: the tree view is the same panel object.
     panel.end_schematic();
     CHECK_FALSE(panel.schematic_active());

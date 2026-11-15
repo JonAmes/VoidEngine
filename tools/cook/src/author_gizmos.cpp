@@ -610,4 +610,32 @@ bool author_world::set_glue_field(const std::string& table, const std::string& k
     return true;
 }
 
+bool author_world::move_def_waypoint(const std::string& node_key,
+                                     const dvec3& world_target, std::string* err) {
+    const auto fail = [&](const std::string& m) { if (err) *err = m; return false; };
+    const auto* sys = sys_def();
+    if (!sys) return fail("no system-class def loaded");
+    if (node_key.rfind("node:", 0) != 0)
+        return fail("not a schematic node key: '" + node_key + "'");
+    const std::string id = node_key.substr(5);
+    const game::WorldNavNode* wit = nullptr;
+    for (const auto& wp : sys->waypoints)
+        if (wp.id == id) { wit = &wp; break; }
+    if (!wit)
+        return fail("only waypoint nodes drag in mode B (#43): '" + id +
+                    "' is not a waypoint");
+    // Anchor position = current rail pos minus the authored offset (the
+    // body's own rail pos at tick 0, or the origin for fixed waypoints).
+    const auto nodes = schematic_nodes(0);
+    const game::schematic_node_input* nit = nullptr;
+    for (const auto& n : nodes)
+        if (n.key == node_key) { nit = &n; break; }
+    if (!nit) return fail("waypoint node not on the schematic map");
+    const dvec3 anchor = nit->pos - dvec3{wit->offset[0], wit->offset[1], wit->offset[2]};
+    const dvec3 at_new = world_target - anchor;
+    if (!all_finite(at_new)) return fail("waypoint drag target is not finite");
+    // Bare SI triple literal (8.19 rule), same recook gate as every write.
+    return set_glue_field("waypoint", "id", id, "at", fmt_triple(at_new), err);
+}
+
 }  // namespace ve::cook
