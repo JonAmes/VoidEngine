@@ -40,3 +40,47 @@
 - ui_io vocabulary split pinned by test: cursor + left-button are STATEFUL across frames; chars and backspace/enter/escape are per-frame EDGES (drained by next_frame). GLFW_REPEAT dropped at the shim — latched repeat would fight the field; glyph repeat already arrives via the char callback.
 - HiDPI: GLFW cursor px are content-space, ui draw space is framebuffer px; `set_frame_scale(content, frame)` scales, content-0x0 (minimize) keeps the last scale.
 - utf-8 hand-encoded in the adapter (no codec dependency in the input path, per #15's cooked-everything doctrine); lone surrogates and cp > 0x10FFFF dropped.
+
+## EK.3 — empty-world bootstrap (49d1be8)
+- The EK.3 fixture world is `tests/fixtures/world_empty/src/system.toml`:
+  one system_class_core system, name "Empty", seed 1, members [] — zero
+  bodies/stations/lanes/rows. It opens through the REAL cook path:
+  `world_empty` (1c/21a) runs cook_incremental on it, asserts wrldvalidate
+  green, decodes via world_load (zero rows), schematic_nodes(0) empty, and
+  that a second cook's content hash is stable.
+- Production code needed NO changes for the empty world — the cook gate
+  already tolerated zero-entity systems; the test pins that it keeps doing
+  so.
+
+## EK.4.0 — world system-def schema (4c6ac19)
+- `kWorld_system_def_schema` (game/def_schema.h) mirrors the cooklet's
+  system-class parse EXACTLY (#43 lock-step): scalars world_class/name/
+  seed/members + row tables faction/market/production/lane/waypoint/edge/
+  job/job_step/spawn, enum sets world_class + nav_kind. Forms edits of an
+  edited system.toml re-cook green through the real gate (`def_schema_world`
+  1c/28a: empty fixture + one-row-of-every-kind system).
+
+## EK.4 — ve_edit host (979c243)
+- **Mode-B is host-driven, not render()-driven:** `inspector_panel.render()`
+  is the ECS-tree side (takes `inspector_data`); the schematic map needs the
+  public `render_schematic()` + a `click_schematic(io)` call every frame
+  (the panel keeps its own rising-edge select). A host wiring only render()
+  shows a blank right half — exactly what the first evidence run caught.
+- **Forms are single-string editors** (`edited_field{name,value}`), enough
+  for the empty world: only scalars exist, members cell edited as raw
+  inline-array text. Row-table add/remove waits for EK.5.
+- **Self-attestation over screenshot-reading:** ve_edit exits non-zero if
+  the scripted edit never reaches the gate, the gate refuses, the name
+  never hits src/ AND baked/, UI ink = 0, last frame == frame 0, or the
+  validation layer speaks (2.7 policy, app-side via new
+  `WindowedHost::validation_problems()`). PNGs are review artifacts; the
+  exit code is the assertion. Independent stdlib PNG decode cross-checks:
+  both 1400x900, ~600 unique colors, f0 vs last differ.
+- **Work dir is per-PID** (`/tmp/ve_edit_<pid>`): a fixed default would
+  inherit a prior run's edited def and desync the scripted erase-count
+  (derived from the seeded name length).
+- **Driver script** (`tools/dev/xvfb_edit_run.sh`): 2.9 preflight pattern
+  (xvfb-run, lavapipe ICD via VK_ICD_FILENAMES+VK_DRIVER_FILES, validation
+  layer manifest present), `-screen 0 1600x1000x24`, evidence PNGs into
+  docs/tooling-editorkit/evidence/. GLFW init is the only display-dependent
+  layer; everything under it stays surfaceless-capable. Never in ci_local.
