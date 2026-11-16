@@ -8,9 +8,12 @@
 //                      integer >= 1 (#44: every hull declares its lattice).
 //   [[section]]        name + cells = flat [lo.x lo.y lo.z hi.x hi.y hi.z]
 //                      boxes, CELL coords (#19a).
-//   [[component]]      id/type/category/socket; optional tags, [component.attrs]
-//                      (registry keys, #42 coercion), [[component.facet]]
-//                      (action + range + optional manual) (#28a).
+//   [[component]]      id/type/category/socket; optional tags, refs (#55b art
+//                      override), [component.attrs] (registry keys, #42
+//                      coercion), [[component.facet]] (action + range +
+//                      optional manual) (#28a). Entries whose `type` matches a
+//                      component TYPE def inherit its category + [attrs]
+//                      preset, overridden key-by-key (#52a/#55).
 //   [[wire]]           id/type power|signal|power+signal, optional capacity,
 //                      from/to = "socket.<id>" | "component.<id>" (#26a).
 //   [[seam]]           partner def ref + shared socket + optional offset
@@ -26,6 +29,7 @@
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -172,6 +176,9 @@ struct CompRow {
     // fail at 5.9b validation) on those types; meaningless elsewhere.
     std::uint8_t face = 0;
     std::vector<std::string> tags;
+    // #55b: entry-level art refs; when non-empty they FULLY REPLACE the type
+    // def's refs (art override; key-by-key override applies to attrs only).
+    std::vector<std::string> refs;
     std::vector<Attr> attrs;   // std::map key order (deterministic)
     std::vector<Facet> facets;
 };
@@ -182,6 +189,48 @@ bool face_u8(std::string_view s, std::uint8_t& out) {
     for (std::size_t i = 0; i < ve::game::kFace_axis_names.size(); ++i)
         if (s == ve::game::kFace_axis_names[i]) { out = static_cast<std::uint8_t>(i + 1); return true; }
     return false;
+}
+
+// [attrs] map flattened + #42-gated — shared by hull [[component.attrs]]
+// entries AND component TYPE def presets (9.1: "the #42 entry gate operates
+// at both def kinds", #52a). `prefix` is the def-relative path without a
+// trailing dot ("component[0].attrs" / "attrs"); hull-end messages stay
+// byte-identical to the 5.8 entry gate.
+bool parse_attrs_map(const TomlValue& attrs, const std::string& prefix,
+                     std::vector<Attr>& out, std::string& err) {
+    if (!attrs.is_table()) return fail(err, prefix + " must be a table");
+    // TOML dotted keys nest ([component.attrs] + `power.draw = 1` creates
+    // a `power` sub-table). The attr registry uses flat dotted names, so
+    // flatten nested tables to dot-joined keys before validating. std::map
+    // over the joined names keeps emission order deterministic (key order).
+    std::vector<std::pair<std::string, const TomlValue*>> flat;
+    std::function<void(const TomlTable&, const std::string&)> walk =
+        [&](const TomlTable& tbl, const std::string& prefix2) {
+            for (const auto& [k, v] : tbl) {
+                const std::string key = prefix2.empty() ? k : prefix2 + "." + k;
+                if (v.is_table()) walk(v.table, key);
+                else flat.emplace_back(key, &v);
+            }
+        };
+    walk(attrs.table, "");
+    for (const auto& [key, val] : flat) {
+        if (!ve::game::is_valid_attr_key(key))
+            return fail(err, prefix + " key '" + key + "' fails grammar");
+        const bool known = std::any_of(ve::game::kPhase5_attr_keys.begin(),
+                                       ve::game::kPhase5_attr_keys.end(),
+                                       [&](std::string_view k) { return k == key; });
+        if (!known)
+            return fail(err, prefix + " key '" + key + "' not in the ratified attr-key registry");
+        const std::string path = prefix + "." + key;
+        double v = 0.0;
+        if (val->is_number()) {
+            if (!req_num(*val, path, v, err)) return false;
+        } else if (!req_unit(*val, path, v, err)) {  // string form: unit-suffixed only (#42)
+            return false;
+        }
+        out.push_back({key, v});
+    }
+    return true;
 }
 
 bool parse_component(const TomlValue& row, const std::string& where, CompRow& c, std::string& err) {
@@ -202,41 +251,11 @@ bool parse_component(const TomlValue& row, const std::string& where, CompRow& c,
     }
     if (const TomlValue* tags = at(t, "tags"))
         if (!req_string_array(*tags, where + ".tags", c.tags, err)) return false;
+    if (const TomlValue* refs = at(t, "refs"))  // #55b art override
+        if (!req_string_array(*refs, where + ".refs", c.refs, err)) return false;
 
-    if (const TomlValue* attrs = at(t, "attrs")) {
-        if (!attrs->is_table()) return fail(err, where + ".attrs must be a table");
-        // TOML dotted keys nest ([component.attrs] + `power.draw = 1` creates
-        // a `power` sub-table). The attr registry uses flat dotted names, so
-        // flatten nested tables to dot-joined keys before validating. std::map
-        // over the joined names keeps emission order deterministic (key order).
-        std::vector<std::pair<std::string, const TomlValue*>> flat;
-        std::function<void(const TomlTable&, const std::string&)> walk =
-            [&](const TomlTable& tbl, const std::string& prefix) {
-                for (const auto& [k, v] : tbl) {
-                    const std::string key = prefix.empty() ? k : prefix + "." + k;
-                    if (v.is_table()) walk(v.table, key);
-                    else flat.emplace_back(key, &v);
-                }
-            };
-        walk(attrs->table, "");
-        for (const auto& [key, val] : flat) {
-            if (!ve::game::is_valid_attr_key(key))
-                return fail(err, where + ".attrs key '" + key + "' fails grammar");
-            const bool known = std::any_of(ve::game::kPhase5_attr_keys.begin(),
-                                           ve::game::kPhase5_attr_keys.end(),
-                                           [&](std::string_view k) { return k == key; });
-            if (!known)
-                return fail(err, where + ".attrs key '" + key + "' not in the ratified attr-key registry");
-            const std::string path = where + ".attrs." + key;
-            double v = 0.0;
-            if (val->is_number()) {
-                if (!req_num(*val, path, v, err)) return false;
-            } else if (!req_unit(*val, path, v, err)) {  // string form: unit-suffixed only (#42)
-                return false;
-            }
-            c.attrs.push_back({key, v});
-        }
-    }
+    if (const TomlValue* attrs = at(t, "attrs"))
+        if (!parse_attrs_map(*attrs, where + ".attrs", c.attrs, err)) return false;
     if (const TomlValue* facets = at(t, "facet")) {
         if (facets->kind != TomlValue::kArray)
             return fail(err, where + ".facet must be an array ([[component.facet]])");
@@ -331,7 +350,10 @@ bool parse_wire(const TomlValue& row, const std::string& where, WireRow& w, std:
 }  // namespace
 
 bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
-                       std::vector<std::string>& refs_out, std::string* err) {
+                       std::vector<std::string>& refs_out, std::string* err,
+                       const std::map<std::string, CompTypeDef>* type_defs,
+                       std::vector<std::string>* used_types_out,
+                       std::vector<std::string>* entry_refs_out) {
     std::string local;
     std::string& e = err ? *err : local;
     TomlValue root;
@@ -421,6 +443,39 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
             const std::string where = "component[" + std::to_string(i) + "]";
             CompRow c;
             if (!parse_component(cs->array[i], where, c, e)) return false;
+            // #52a/#55 component TYPE def resolution: the type def is the
+            // single truth for category, and its [attrs] preset joins the
+            // entry's map — an explicit hull key ALWAYS wins (#52a). The
+            // merged map emits in std::map key order like every attrs list.
+            const CompTypeDef* td = nullptr;
+            if (type_defs) {
+                auto it = type_defs->find(c.type);
+                if (it != type_defs->end()) td = &it->second;
+            }
+            if (td) {
+                if (c.category != td->category)
+                    return fail(e, where + ".category '" +
+                                     std::string{ve::game::kCategory_names[c.category]} +
+                                     "' does not match component type '" + c.type +
+                                     "' category '" +
+                                     std::string{ve::game::kCategory_names[td->category]} +
+                                     "' (#55)");
+                std::map<std::string, double> merged;
+                for (const auto& [k, v] : td->attrs) merged.emplace(k, v);
+                for (const auto& a : c.attrs) merged[a.key] = a.value;
+                c.attrs.clear();
+                for (const auto& [k, v] : merged) c.attrs.push_back({k, v});
+            }
+            if (used_types_out && td) used_types_out->push_back(c.type);
+            // #55b edge doctrine: only the entry's OWN refs become hull dep
+            // edges (authored against the hull's directory). The type def's
+            // refs are authored against the type def's directory and already
+            // ride the type def unit's own manifest edges — the hull reaches
+            // inherited art transitively through its hull -> type-def edge;
+            // re-resolving a type-def-relative path against the hull dir
+            // would point at the wrong content.
+            if (entry_refs_out && !c.refs.empty())
+                entry_refs_out->insert(entry_refs_out->end(), c.refs.begin(), c.refs.end());
             for (const auto& o : comps)
                 if (o.id == c.id) return fail(e, "duplicate component id '" + c.id + "'");
             bool conflict_seen = false;
@@ -542,6 +597,50 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
     for (const auto& r : refs_out) w.str(r);
 
     payload_out = std::move(w.b);
+    return true;
+}
+
+bool toml_source_has_component_type(const std::string& toml_text) {
+    TomlValue root;
+    std::string err;
+    if (!parse_toml(toml_text, root, &err)) return false;
+    return root.is_table() && root.table.count("component_type") != 0;
+}
+
+bool cook_comptype_source(const std::string& toml_text, CompTypeDef& out, std::string* err) {
+    std::string local;
+    std::string& e = err ? *err : local;
+    TomlValue root;
+    if (!parse_toml(toml_text, root, &e)) return false;  // historical parse message
+    if (!root.is_table()) return fail(e, "component type def root must be a table");
+    const TomlTable& rt = root.table;
+    out = CompTypeDef{};
+
+    // #55(a): the three def markers are mutually exclusive — checked before
+    // the closed-field-set pass so the conflict gets its own loud message.
+    if (rt.count("class_tag"))
+        return fail(e, "component type def declares both class_tag and component_type (#55)");
+    if (rt.count("world_class"))
+        return fail(e, "component type def declares both world_class and component_type (#55)");
+
+    if (!req_str(rt, "component_type", "", out.type, e)) return false;
+    std::string cat;
+    if (!req_str(rt, "category", "", cat, e)) return false;
+    if (!category_u8(cat, out.category))
+        return fail(e, "category '" + cat + "' not one of main/rcs/gun/utility");
+    // refs may be empty until the 9.2 strict art gate lands (#55a).
+    if (const TomlValue* r = at(rt, "refs"))
+        if (!req_string_array(*r, "refs", out.refs, e)) return false;
+    std::vector<Attr> preset;
+    if (const TomlValue* a = at(rt, "attrs"))
+        if (!parse_attrs_map(*a, "attrs", preset, e)) return false;  // #42 at this end too
+    for (const auto& p : preset) out.attrs.emplace_back(p.key, p.value);
+
+    // #55 grammar is CLOSED: an unknown top-level field would silently no-op
+    // (a typo'd preset key never applies) — fail loudly instead.
+    for (const auto& [k, v] : rt)
+        if (k != "component_type" && k != "category" && k != "refs" && k != "attrs")
+            return fail(e, "unknown field '" + k + "' in component type def (#55)");
     return true;
 }
 

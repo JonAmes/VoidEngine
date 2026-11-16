@@ -101,6 +101,58 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
 
     bool manifest_changed = false;
     std::set<std::string> cooked_ids;  // units (re)written this run; 5.9b trigger
+
+    // ---- 9.1 (#52a, decision #55): component TYPE def pre-scan ----
+    // A type def's [attrs] preset merges INTO the hull DEF0 payload, so a
+    // hull's cook identity must include the sources of the type defs its
+    // entries use — a preset edit re-merges the hull instead of leaving a
+    // stale payload. Pre-read the .toml sources (content-ID order, so the
+    // FIRST declarer of a component_type owns it deterministically; parse
+    // errors surface once in the main loop's unit cook), then pre-parse the
+    // hull defs to learn their type-def deps + effective entry art refs.
+    std::map<std::string, std::string> toml_texts;  // id -> current source text
+    for (const auto& id : ids) {
+        if (unit_type_for(id) != kUnitDef0) continue;
+        Bytes data;
+        if (!read_file_bytes((std::filesystem::path(src_dir) / id).string(), data, &err))
+            continue;  // read errors surface in the main loop
+        std::string text(data.begin(), data.end());
+        if (toml_source_has_world_class(text)) continue;  // WRLD defs: untouched
+        toml_texts.emplace(id, std::move(text));
+    }
+    std::map<std::string, std::pair<std::string, CompTypeDef>> comptypes;  // type -> (owner id, def)
+    for (const auto& [id, text] : toml_texts) {
+        if (!toml_source_has_component_type(text)) continue;
+        CompTypeDef td;
+        std::string te;
+        if (cook_comptype_source(text, td, &te))
+            comptypes.try_emplace(td.type, id, std::move(td));
+    }
+    std::map<std::string, CompTypeDef> type_view;  // type -> def (for hull merge)
+    for (const auto& [t, own] : comptypes) type_view.emplace(t, own.second);
+    // hull id -> sorted unique type-def SOURCE ids it consumes (effective-sha
+    // input below); parse-failed hulls are skipped here (main loop reports).
+    std::map<std::string, std::vector<std::string>> hull_typedeps;
+    for (const auto& [id, text] : toml_texts) {
+        if (toml_source_has_component_type(text)) continue;
+        Bytes dummy;
+        std::vector<std::string> dummy_refs, used_types;
+        std::string pe;
+        if (!cook_hulldef_unit(text, dummy, dummy_refs, &pe, &type_view, &used_types))
+            continue;
+        // Hull-only check: a cooked hull payload starts with the version u32
+        // (2); plain-def passthrough bytes can never be 0x00000002 (5.9b peek).
+        if (!(dummy.size() >= 4 && dummy[0] == 2 && dummy[1] == 0 && dummy[2] == 0 && dummy[3] == 0))
+            continue;
+        std::set<std::string> dep_ids;
+        for (const auto& t : used_types) {
+            auto o = comptypes.find(t);
+            if (o != comptypes.end()) dep_ids.insert(o->second.first);
+        }
+        if (!dep_ids.empty())
+            hull_typedeps.emplace(id, std::vector<std::string>(dep_ids.begin(), dep_ids.end()));
+    }
+
     for (const auto& id : ids) {
         std::string src = (std::filesystem::path(src_dir) / id).string();
         Bytes source;
@@ -110,6 +162,17 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
             continue;
         }
         auto sha = sha256(source);
+        // #55: a hull def's stored identity = its own bytes + the bytes of
+        // every component type def it uses, so a preset edit re-cooks (and
+        // re-merges) the hull even when the hull source is untouched.
+        if (auto hd = hull_typedeps.find(id); hd != hull_typedeps.end()) {
+            Bytes joined = source;
+            for (const auto& tid : hd->second) {
+                const std::string& ttext = toml_texts[tid];
+                joined.insert(joined.end(), ttext.begin(), ttext.end());
+            }
+            sha = sha256(joined);
+        }
 
         auto it = manifest.find(id);
         if (it != manifest.end() && it->second.source_sha == sha &&
@@ -231,10 +294,42 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
                     ++result.counts.failures;
                     continue;
                 }
-            } else if (!cook_hulldef_unit(text, unit.payload, def_refs, &def_err)) {
-                result.error = "def '" + id + "': " + def_err;
-                ++result.counts.failures;
-                continue;
+            } else if (toml_source_has_component_type(text)) {
+                // #55: the type def validates, then keeps its raw source
+                // bytes (no new payload kind — the merge resolves into hull
+                // DEF0 payloads; hull effective shas cover this source, so a
+                // merged hull can never go stale). refs -> manifest deps.
+                CompTypeDef td;
+                if (!cook_comptype_source(text, td, &def_err)) {
+                    result.error = "component type def '" + id + "': " + def_err;
+                    ++result.counts.failures;
+                    continue;
+                }
+                if (auto owner = comptypes.find(td.type);
+                    owner != comptypes.end() && owner->second.first != id) {
+                    result.error = "component_type '" + td.type +
+                                   "' declared by both '" + owner->second.first +
+                                   "' and '" + id + "' (#55)";
+                    ++result.counts.failures;
+                    continue;
+                }
+                def_refs = td.refs;
+            } else {
+                std::vector<std::string> used_types, entry_refs;
+                if (!cook_hulldef_unit(text, unit.payload, def_refs, &def_err,
+                                       &type_view, &used_types, &entry_refs)) {
+                    result.error = "def '" + id + "': " + def_err;
+                    ++result.counts.failures;
+                    continue;
+                }
+                // #52b edges: hull -> type defs it merged with (IDs already
+                // resolved; inherited art reaches the hull transitively
+                // through this edge) + each entry's OWN art refs override
+                // (#55b) joined into def_refs for the missing-ref gate.
+                for (const auto& t : used_types)
+                    if (auto o = comptypes.find(t); o != comptypes.end())
+                        entry.deps.push_back(o->second.first);
+                def_refs.insert(def_refs.end(), entry_refs.begin(), entry_refs.end());
             }
             bool def_ok = true;
             std::set<std::string> id_set(ids.begin(), ids.end());

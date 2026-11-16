@@ -8,10 +8,13 @@
 // ids, bad section boxes; defs WITHOUT class_tag stay raw passthrough.
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -377,4 +380,254 @@ TEST_CASE("cook_hull_def_gates") {
         CHECK(s.u32() == 1u);   // facet landed on b
         CHECK(s.str() == "use.panel"); CHECK(s.f64() == 2.0); CHECK(s.u8() == 0); CHECK(s.u8() == 0);
     }
+}
+
+// test: cook_component_type_defs — 9.1 (#52a, decision #55): component TYPE
+// def grammar (component_type marker + required category + refs + [attrs]
+// preset, closed field set, marker exclusivity), hull-entry inheritance with
+// key-by-key override, category cross-check, entry art `refs` override, and
+// the driver end-to-end: type-def manifest edges, hull effective sha (preset
+// edit re-cooks an untouched hull), raw-passthrough type units, duplicate
+// component_type and marker-conflict cook-fails.
+namespace {
+bool has_bytes(const ve::cook::Bytes& b, const std::string& pat) {
+    return std::search(b.begin(), b.end(), pat.begin(), pat.end()) != b.end();
+}
+bool has_f64(const ve::cook::Bytes& b, double v) {
+    unsigned char pat[8];  // must be unsigned char: Bytes is u8, and a
+                           // signed char would never match the >=0x80 bytes
+    std::memcpy(pat, &v, 8);
+    return std::search(b.begin(), b.end(), pat, pat + 8) != b.end();
+}
+constexpr const char* kTypeDefSrc =
+    "component_type = \"thruster.mx\"\n"
+    "category = \"main\"\n"
+    "refs = [\"../../art/main_x.bin\"]\n"
+    "[attrs]\nmass = 900\npower.draw = 25000\n";
+constexpr const char* kMiniHull =
+    "class_tag = \"class.mini\"\n"
+    "refs = [\"../art/gizmo.glb\"]\n"  // BEFORE [[component]]: TOML table law
+    "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+    // section covers the gizmo anchor's cell (#44: exactly one section).
+    "[[section]]\nname = \"bay\"\ncells = [[0, 0, 0, 0, 0, 0]]\n"
+    "[[component]]\nid = \"eng1\"\ntype = \"thruster.mx\"\ncategory = \"main\"\nsocket = "
+    "\"hp_engine_L\"\n";  // socket names the gizmo's anchor (#46a)
+
+// Minimal one-hardpoint gizmo glb: a mesh-less node named hp_* with a
+// ratified socket_type (#21) cooks to a SOCK unit with that anchor.
+ve::cook::Bytes make_gizmo_glb() {
+    std::string j = R"({"asset":{"version":"2.0"},"nodes":[)"
+                    R"({"name":"hp_engine_L","extras":{"socket_type":"main"},)"
+                    R"("translation":[0,0,0]}]})";
+    while (j.size() % 4) j += ' ';
+    ve::cook::Bytes g;
+    auto u32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) g.push_back(static_cast<unsigned char>((v >> (8 * i)) & 0xFF));
+    };
+    g.insert(g.end(), {'g', 'l', 'T', 'F'});
+    u32(2);
+    u32(static_cast<std::uint32_t>(12 + 8 + j.size()));
+    u32(static_cast<std::uint32_t>(j.size()));
+    g.insert(g.end(), {'J', 'S', 'O', 'N'});
+    g.insert(g.end(), j.begin(), j.end());
+    return g;
+}
+}  // namespace
+
+TEST_CASE("cook_component_type_defs") {
+    std::string err;
+
+    // ---- grammar: valid type def parses fully ----
+    {
+        ve::cook::CompTypeDef td;
+        REQUIRE_MESSAGE(ve::cook::cook_comptype_source(kTypeDefSrc, td, &err), err);
+        CHECK(td.type == "thruster.mx");
+        CHECK(static_cast<int>(td.category) == 0);  // main
+        CHECK(td.refs == std::vector<std::string>{"../../art/main_x.bin"});
+        REQUIRE(td.attrs.size() == 2u);
+        CHECK(td.attrs[0].first == "mass"); CHECK(td.attrs[0].second == 900.0);
+        CHECK(td.attrs[1].first == "power.draw"); CHECK(td.attrs[1].second == 25000.0);
+    }
+    // #55a: empty refs allowed until the 9.2 strict art gate.
+    {
+        ve::cook::CompTypeDef td;
+        const std::string src = "component_type = \"t.x\"\ncategory = \"utility\"\n";
+        REQUIRE_MESSAGE(ve::cook::cook_comptype_source(src, td, &err), err);
+        CHECK(td.refs.empty());
+        CHECK(td.attrs.empty());
+    }
+    // marker exclusivity (#55a): two of the three markers is cook-fail.
+    {
+        ve::cook::CompTypeDef td;
+        CHECK_FALSE(ve::cook::cook_comptype_source(
+            "class_tag = \"c\"\ncomponent_type = \"t.x\"\ncategory = \"main\"\n", td, &err));
+        CHECK(err.find("both class_tag and component_type") != std::string::npos);
+        CHECK_FALSE(ve::cook::cook_comptype_source(
+            "world_class = \"w\"\ncomponent_type = \"t.x\"\ncategory = \"main\"\n", td, &err));
+        CHECK(err.find("both world_class and component_type") != std::string::npos);
+    }
+    // required fields + closed grammar + #42 at this end.
+    {
+        ve::cook::CompTypeDef td;
+        CHECK_FALSE(ve::cook::cook_comptype_source("component_type = \"t.x\"\n", td, &err));
+        CHECK(err.find("category") != std::string::npos);
+        CHECK_FALSE(ve::cook::cook_comptype_source(
+            "component_type = \"t.x\"\ncategory = \"warp\"\n", td, &err));
+        CHECK(err.find("not one of main/rcs/gun/utility") != std::string::npos);
+        CHECK_FALSE(ve::cook::cook_comptype_source(
+            "component_type = \"t.x\"\ncategory = \"main\"\nfoo = 1\n", td, &err));
+        CHECK(err.find("unknown field 'foo'") != std::string::npos);
+        CHECK_FALSE(ve::cook::cook_comptype_source(
+            "component_type = \"t.x\"\ncategory = \"main\"\n[attrs]\nnot.a.key = 1\n", td, &err));
+    }
+
+    // ---- hull merge: preset applies, entry key wins, key-order emit ----
+    ve::cook::CompTypeDef td;
+    REQUIRE(ve::cook::cook_comptype_source(kTypeDefSrc, td, &err));
+    const std::map<std::string, ve::cook::CompTypeDef> types{{td.type, td}};
+    {
+        const std::string hull = std::string(kMiniHull) +
+            "[component.attrs]\nmass = 1000\n";  // overrides the preset mass
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs, used, erefs;
+        REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(hull, payload, refs, &err, &types,
+                                                    &used, &erefs), err);
+        CHECK(used == std::vector<std::string>{"thruster.mx"});
+        CHECK(erefs.empty());  // entry has no own art refs (inherited art
+                               // rides the type def's own manifest edges)
+        Reader s{payload};
+        (void)s.u32(); (void)s.str();
+        (void)s.u8(); (void)s.u8(); (void)s.u8();
+        (void)s.f64(); (void)s.u32(); (void)s.f64(); (void)s.f64();
+        CHECK(s.u32() == 1u);  // 1 section (bay, one cell box)
+        (void)s.str(); CHECK(s.u32() == 1u);
+        for (int i = 0; i < 6; ++i) (void)s.i32();
+        CHECK(s.u32() == 1u);
+        CHECK(s.str() == "eng1"); (void)s.str(); (void)s.u8(); (void)s.str(); (void)s.u8();
+        CHECK(s.u32() == 0u);   // tags
+        CHECK(s.u32() == 2u);   // merged attrs: preset + entry, entry wins
+        CHECK(s.str() == "mass"); CHECK(s.f64() == 1000.0);        // entry key wins
+        CHECK(s.str() == "power.draw"); CHECK(s.f64() == 25000.0);  // preset fills in
+    }
+    // category cross-check (#55c): entry category must equal the type's.
+    {
+        const std::string hull =
+            "class_tag = \"class.mini\"\n"
+            "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+            "[[component]]\nid = \"eng1\"\ntype = \"thruster.mx\"\ncategory = \"rcs\"\nsocket = \"s1\"\n";
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs;
+        CHECK_FALSE(ve::cook::cook_hulldef_unit(hull, payload, refs, &err, &types));
+        CHECK(err.find("does not match component type 'thruster.mx' category 'main'") !=
+              std::string::npos);
+    }
+    // entry art override (#55b): the entry's own refs are the hull dep edges.
+    {
+        const std::string hull =
+            "class_tag = \"class.mini\"\n"
+            "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+            "[[component]]\nid = \"eng1\"\ntype = \"thruster.mx\"\ncategory = \"main\"\nsocket = \"s1\"\n"
+            "refs = [\"art/own_x.bin\"]\n";
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs, used, erefs;
+        REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(hull, payload, refs, &err, &types,
+                                                    &used, &erefs), err);
+        CHECK(erefs == std::vector<std::string>{"art/own_x.bin"});
+    }
+    // entry whose type has NO type def: entry-only attrs, no used/edges.
+    {
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs, used, erefs;
+        const std::string hull =
+            "class_tag = \"class.mini\"\n"
+            "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+            "[[component]]\nid = \"solo\"\ntype = \"t.other\"\ncategory = \"utility\"\nsocket = \"s9\"\n"
+            "[component.attrs]\nmass = 7\n";
+        REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(hull, payload, refs, &err, &types,
+                                                    &used, &erefs), err);
+        CHECK(used.empty());
+        CHECK(erefs.empty());
+    }
+}
+
+TEST_CASE("cook_component_type_defs_driver") {
+    // End-to-end through cook_incremental: edges, effective-sha recook,
+    // raw-passthrough type units, duplicate + conflict cook-fails.
+    const std::string src = tmp_root("ct_src");
+    const std::string out = tmp_root("ct_out");
+    auto write = [&](const std::string& rel, const std::string& text) {
+        const auto p = std::filesystem::path(src) / rel;
+        std::filesystem::create_directories(p.parent_path());
+        std::ofstream f(p, std::ios::binary | std::ios::trunc);
+        f << text;
+    };
+    write("defs/parts/thruster_mx.def.toml", kTypeDefSrc);
+    write("defs/mini_hull.def.toml", kMiniHull);
+    write("art/main_x.bin", "ART-v1");
+    // 5.9b doctrine: the hull's socket must name an anchor in a cooked SOCK
+    // — reached via the hull's own .glb manifest dep (#46a).
+    const auto gizmo = make_gizmo_glb();
+    ve::core::cooked::write_file_bytes((std::filesystem::path(src) / "art/gizmo.glb").string(),
+                                       gizmo, nullptr);
+
+    ve::core::cooked::Manifest mf;
+    std::string err;
+    auto r1 = ve::cook::cook_incremental(src, out);
+    REQUIRE_MESSAGE(r1.ok, r1.error);
+    CHECK(r1.counts.cooked == 4u);
+    REQUIRE(ve::cook::read_manifest(out + "/manifest.bin", mf, &err));
+    // hull -> type def edge (#52b); the hull inherits art transitively.
+    CHECK(mf.at("defs/mini_hull.def.toml").deps ==
+          std::vector<std::string>{"art/gizmo.glb", "defs/parts/thruster_mx.def.toml"});
+    // type def -> its art refs (authored against the TYPE DEF's directory).
+    CHECK(mf.at("defs/parts/thruster_mx.def.toml").deps ==
+          std::vector<std::string>{"art/main_x.bin"});
+    // the type def unit keeps raw source bytes (#55: no new payload kind).
+    ve::cook::Unit tu;
+    REQUIRE(ve::cook::read_unit_file(out + "/units/defs/parts/thruster_mx.def.toml.ck", tu, &err));
+    CHECK(std::string(tu.payload.begin(), tu.payload.end()) == kTypeDefSrc);
+    // merged preset is IN the hull payload (preset attrs + preset mass 900).
+    ve::cook::Unit hu;
+    REQUIRE(ve::cook::read_unit_file(out + "/units/defs/mini_hull.def.toml.ck", hu, &err));
+    CHECK(has_bytes(hu.payload, "power.draw"));
+    CHECK(has_f64(hu.payload, 25000.0));
+    CHECK(has_f64(hu.payload, 900.0));
+
+    // untouched sources: everything skips (hull's effective sha unchanged).
+    auto r2 = ve::cook::cook_incremental(src, out);
+    REQUIRE_MESSAGE(r2.ok, r2.error);
+    CHECK(r2.counts.skipped == 4u);
+    CHECK(r2.counts.cooked == 0u);
+
+    // edit ONLY the type def preset: hull re-cooks (effective sha covers the
+    // type def bytes) — a preset edit can never leave a stale hull payload.
+    write("defs/parts/thruster_mx.def.toml",
+          "component_type = \"thruster.mx\"\ncategory = \"main\"\n"
+          "refs = [\"../../art/main_x.bin\"]\n[attrs]\nmass = 1234\npower.draw = 25000\n");
+    auto r3 = ve::cook::cook_incremental(src, out);
+    REQUIRE_MESSAGE(r3.ok, r3.error);
+    CHECK(r3.counts.cooked == 2u);  // the type def AND the hull
+    CHECK(r3.counts.skipped == 2u);
+    REQUIRE(ve::cook::read_unit_file(out + "/units/defs/mini_hull.def.toml.ck", hu, &err));
+    CHECK(has_f64(hu.payload, 1234.0));
+    CHECK_FALSE(has_f64(hu.payload, 900.0));
+
+    // duplicate component_type across sources: cook-fail (#55a).
+    write("defs/parts/thruster_mx_copy.def.toml", kTypeDefSrc);
+    auto r4 = ve::cook::cook_incremental(src, out);
+    CHECK_FALSE(r4.ok);
+    CHECK(r4.error.find("declared by both 'defs/parts/thruster_mx.def.toml' and") !=
+          std::string::npos);
+    std::filesystem::remove(std::filesystem::path(src) / "defs/parts/thruster_mx_copy.def.toml");
+
+    // one def carrying class_tag AND component_type: cook-fail (#55a), and
+    // routing sends it to the type-def gate (marker precedence is exclusive).
+    write("defs/conflict.def.toml",
+          "class_tag = \"class.x\"\ncomponent_type = \"t.conflict\"\ncategory = \"main\"\n");
+    auto r5 = ve::cook::cook_incremental(src, out);
+    CHECK_FALSE(r5.ok);
+    CHECK(r5.error.find("both class_tag and component_type") != std::string::npos);
+
+    std::filesystem::remove_all(src);
+    std::filesystem::remove_all(out);
 }

@@ -141,6 +141,9 @@ bool read_unit_file(const std::string& path, Unit& out, std::string* err);
 // ---- manifest.bin: content ID -> deps + source hash ------------------------
 // 'VEMF' | u32 format | u32 entry_count | entries sorted by content ID:
 //   u32 id_len, id | u32 dep_count, (u32 len, dep)* | 32 bytes sha256(source)
+// (hull defs since 9.1 store sha256(source + component type def sources they
+// consume — the #55 attrs merge makes those defs part of the hull's identity;
+// the stored field's width/format is unchanged).
 struct ManifestEntry {
     std::string id;
     std::vector<std::string> deps; // content IDs this unit needs
