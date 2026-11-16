@@ -13,6 +13,7 @@
 #include <cmath>
 
 #include "ve/game/attr_keys.h"
+#include "ve/game/route_law.h"
 #include "ve/gfx/ui.h"
 
 namespace ve::game {
@@ -150,8 +151,7 @@ bool def_forms_panel::composite_ok(const def_field& f, std::string_view text,
         if (n == 0) { msg = "attr map is empty"; return false; }
         return true;
     }
-    case field_kind::int_boxes:
-    case field_kind::int_cells: {  // #51 route: same flat-integer panel grammar
+    case field_kind::int_boxes: {
         std::string_view v = text;
         int n = 0;
         while (!v.empty()) {
@@ -171,6 +171,10 @@ bool def_forms_panel::composite_ok(const def_field& f, std::string_view text,
         }
         if (n == 0 || n % 6 != 0) { msg = "cells need whole boxes (6 bounds each)"; return false; }
         return true;
+    }
+    case field_kind::int_cells: {  // #51 route: shared grammar (route_law, 9.5a) —
+        // whole [x,y,z] triples, NOT the 6 bounds of a box (9.3 bug fixed here).
+        return route_text_ok(text, msg);
     }
     default:
         return true;

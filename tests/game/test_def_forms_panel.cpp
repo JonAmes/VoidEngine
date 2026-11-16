@@ -567,3 +567,63 @@ TEST_CASE("def_forms_recook_hotswap") {
         CHECK(changed == 1);
     }
 }
+
+// ---- 9.5a (#51a): shared route grammar in the forms panel -----------------
+// Regression: 9.3 let int_cells fall into the int_boxes "6 bounds each"
+// panel check, which refused the sample def's 7-cell (21-int) routes on
+// commit. route_law owns the grammar now: whole [x,y,z] triples.
+TEST_CASE("def_forms_route_edit") {
+    auto doc = load_doc();
+    CHECK(doc.value("wire.0.route") ==
+          "-1,0,1,0,0,1,0,0,0,0,0,-1,0,0,-2,0,0,-3,1,0,-3");  // flat-joined text
+    game::def_forms_panel panel(std::move(doc));
+
+    gfx::font0 font;
+    prep_font(font);
+
+    // ui_io must OUTLIVE begin_frame..end_frame — never pass temporaries.
+    auto rf = [&](gfx::ui_context& ui, const gfx::ui_io& io, const char* path, int span) {
+        const int idx = panel.leaf_index(path);
+        REQUIRE_GE(idx, 0);
+        ui.begin_frame(io, font, 1280, 720);
+        panel.render(ui, "def forms", 8, 8, 720, 700, idx, span);
+        ui.end_frame();
+    };
+    auto edit = [&](const char* path, const char* text) {
+        gfx::ui_context ui;
+        rf(ui, {}, path, 8);
+        const auto r = panel.field_rect(path);
+        REQUIRE(r.has_value());
+        const float cx = static_cast<float>(r->x + r->w / 2), cy = static_cast<float>(r->y + r->h / 2);
+        rf(ui, click_down(cx, cy), path, 8);
+        rf(ui, click_up(cx, cy), path, 8);
+        for (std::size_t i = 0; i < panel.doc().value(path).size(); ++i)
+            rf(ui, erase(), path, 8);
+        rf(ui, type(lit(text), true), path, 8);
+        rf(ui, {}, path, 8);  // commit frame processed
+    };
+
+    // ---- odd-cell route (21 ints, %6 != 0) COMMITS — the 9.3 bug -------
+    edit("wire.0.route", "-1,0,1,0,0,1,0,0,0,0,0,-1,0,0,-2,0,0,-3,2,0,-3");
+    CHECK(panel.dirty());
+    const std::string after_good = panel.doc().source();
+    CHECK_MESSAGE(after_good.find("route = [ [-1, 0, 1], [0, 0, 1], [0, 0, 0], [0, 0, -1], "
+                                  "[0, 0, -2], [0, 0, -3], [2, 0, -3] ]") != std::string::npos,
+                  after_good);
+    CHECK(panel.doc().value("wire.0.route") ==
+          "-1,0,1,0,0,1,0,0,0,0,0,-1,0,0,-2,0,0,-3,2,0,-3");
+
+    // ---- ragged triple refused on entry, zero bytes ---------------------
+    edit("wire.1.route", "-1,0,1,0");
+    CHECK(panel.doc().value("wire.1.route") ==
+          "-1,0,1,0,0,1,0,0,0,0,0,-1,0,0,-2,0,0,-3,-1,0,-3");  // unchanged
+    CHECK(panel.doc().source() == after_good);  // wire.1 line byte-identical
+
+    // ---- non-integer coord refused on entry, zero bytes; draft stays
+    // editable after refusal (#48): a valid re-entry commits ----------------
+    edit("wire.1.route", "x,0,1");
+    CHECK(panel.doc().source() == after_good);
+    edit("wire.1.route", "-1,0,1,0,0,1,0,0,0,1,0,0,2,0,0,3,0,0");  // valid re-entry
+    CHECK(panel.doc().source() != after_good);
+    CHECK(panel.doc().value("wire.1.route") == "-1,0,1,0,0,1,0,0,0,1,0,0,2,0,0,3,0,0");
+}

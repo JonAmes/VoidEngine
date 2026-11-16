@@ -2,6 +2,7 @@
 # cockpit/hangar UI, content glue. All game concept names live here (AGENTS.md).
 add_library(ve_game STATIC src/version.cpp src/scrubber_panel.cpp src/units.cpp src/def_fields.cpp
                   src/def_forms_doc.cpp src/def_forms_panel.cpp
+                  src/route_law.cpp
                   src/inspector_panel.cpp
     src/manifest_browser_panel.cpp
     src/loadout_editor_panel.cpp
