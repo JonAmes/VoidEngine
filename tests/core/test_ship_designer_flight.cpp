@@ -268,6 +268,11 @@ TEST_CASE("ship_designer_flight") {
                           src + "/samples/test_ship.glb");
     std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml",
                           src + "/defs/test_ship.def.toml");
+    // #52a: the hull def's component art lives on its TYPE defs + gizmo
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/comptypes",
+                          src + "/defs/comptypes", std::filesystem::copy_options::recursive);
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples/component_gizmos.glb",
+                          src + "/samples/component_gizmos.glb");
     auto cres = ve::cook::cook_incremental(src, out);
     REQUIRE_MESSAGE(cres.ok, cres.error);
 

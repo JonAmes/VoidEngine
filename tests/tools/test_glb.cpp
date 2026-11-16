@@ -83,7 +83,7 @@ TEST_CASE("glb_cook_poc") {
     const std::string out = tmp_root("poc");
     auto res = ve::cook::cook_incremental(std::string(VE_SOURCE_DIR) + "/assets/samples", out);
     REQUIRE_MESSAGE(res.ok, res.error);
-    REQUIRE(res.counts.cooked == 1);
+    REQUIRE(res.counts.cooked == 2);  // test_ship.glb + component_gizmos.glb (#52a)
 
     ve::cook::Unit u;
     std::string err;

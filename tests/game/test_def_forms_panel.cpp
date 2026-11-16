@@ -162,6 +162,12 @@ struct cook_gate {
                               root / "samples" / "test_ship.glb");
         std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml",
                               root / "defs" / "test_ship.def.toml");
+        // #52a: the hull def's component art lives on its TYPE defs + gizmo
+        std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/comptypes",
+                              root / "defs" / "comptypes",
+                              std::filesystem::copy_options::recursive);
+        std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples/component_gizmos.glb",
+                              root / "samples" / "component_gizmos.glb");
     }
     std::string operator()(const std::string& src) {
         {

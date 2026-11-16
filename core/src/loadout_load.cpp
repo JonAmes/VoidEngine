@@ -85,10 +85,10 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
     if (sock.type != kUnitSock)
         return std::unexpected(std::string(as_err("anchor unit is not type SOCK")));
 
-    // ---- DEF0 payload v2 (layout pinned in ve/core/cooked.h) ----
+    // ---- DEF0 payload v3 (layout pinned in ve/core/cooked.h) ----
     Reader r{def0.payload};
-    if (r.u32() != 2)
-        return std::unexpected("DEF0 payload: version must be 2");
+    if (r.u32() != 3)
+        return std::unexpected("DEF0 payload: version must be 3");
     hull_info hull{};
     hull.mesh_content_id = mesh_content_id;
     hull.class_tag = r.str();
@@ -137,6 +137,13 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
             r.f64();
             r.u8();
             if (r.u8()) r.str();
+        }
+        (void)r.str();  // #52b art_ref: the hangar renderer (Phase 11)
+                        // reads it; the loadout itself does not
+        const std::uint8_t mounted = r.u8();  // #52b mount TRS: skipped,
+        if (mounted) {                        // anchor TRS lives in SOCK
+            for (int k = 0; k < 3; ++k) r.f64();
+            for (int k = 0; k < 4; ++k) r.f64();
         }
         mounts.push_back(std::move(m));
     }

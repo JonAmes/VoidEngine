@@ -57,11 +57,11 @@ Bytes sock_payload() {
     return b;
 }
 
-// DEF0 v2 emit order copied from tools/cook/src/hulldef.cpp (5.9b decode
+// DEF0 v3 emit order copied from tools/cook/src/hulldef.cpp (5.9b decode
 // in hullvalidate.cpp is the sibling reader; both must agree with cooked.h).
 Bytes def_payload() {
     Bytes b;
-    pu32(b, 2);                          // payload_ver
+    pu32(b, 3);                          // payload_ver
     pstr(b, "class.light_freighter");
     pu8(b, 1); pf64(b, 1000.0);          // has_mass + kg
     pu8(b, 1); pf64(b, 0.0); pf64(b, 0.5); pf64(b, -0.5);   // com
@@ -77,6 +77,9 @@ Bytes def_payload() {
     pu32(b, 1); pstr(b, "thrust.max_N"); pf64(b, 5000.0);   // attrs
     pu32(b, 1);                          // facet: operate.station
     pstr(b, "operate.station"); pf64(b, 2.0); pu8(b, 0); pu8(b, 0);
+    pstr(b, "art/thruster.glb");         // #52b art_ref + mount TRS (hp_engine)
+    pu8(b, 1); pf64(b, 2.0); pf64(b, 0.0); pf64(b, -2.0);
+    pf64(b, 0); pf64(b, 0); pf64(b, 0); pf64(b, 1);
     pstr(b, "door_1"); pstr(b, "door.hatch"); pu8(b, 3);
     pstr(b, "door_1"); pu8(b, 5);        // socket, face +z (#46c1)
     pu32(b, 2);                          // tags (#18 role/facet, def order)
@@ -84,6 +87,9 @@ Bytes def_payload() {
     pu32(b, 0);                          // attrs
     pu32(b, 1);                          // facet: door.toggle
     pstr(b, "door.toggle"); pf64(b, 2.0); pu8(b, 1); pu8(b, 0);
+    pstr(b, "art/door.glb");             // #52b art_ref + mount TRS (door_1)
+    pu8(b, 1); pf64(b, 0.0); pf64(b, 0.0); pf64(b, 2.0);
+    pf64(b, 0); pf64(b, 0.7071067811865476); pf64(b, 0); pf64(b, 0.7071067811865476);
     pu32(b, 2);                          // catalog
     pstr(b, "thruster.main"); pu8(b, 0);
     pstr(b, "door.hatch"); pu8(b, 3);
@@ -197,7 +203,7 @@ TEST_CASE("loadout_load_gates") {
         d[0] = 1;
         CHECK(err_with(mk_unit(ve::core::cooked::kUnitDef0, d),
                        mk_unit(ve::core::cooked::kUnitSock, sock)).find(
-                  "DEF0 payload: version must be 2") != std::string::npos);
+                  "DEF0 payload: version must be 3") != std::string::npos);
     }
     {
         Bytes s = sock;

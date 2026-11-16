@@ -46,6 +46,14 @@ DefView::Comp mk_comp(const std::string& id, const std::string& type, const std:
     c.socket = socket;
     c.category = 3;
     c.face = static_cast<std::uint8_t>(face);
+    // #52b (DEF0 v3 / gate G11): art resolves to the fixture's mesh source
+    // (same asset the SOCK anchors came from) + a mount transform; tests
+    // for EARLIER gates are unaffected (G11 runs last), pass-tests satisfy
+    // it here, and G11-specific tests strip the fields back out.
+    c.art_ref = "m.glb";
+    c.has_mount = 1;
+    c.mount_t = {1.0, 0.0, -2.0};
+    c.mount_q = {0.0, 0.0, 0.0, 1.0};
     return c;
 }
 
@@ -64,6 +72,7 @@ HullInputs mk_hull() {
                  mk_anchor("seat_1", 2, 0.5, 0.55, -2.0),         // subcell lattice
                  mk_anchor("hp_dockport", 0, -2.0, 0.0, -2.0)};   // #47b utility hardpoint, cell A
     h.socks = {s};
+    h.deps = {"m.glb"};  // #52b: G11 checks the art_ref rides a manifest dep
     h.def.comps = {
         mk_comp("engine", "engine.fusion", "hp_engine"),
         mk_comp("door_1", "door.hatch", "door_1", 5),             // +z -> cell B
@@ -329,5 +338,25 @@ TEST_CASE("cook_hull_validate_gates") {
         err = run_fail(h);
         CHECK(err.find("missing required 'face'") != std::string::npos);
         CHECK(err.find("names no anchor") == std::string::npos);
+    }
+    // G11 (#52b, 9.2): strict art-ref gate — every mounted component needs
+    // resolved art, that asset as a manifest dep edge, and a mount TRS.
+    // The full-pass fixture satisfies it (mk_comp art + mk_hull deps); each
+    // violation is pinned exactly once.
+    {
+        HullInputs no_art = mk_hull();
+        no_art.def.comps[2].art_ref.clear();
+        std::string e = run_fail(no_art);
+        CHECK_MESSAGE(e.find("airlock_1' resolves no art") != std::string::npos, e);
+
+        HullInputs not_dep = mk_hull();
+        not_dep.def.comps[0].art_ref = "art/other.glb";
+        std::string e2 = run_fail(not_dep);
+        CHECK_MESSAGE(e2.find("art/other.glb' is not a manifest dep") != std::string::npos, e2);
+
+        HullInputs no_mount = mk_hull();
+        no_mount.def.comps[4].has_mount = 0;
+        std::string e3 = run_fail(no_mount);
+        CHECK_MESSAGE(e3.find("dockport_1' has no mount transform") != std::string::npos, e3);
     }
 }

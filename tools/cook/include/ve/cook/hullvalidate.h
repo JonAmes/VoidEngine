@@ -51,6 +51,12 @@ struct DefView {
         std::uint8_t face = 0;  // 0 none, 1 +x, 2 -x, 3 +y, 4 -y, 5 +z, 6 -z (#46c1)
         std::vector<std::pair<std::string, double>> attrs;  // #47b: G10 reads dock attrs
         std::vector<Facet> facets;
+        // DEF0 v3 (9.2 #52b): resolved art asset id ('' -> G11 fails) and
+        // the mount transform of the socket/empty anchor.
+        std::string art_ref;
+        std::uint8_t has_mount = 0;
+        std::array<double, 3> mount_t{{0, 0, 0}};
+        std::array<double, 4> mount_q{{0, 0, 0, 1}};
     };
     std::vector<Comp> comps;
     struct Wire {
@@ -78,6 +84,7 @@ struct HullInputs {
     DefView def;
     std::vector<SockView> socks;  // one per mesh dep
     std::vector<std::string> seam_partner_ids;
+    std::vector<std::string> deps;  // manifest dep content IDs (G11 art edge)
 };
 
 // All gates; on success snapped_out (parallel to hull.socks) carries the

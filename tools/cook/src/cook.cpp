@@ -133,6 +133,12 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
     // hull id -> sorted unique type-def SOURCE ids it consumes (effective-sha
     // input below); parse-failed hulls are skipped here (main loop reports).
     std::map<std::string, std::vector<std::string>> hull_typedeps;
+    // 9.2 (#52b): the parsed hull set drives the two cook passes (below)
+    // and the art/mount resolution stage; requests carry each entry's OWN
+    // refs override, hull_refs the top-level authored refs (SOCK sources).
+    std::set<std::string> hull_def_set;
+    std::map<std::string, std::vector<CompArtRequest>> hull_reqs;
+    std::map<std::string, std::vector<std::string>> hull_refs;
     for (const auto& [id, text] : toml_texts) {
         if (toml_source_has_component_type(text)) continue;
         Bytes dummy;
@@ -141,9 +147,15 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         if (!cook_hulldef_unit(text, dummy, dummy_refs, &pe, &type_view, &used_types))
             continue;
         // Hull-only check: a cooked hull payload starts with the version u32
-        // (2); plain-def passthrough bytes can never be 0x00000002 (5.9b peek).
-        if (!(dummy.size() >= 4 && dummy[0] == 2 && dummy[1] == 0 && dummy[2] == 0 && dummy[3] == 0))
+        // (3); plain-def passthrough bytes can never be 0x00000003 (5.9b peek).
+        if (!(dummy.size() >= 4 && dummy[0] == 3 && dummy[1] == 0 && dummy[2] == 0 && dummy[3] == 0))
             continue;
+        hull_def_set.insert(id);
+        hull_refs.emplace(id, std::move(dummy_refs));
+        std::vector<CompArtRequest> reqs;
+        std::string qe;
+        if (cook_hulldef_comp_requests(text, reqs, &qe))
+            hull_reqs.emplace(id, std::move(reqs));
         std::set<std::string> dep_ids;
         for (const auto& t : used_types) {
             auto o = comptypes.find(t);
@@ -153,7 +165,116 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
             hull_typedeps.emplace(id, std::vector<std::string>(dep_ids.begin(), dep_ids.end()));
     }
 
-    for (const auto& id : ids) {
+    // ---- 9.2 (#52b): hull art resolution (runs between the cook passes) ----
+    // A component's art candidates are its OWN refs (authored against the
+    // hull's dir) or, when absent, its component TYPE def's refs (authored
+    // against the TYPE def's dir — re-resolving them against the hull dir
+    // would point at the wrong content). The first candidate asset whose
+    // model carries a node NAMED by the component id or its type id (#52c
+    // keyed models) is the resolved art: its content ID lands in the DEF0
+    // v3 art_ref AND joins the hull's manifest deps (per-component edge).
+    // Mount TRS comes from the merged SOCK anchors of every authored .glb
+    // ref. Resolution reads SOURCES (always on disk) plus .sock units from
+    // pass 1 — hull defs therefore cook in the SECOND pass below.
+    std::map<std::string, std::map<std::string, std::string>> hull_art;       // def -> comp -> art id
+    std::map<std::string, std::map<std::string, MountTRS>> hull_mounts;       // def -> anchor -> TRS
+    std::map<std::string, std::vector<std::string>> hull_art_deps;            // def -> art dep edges
+    std::map<std::string, std::vector<std::string>> art_key_cache;            // glb id -> node names
+    std::set<std::string> art_key_reject;  // not a .glb / unreadable / unparsable
+    auto keyed_names = [&](const std::string& aid) -> const std::vector<std::string>* {
+        if (art_key_reject.count(aid)) return nullptr;
+        if (auto it = art_key_cache.find(aid); it != art_key_cache.end())
+            return &it->second;
+        if (aid.size() < 4 || aid.compare(aid.size() - 4, 4, ".glb") != 0) {
+            art_key_reject.insert(aid);
+            return nullptr;
+        }
+        Bytes src;
+        std::string ne;
+        if (!read_file_bytes((std::filesystem::path(src_dir) / aid).string(), src, &ne) ||
+            !glb_node_names(src, art_key_cache[aid], &ne)) {
+            art_key_reject.insert(aid);
+            return nullptr;
+        }
+        return &art_key_cache[aid];
+    };
+    auto resolve_hull_art_and_mounts = [&] {
+        for (const auto& did : hull_def_set) {  // content-ID order: deterministic
+            std::vector<std::string> glb_deps;
+            auto add_glb = [&](const std::string& basis, const std::string& ref) {
+                std::string aid;
+                if (!resolve_ref(basis, ref, aid) || aid.empty()) return;
+                if (aid.size() < 4 || aid.compare(aid.size() - 4, 4, ".glb") != 0) return;
+                glb_deps.push_back(aid);
+            };
+            for (const auto& r : hull_refs[did]) add_glb(did, r);
+            for (const auto& req : hull_reqs[did]) {
+                for (const auto& r : req.own_refs) add_glb(did, r);
+                if (req.own_refs.empty())
+                    if (auto td = comptypes.find(req.type); td != comptypes.end())
+                        for (const auto& r : td->second.second.refs)
+                            add_glb(td->second.first, r);
+            }
+            std::sort(glb_deps.begin(), glb_deps.end());
+            glb_deps.erase(std::unique(glb_deps.begin(), glb_deps.end()), glb_deps.end());
+            std::map<std::string, MountTRS> anchors;
+            for (const auto& gid : glb_deps) {
+                Unit su;
+                std::string se;
+                if (!read_unit_file(unit_path(out_dir, gid + ".sock"), su, &se) ||
+                    su.type != kUnitSock)
+                    continue;  // missing SOCK: G2/G11 report it, no cook-crash
+                SockView sv;
+                if (!decode_sock_payload(su.payload, sv, &se)) continue;
+                for (const auto& a : sv.anchors) {
+                    MountTRS m;
+                    m.t = a.t;
+                    m.q = a.q;
+                    anchors.try_emplace(a.name, m);  // first-declared wins
+                }
+            }
+            std::map<std::string, std::string> art;
+            std::vector<std::string> edges;
+            for (const auto& req : hull_reqs[did]) {
+                const std::vector<std::string>* refs = &req.own_refs;
+                std::string basis = did;
+                if (refs->empty()) {
+                    auto td = comptypes.find(req.type);
+                    if (td == comptypes.end()) continue;  // no type def: G11 cooks out
+                    basis = td->second.first;             // refs are type-def-relative
+                    refs = &td->second.second.refs;
+                }
+                for (const auto& r : *refs) {
+                    std::string aid;
+                    if (!resolve_ref(basis, r, aid) || aid.empty()) continue;
+                    const auto* names = keyed_names(aid);
+                    if (!names) continue;
+                    bool keyed = false;
+                    for (const auto& n : *names)
+                        if (n == req.id || n == req.type) { keyed = true; break; }
+                    if (keyed) {  // first keyed candidate, authored order
+                        art.emplace(req.id, aid);
+                        edges.push_back(aid);
+                        break;
+                    }
+                }
+            }
+            std::sort(edges.begin(), edges.end());
+            edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
+            if (!art.empty()) hull_art.emplace(did, std::move(art));
+            if (!anchors.empty()) hull_mounts.emplace(did, std::move(anchors));
+            if (!edges.empty()) hull_art_deps.emplace(did, std::move(edges));
+        }
+    };
+
+    // 9.2 (#52b) two passes: non-hull sources in content-ID order first,
+    // hull defs LAST (their DEF0 v3 art fields read pass-1 units; an
+    // incrementally SKIPPED dep keeps its prior-run unit on disk, so a
+    // touched hull always sees current dep bytes).
+    for (std::size_t pass = 0; pass < 2; ++pass) {
+        if (pass == 1) resolve_hull_art_and_mounts();
+        for (const auto& id : ids) {
+        if ((hull_def_set.count(id) != 0) != (pass == 1)) continue;
         std::string src = (std::filesystem::path(src_dir) / id).string();
         Bytes source;
         if (!read_file_bytes(src, source, &err)) {
@@ -316,8 +437,12 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
                 def_refs = td.refs;
             } else {
                 std::vector<std::string> used_types, entry_refs;
+                auto art_it = hull_art.find(id);
+                auto anch_it = hull_mounts.find(id);
                 if (!cook_hulldef_unit(text, unit.payload, def_refs, &def_err,
-                                       &type_view, &used_types, &entry_refs)) {
+                                       &type_view, &used_types, &entry_refs,
+                                       art_it == hull_art.end() ? nullptr : &art_it->second,
+                                       anch_it == hull_mounts.end() ? nullptr : &anch_it->second)) {
                     result.error = "def '" + id + "': " + def_err;
                     ++result.counts.failures;
                     continue;
@@ -330,6 +455,10 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
                     if (auto o = comptypes.find(t); o != comptypes.end())
                         entry.deps.push_back(o->second.first);
                 def_refs.insert(def_refs.end(), entry_refs.begin(), entry_refs.end());
+                // #52b per-component art dep edges: RESOLVED content IDs —
+                // they join entry.deps directly (never re-resolved as refs).
+                if (auto ae = hull_art_deps.find(id); ae != hull_art_deps.end())
+                    entry.deps.insert(entry.deps.end(), ae->second.begin(), ae->second.end());
             }
             bool def_ok = true;
             std::set<std::string> id_set(ids.begin(), ids.end());
@@ -384,6 +513,7 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         cooked_ids.insert(id);
         if (has_sock) cooked_ids.insert(id + ".sock");
         ++result.counts.cooked;
+        }
     }
 
     // ---- 5.9b hull cross-validation (#44 gate list, #46 conventions) ----
@@ -397,16 +527,21 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         // TOML bytes (5.8 passthrough) -- their first 4 bytes can never be
         // 0x00000002, so this peeks without parsing.
         auto is_hull_payload = [](const Bytes& p) {
-            return p.size() >= 4 && p[0] == 2 && p[1] == 0 && p[2] == 0 && p[3] == 0;
+            return p.size() >= 4 && p[0] == 3 && p[1] == 0 && p[2] == 0 && p[3] == 0;
         };
         auto load_hull = [&](const std::string& did, HullInputs& h, std::string* e) -> bool {
             Unit du;
             if (!read_unit_file(unit_path(out_dir, did), du, e) || du.type != kUnitDef0 ||
                 !is_hull_payload(du.payload)) {
-                *e = "def unit missing or not a cooked hull (DEF0 v2): " + did;
+                *e = "def unit missing or not a cooked hull (DEF0 v3): " + did;
                 return false;
             }
             h.def_id = did;
+            // #52b: manifest deps feed gate G11 (resolved art must ride a
+            // per-component dep edge). Skipped hulls keep the manifest's
+            // previous-run edges; fresh hulls got theirs this run.
+            if (auto mit = manifest.find(did); mit != manifest.end())
+                h.deps = mit->second.deps;
             if (!decode_def_payload(du.payload, h.def, e)) return false;
             for (const auto& dep : manifest[did].deps) {
                 if (dep.size() < 4 || dep.compare(dep.size() - 4, 4, ".glb") != 0) continue;

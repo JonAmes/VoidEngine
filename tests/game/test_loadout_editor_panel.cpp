@@ -137,11 +137,14 @@ TEST_CASE("loadout_editor_panel") {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root / "defs");
     std::filesystem::create_directories(root / "samples");
-    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples/test_ship.glb",
-                          root / "samples" / "test_ship.glb");
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples", root / "samples",
+                          std::filesystem::copy_options::recursive);  // #52a gizmo too
     const std::string def_a = read_text(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml");
     REQUIRE(def_a.find("hull_mass = 98000") != std::string::npos);
     std::ofstream(root / "defs" / "test_ship.def.toml", std::ios::binary) << def_a;
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/comptypes",
+                          root / "defs" / "comptypes",
+                          std::filesystem::copy_options::recursive);  // #52a type defs
     // Hull option B (#24d whole-ship swap): same hull + kit, half the hull mass.
     std::string def_b = def_a;
     def_b.replace(def_b.find("hull_mass = 98000"), 17, "hull_mass = 49000");

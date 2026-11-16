@@ -110,6 +110,12 @@ TEST_CASE("manifest_browser_panel") {
                           root / "samples" / "test_ship.glb");
     std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml",
                           root / "defs" / "test_ship.def.toml");
+    // #52a: the hull def's component art lives on its TYPE defs + gizmo
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/comptypes",
+                          root / "defs" / "comptypes",
+                          std::filesystem::copy_options::recursive);
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples/component_gizmos.glb",
+                          root / "samples" / "component_gizmos.glb");
     const auto out = root / "out";
     {
         const auto r = ve::cook::cook_incremental(root.string(), out.string());
@@ -120,15 +126,30 @@ TEST_CASE("manifest_browser_panel") {
     core::cooked::Manifest manifest;
     std::string err;
     REQUIRE_MESSAGE(core::cooked::read_manifest((out / "manifest.bin").string(), manifest, &err), err);
-    REQUIRE(manifest.size() == 3);
+    // #52a: the staged tree now also carries 10 component TYPE defs + gizmo.
+    REQUIRE(manifest.size() == 15);
     const std::string def_id = "defs/test_ship.def.toml";
     const std::string glb_id = "samples/test_ship.glb";
     const std::string sock_id = "samples/test_ship.glb.sock";
-    auto it = manifest.begin();
-    CHECK(it->first == def_id);   // std::map order: content-ID ascending
-    CHECK((++it)->first == glb_id);
-    CHECK((++it)->first == sock_id);
-    CHECK(manifest[def_id].deps == std::vector<std::string>{glb_id});   // refs edge
+    std::vector<std::string> ids;
+    for (const auto& [id, e] : manifest) ids.push_back(id);
+    CHECK(ids == std::vector<std::string>{              // std::map order: ID ascending
+        "defs/comptypes/berth_crew.def.toml", "defs/comptypes/door_hatch.def.toml",
+        "defs/comptypes/panel_dash.def.toml", "defs/comptypes/power_battery.def.toml",
+        "defs/comptypes/power_reactor.def.toml", "defs/comptypes/seat_pilot.def.toml",
+        "defs/comptypes/sensor_array.def.toml", "defs/comptypes/thruster_main.def.toml",
+        "defs/comptypes/thruster_rcs.def.toml", "defs/comptypes/turret_dorsal.def.toml",
+        def_id,
+        "samples/component_gizmos.glb", "samples/component_gizmos.glb.sock",
+        glb_id, sock_id});
+    // refs + #52a type-def + #52b art edges:
+    CHECK(manifest[def_id].deps == std::vector<std::string>{
+        "defs/comptypes/berth_crew.def.toml", "defs/comptypes/door_hatch.def.toml",
+        "defs/comptypes/panel_dash.def.toml", "defs/comptypes/power_battery.def.toml",
+        "defs/comptypes/power_reactor.def.toml", "defs/comptypes/seat_pilot.def.toml",
+        "defs/comptypes/sensor_array.def.toml", "defs/comptypes/thruster_main.def.toml",
+        "defs/comptypes/thruster_rcs.def.toml", "defs/comptypes/turret_dorsal.def.toml",
+        "samples/component_gizmos.glb", glb_id});
     CHECK(manifest[glb_id].deps.empty());                              // leaf
     CHECK(manifest[sock_id].deps == std::vector<std::string>{glb_id}); // companion
 
@@ -163,7 +184,7 @@ TEST_CASE("manifest_browser_panel") {
         return std::nullopt;
     };
     panel.set_rows(build_rows(false));
-    CHECK(panel.row_count() == 3);
+    CHECK(panel.row_count() == 15);
 
     gfx::font0 font;
     prep_font(font);

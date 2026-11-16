@@ -235,6 +235,13 @@ struct SchTree {
         sources["defs/ring_module_b.def.toml"] = ship + kSeamsRingB;
         sources["samples/test_ship.glb"] = read_all(std::string(VE_SOURCE_DIR) + "/assets/samples/test_ship.glb");
         REQUIRE(!sources["samples/test_ship.glb"].empty());
+        // #52a: component art lives on the hull fixture's TYPE defs + gizmo
+        sources["samples/component_gizmos.glb"] =
+            read_all(std::string(VE_SOURCE_DIR) + "/assets/samples/component_gizmos.glb");
+        for (const auto& e : std::filesystem::directory_iterator(
+                 std::string(VE_SOURCE_DIR) + "/assets/defs/comptypes"))
+            sources["defs/comptypes/" + e.path().filename().string()] =
+                read_all(e.path().string());
     }
 };
 

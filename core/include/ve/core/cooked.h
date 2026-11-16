@@ -48,9 +48,10 @@ inline constexpr std::uint32_t kUnitWrld = fourcc("WRLD"); // cooked world def (
 // The name is the pairing key against def component ids (#46a).
 
 // DEF0 payload (5.8): a .toml def declaring a top-level `class_tag` is a
-// HULL DEF; the payload is the normalized binary v2 (LE, same doctrine;
-// v2 = facet target field + seams, decision #46):
-//   u32 payload_ver=2, str class_tag,
+// HULL DEF; the payload is the normalized binary v3 (LE, same doctrine;
+// v2 = facet target field + seams, decision #46; v3 = per-component art
+// ref + mount transform, 9.2 decision #52b):
+//   u32 payload_ver=3, str class_tag,
 //   u8 has_hull_mass f64 | u8 has_com 3*f64 | u8 has_inertia_diag 3*f64,
 //   grid {f64 cell_m, u32 subcell_ratio, f64 cell_height_m, f64 tolerance_m},
 //   u32 sections (str name, u32 boxes, box = 6*i32 lo.xyz then hi.xyz, CELL
@@ -60,7 +61,13 @@ inline constexpr std::uint32_t kUnitWrld = fourcc("WRLD"); // cooked world def (
 //     u8 face [0 none, 1 +x, 2 -x, 3 +y, 4 -y, 5 +z, 6 -z; required for
 //     door.*/airlock.* types, #46c1], u32 tags str*,
 //     u32 attrs {str key, f64} in key order, u32 facets {str action,
-//     f64 range_m, u8 manual, u8 has_target [str target]} (#28a cross-ref),)
+//     f64 range_m, u8 manual, u8 has_target [str target]} (#28a cross-ref),
+//     str art_ref [resolved art asset content ID whose model is keyed by
+//       this component's id or type ('' = unresolved -> cook gate G11
+//       fails, #52b); rides manifest deps as a per-component dep edge],
+//     u8 has_mount [u8==1: f64 t[3], f64 q[4] = world TRS of the
+//       socket/empty anchor this entry mounts to — the model's keyed node
+//       carries the offset from it, #52c],)
 //   u32 catalog (str type_id, u8 category; first-seen order),
 //   u32 wires (str id, u8 type [0 power/1 signal/2 power+signal],
 //     u8 has_capacity f64, u8 from_kind [0 socket/1 component] str from_ref,
@@ -70,7 +77,7 @@ inline constexpr std::uint32_t kUnitWrld = fourcc("WRLD"); // cooked world def (
 //   u32 refs (authored order; manifest deps resolve them separately).
 // All #42 unit suffixes are already coerced to SI — the runtime never sees
 // TOML. A def WITHOUT class_tag keeps its raw source bytes (non-hull defs).
-inline constexpr std::uint32_t kCookFormat = 7; // v7: WRLD body payload gained [safe] trio (8.13 #50); v6: WRLD world-def payload class (8.7 #45d); v5: DEF0 hull-def binary + SOCK v2 one named-anchor table (#46); v4: .glb cook gained SOCK unit + strict socket_type (#21); v3: MAT0 texture refs (3.8); v2: MESH tan (3.6)
+inline constexpr std::uint32_t kCookFormat = 8; // v8: DEF0 v3 per-component art_ref + mount transform (9.2 #52b); v7: WRLD body payload gained [safe] trio (8.13 #50); v6: WRLD world-def payload class (8.7 #45d); v5: DEF0 hull-def binary + SOCK v2 one named-anchor table (#46); v4: .glb cook gained SOCK unit + strict socket_type (#21); v3: MAT0 texture refs (3.8); v2: MESH tan (3.6)
 
 // SHDR payload: u32 stage (kShdrStage*) | SPIR-V binary as cooked by
 // glslangValidator at cook time. Runtime never compiles GLSL (decision #13)

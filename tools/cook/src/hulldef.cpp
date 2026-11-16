@@ -43,7 +43,7 @@
 namespace ve::cook {
 namespace {
 
-constexpr std::uint32_t kPayloadVersion = 2;  // DEF0 v2: facet target + seams (cooked.h layout)
+constexpr std::uint32_t kPayloadVersion = 3;  // DEF0 v3: per-component art_ref + mount TRS (cooked.h layout, #52b)
 
 // LE byte writer — same byte doctrine as the SOCK/MESH payloads (cooked.h).
 struct Writer {
@@ -353,7 +353,9 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
                        std::vector<std::string>& refs_out, std::string* err,
                        const std::map<std::string, CompTypeDef>* type_defs,
                        std::vector<std::string>* used_types_out,
-                       std::vector<std::string>* entry_refs_out) {
+                       std::vector<std::string>* entry_refs_out,
+                       const std::map<std::string, std::string>* art_by_comp,
+                       const std::map<std::string, MountTRS>* anchors) {
     std::string local;
     std::string& e = err ? *err : local;
     TomlValue root;
@@ -572,6 +574,25 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
             w.u8(f.has_target);
             if (f.has_target) w.str(f.target);
         }
+        // #52b (DEF0 v3): resolved art asset ('' = unresolved -> G11 fails
+        // the cook) + the world TRS of the socket/empty this entry mounts
+        // to (the model's keyed node carries the offset from it).
+        std::string art;
+        if (art_by_comp) {
+            if (auto a = art_by_comp->find(c.id); a != art_by_comp->end())
+                art = a->second;
+        }
+        w.str(art);
+        const MountTRS* m = nullptr;
+        if (anchors && !c.socket.empty()) {
+            if (auto an = anchors->find(c.socket); an != anchors->end())
+                m = &an->second;
+        }
+        w.u8(m ? 1 : 0);
+        if (m) {
+            for (double v : m->t) w.f64(v);
+            for (double v : m->q) w.f64(v);
+        }
     }
     w.u32(static_cast<std::uint32_t>(catalog.size()));
     for (const auto& [type, cat] : catalog) { w.str(type); w.u8(cat); }
@@ -597,6 +618,26 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
     for (const auto& r : refs_out) w.str(r);
 
     payload_out = std::move(w.b);
+    return true;
+}
+
+bool cook_hulldef_comp_requests(const std::string& toml_text,
+                                std::vector<CompArtRequest>& out, std::string* err) {
+    out.clear();
+    std::string local;
+    std::string& e = err ? *err : local;
+    TomlValue root;
+    if (!parse_toml(toml_text, root, &e)) return false;
+    const TomlTable& rt = root.table;
+    if (!at(rt, "class_tag")) return true;  // not a hull def: no requests
+    const TomlValue* cs = at(rt, "component");
+    if (!cs || cs->kind != TomlValue::kArray) return true;
+    for (std::size_t i = 0; i < cs->array.size(); ++i) {
+        CompRow c;
+        if (!parse_component(cs->array[i], "component[" + std::to_string(i) + "]", c, e))
+            return false;
+        out.push_back({std::move(c.id), std::move(c.type), std::move(c.refs)});
+    }
     return true;
 }
 

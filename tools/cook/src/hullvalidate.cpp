@@ -82,7 +82,7 @@ bool is_airlock_type(std::string_view t) { return t.rfind("airlock.", 0) == 0; }
 
 bool decode_def_payload(const Bytes& payload, DefView& out, std::string* err) {
     Reader r{payload};
-    if (r.u32() != 2u) { if (err) *err = "DEF0 payload version must be 2"; return false; }
+    if (r.u32() != 3u) { if (err) *err = "DEF0 payload version must be 3"; return false; }
     out.class_tag = r.str();
     if (r.u8()) r.f64();               // hull_mass (validated at 5.10 loadout use)
     if (r.u8()) { r.f64(); r.f64(); r.f64(); }
@@ -132,6 +132,12 @@ bool decode_def_payload(const Bytes& payload, DefView& out, std::string* err) {
             fac.has_target = r.u8();
             if (fac.has_target) fac.target = r.str();
             comp.facets.push_back(std::move(fac));
+        }
+        comp.art_ref = r.str();                     // #52b (v3)
+        comp.has_mount = r.u8();
+        if (comp.has_mount && !r.bad) {
+            for (int k = 0; k < 3; ++k) comp.mount_t[k] = r.f64();
+            for (int k = 0; k < 4; ++k) comp.mount_q[k] = r.f64();
         }
         out.comps.push_back(std::move(comp));
     }
@@ -420,6 +426,26 @@ bool cook_hull_validate(const HullInputs& hull,
             if (f.action == "port.undock") { undock = true; break; }
         if (!undock)
             return fail("dock port '" + c.id + "' needs a port.undock facet (#47b)");
+    }
+    // ---- G11 (9.2 #52b): strict art-ref gate --------------------------
+    // Every mounted component must resolve to cooked art whose model is
+    // keyed by the component's id or type (no dangling-invisible entries),
+    // that asset must ride the def's manifest deps as a per-component edge,
+    // and the entry must carry the mount transform (anchor TRS) — the
+    // cook-time resolution fills these DEF0 v3 fields; ''/0 means nothing
+    // resolved. Gate runs LAST: earlier gates pin their own first errors.
+    for (const auto& c : d.comps) {
+        if (c.art_ref.empty())
+            return fail("component '" + c.id + "' resolves no art (#52b): no "
+                        "cooked model keyed by its id or type");
+        bool edge = false;
+        for (const auto& dep : hull.deps)
+            if (dep == c.art_ref) { edge = true; break; }
+        if (!edge)
+            return fail("component '" + c.id + "' art '" + c.art_ref +
+                        "' is not a manifest dep of '" + hull.def_id + "' (#52b)");
+        if (!c.has_mount)
+            return fail("component '" + c.id + "' has no mount transform (#52b)");
     }
     return true;
 }

@@ -67,15 +67,16 @@ std::string tmp_root(const char* name) {
 }  // namespace
 
 TEST_CASE("cook_hull_def") {
-    // Stage the two real fixtures under one src tree so the def's
-    // ../samples/test_ship.glb ref resolves into the cook set.
+    // Stage the real fixture trees under one src tree so the hull def's
+    // ../samples refs and its component TYPE defs' refs resolve into the
+    // cook set (recursive: samples/ + defs/ incl. defs/comptypes #52a).
     const std::string src = tmp_root("src");
-    std::filesystem::create_directories(std::filesystem::path(src) / "samples");
-    std::filesystem::create_directories(std::filesystem::path(src) / "defs");
-    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples/test_ship.glb",
-                          std::filesystem::path(src) / "samples" / "test_ship.glb");
-    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml",
-                          std::filesystem::path(src) / "defs" / "test_ship.def.toml");
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples",
+                          std::filesystem::path(src) / "samples",
+                          std::filesystem::copy_options::recursive);
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs",
+                          std::filesystem::path(src) / "defs",
+                          std::filesystem::copy_options::recursive);
 
     const std::string out = tmp_root("out");
     auto res = ve::cook::cook_incremental(src, out);
@@ -87,7 +88,15 @@ TEST_CASE("cook_hull_def") {
     std::string err;
     REQUIRE(ve::cook::read_manifest(out + "/manifest.bin", mf, &err));
     REQUIRE(mf.count("defs/test_ship.def.toml") == 1u);
-    CHECK(mf.at("defs/test_ship.def.toml").deps == std::vector<std::string>{"samples/test_ship.glb"});
+    // #52a/#52b: hull deps = consumed type defs (sorted), per-component
+    // art edges, then the authored top-level refs.
+    CHECK(mf.at("defs/test_ship.def.toml").deps == std::vector<std::string>{
+        "defs/comptypes/berth_crew.def.toml", "defs/comptypes/door_hatch.def.toml",
+        "defs/comptypes/panel_dash.def.toml", "defs/comptypes/power_battery.def.toml",
+        "defs/comptypes/power_reactor.def.toml", "defs/comptypes/seat_pilot.def.toml",
+        "defs/comptypes/sensor_array.def.toml", "defs/comptypes/thruster_main.def.toml",
+        "defs/comptypes/thruster_rcs.def.toml", "defs/comptypes/turret_dorsal.def.toml",
+        "samples/component_gizmos.glb", "samples/test_ship.glb"});
 
     // ---- decode DEF0 v2 exactly (layout pinned in cooked.h) ----
     ve::cook::Unit du;
@@ -95,7 +104,7 @@ TEST_CASE("cook_hull_def") {
     CHECK(du.id == "defs/test_ship.def.toml");
     CHECK(du.type == ve::core::cooked::kUnitDef0);
     Reader s{du.payload};
-    CHECK(s.u32() == 2u);  // payload version (v2: facet targets + seams)
+    CHECK(s.u32() == 3u);  // payload version (v3: #52b art_ref + mount)
     CHECK(s.str() == "class.light_freighter");
     CHECK(s.u8() == 1); CHECK(s.f64() == 98000.0);           // hull_mass kg (#14)
     CHECK(s.u8() == 1);
@@ -145,6 +154,11 @@ TEST_CASE("cook_hull_def") {
             CHECK(s.u8() == 0u);  // no target
         }
     };
+    auto skip_art_mount = [&]() {  // #52b DEF0 v3 tail
+        CHECK(s.str() == "samples/component_gizmos.glb");  // type-def art (#52a)
+        CHECK(s.u8() == 1u);                        // every entry is socketed
+        for (int i = 0; i < 7; ++i) (void)s.f64();  // anchor t[3] + q[4]
+    };
     expect_comp("engine_L", "thruster.main", 0, "hp_engine_L", 1);
     {  // attrs in key order (std::map) — #42 coercion already applied;
        // thrust.gimbal_rad authored "15 deg" -> radians cooked (#46e)
@@ -159,18 +173,19 @@ TEST_CASE("cook_hull_def") {
         }
     }
     skip_facet(0);
+    skip_art_mount();
     expect_comp("engine_R", "thruster.main", 0, "hp_engine_R", 1);
-    skip_attr(5); skip_facet(0);
+    skip_attr(5); skip_facet(0); skip_art_mount();
     expect_comp("rcs_wt", "thruster.rcs", 1, "hp_wingtip_R", 0);
-    skip_attr(4); skip_facet(0);
+    skip_attr(4); skip_facet(0); skip_art_mount();
     expect_comp("sensor_scan", "sensor.array", 3, "hp_wingtip_L", 0);
-    skip_attr(4); skip_facet(0);  // sensor.range "120 km" -> 120000.0 m (#42)
+    skip_attr(4); skip_facet(0); skip_art_mount();  // sensor.range "120 km" -> 120000.0 m (#42)
     expect_comp("turret_dorsal", "turret.dorsal", 2, "hp_dorsal_turret", 0);
-    skip_attr(2); skip_facet(1);
+    skip_attr(2); skip_facet(1); skip_art_mount();
     expect_comp("seat_pilot", "seat.pilot", 3, "hp_seat_pilot", 1);
-    skip_attr(0); skip_facet(1);  // use.seat 1.2 m (#28a)
+    skip_attr(0); skip_facet(1); skip_art_mount();  // use.seat 1.2 m (#28a)
     expect_comp("door_1", "door.hatch", 3, "door_1", 0, 5);  // face +z (#46c1)
-    skip_attr(0); skip_facet(1);  // interior anchor, socket==name (#46a)
+    skip_attr(0); skip_facet(1); skip_art_mount();  // interior anchor, socket==name (#46a)
     expect_comp("panel_main", "panel.dash", 3, "panel_main", 0);
     skip_attr(0);
     CHECK(s.u32() == 2u);  // facets: use.panel plain...
@@ -179,12 +194,13 @@ TEST_CASE("cook_hull_def") {
         CHECK(s.str() == "repair.target"); CHECK(s.f64() == 1.2); CHECK(s.u8() == 0);
         CHECK(s.u8() == 1u); CHECK(s.str() == "w_engL");
     }
+    skip_art_mount();
     expect_comp("berth_1", "berth.crew", 3, "berth_1", 0);
-    skip_attr(0); skip_facet(1);
+    skip_attr(0); skip_facet(1); skip_art_mount();
     expect_comp("reactor_1", "power.reactor", 3, "hp_reactor", 0);
-    skip_attr(2); skip_facet(0);
+    skip_attr(2); skip_facet(0); skip_art_mount();
     expect_comp("battery_1", "power.battery", 3, "hp_battery", 0);
-    skip_attr(2); skip_facet(0);
+    skip_attr(2); skip_facet(0); skip_art_mount();
     // catalog: type -> category, first-seen order
     CHECK(s.u32() == 10u);
     {
@@ -373,12 +389,16 @@ TEST_CASE("cook_hull_def_gates") {
         CHECK(s.u32() == 0u);   // a: no tags,
         CHECK(s.u32() == 0u);   // no attrs,
         CHECK(s.u32() == 0u);   // no facets
+        CHECK(s.str().empty());  // #52b: no art map -> art_ref ''
+        CHECK(s.u8() == 0u);     // has_mount 0
         CHECK(s.str() == "b"); (void)s.str(); (void)s.u8(); (void)s.str(); (void)s.u8();
         CHECK(s.u32() == 0u);   // tags
         CHECK(s.u32() == 1u);   // attrs landed on b
         CHECK(s.str() == "mass"); CHECK(s.f64() == 5.0);
         CHECK(s.u32() == 1u);   // facet landed on b
         CHECK(s.str() == "use.panel"); CHECK(s.f64() == 2.0); CHECK(s.u8() == 0); CHECK(s.u8() == 0);
+        CHECK(s.str().empty());  // #52b: no art map on either entry
+        CHECK(s.u8() == 0u);
     }
 }
 
@@ -402,7 +422,9 @@ bool has_f64(const ve::cook::Bytes& b, double v) {
 constexpr const char* kTypeDefSrc =
     "component_type = \"thruster.mx\"\n"
     "category = \"main\"\n"
-    "refs = [\"../../art/main_x.bin\"]\n"
+    // gizmo rides the preset art candidates (#52b): the keyed-model gate
+    // resolves entries whose id/type names a node of a candidate .glb.
+    "refs = [\"../../art/main_x.bin\", \"../../art/gizmo.glb\"]\n"
     "[attrs]\nmass = 900\npower.draw = 25000\n";
 constexpr const char* kMiniHull =
     "class_tag = \"class.mini\"\n"
@@ -414,11 +436,15 @@ constexpr const char* kMiniHull =
     "\"hp_engine_L\"\n";  // socket names the gizmo's anchor (#46a)
 
 // Minimal one-hardpoint gizmo glb: a mesh-less node named hp_* with a
-// ratified socket_type (#21) cooks to a SOCK unit with that anchor.
+// ratified socket_type (#21) cooks to a SOCK unit with that anchor. The
+// second node is named by the mini hull's component id: #52b's keyed
+// model gate only resolves art whose node set carries entry ids/types
+// (plain node, no socket_type extras = model key only, never an anchor).
 ve::cook::Bytes make_gizmo_glb() {
     std::string j = R"({"asset":{"version":"2.0"},"nodes":[)"
                     R"({"name":"hp_engine_L","extras":{"socket_type":"main"},)"
-                    R"("translation":[0,0,0]}]})";
+                    R"("translation":[0,0,0]},)"
+                    R"({"name":"eng1","translation":[0,0,0]}]})";
     while (j.size() % 4) j += ' ';
     ve::cook::Bytes g;
     auto u32 = [&](std::uint32_t v) {
@@ -443,7 +469,8 @@ TEST_CASE("cook_component_type_defs") {
         REQUIRE_MESSAGE(ve::cook::cook_comptype_source(kTypeDefSrc, td, &err), err);
         CHECK(td.type == "thruster.mx");
         CHECK(static_cast<int>(td.category) == 0);  // main
-        CHECK(td.refs == std::vector<std::string>{"../../art/main_x.bin"});
+        CHECK(td.refs == std::vector<std::string>{"../../art/main_x.bin",
+                                                "../../art/gizmo.glb"});
         REQUIRE(td.attrs.size() == 2u);
         CHECK(td.attrs[0].first == "mass"); CHECK(td.attrs[0].second == 900.0);
         CHECK(td.attrs[1].first == "power.draw"); CHECK(td.attrs[1].second == 25000.0);
@@ -508,6 +535,25 @@ TEST_CASE("cook_component_type_defs") {
         CHECK(s.u32() == 2u);   // merged attrs: preset + entry, entry wins
         CHECK(s.str() == "mass"); CHECK(s.f64() == 1000.0);        // entry key wins
         CHECK(s.str() == "power.draw"); CHECK(s.f64() == 25000.0);  // preset fills in
+        CHECK(s.u32() == 0u);      // facets
+        CHECK(s.str().empty());    // #52b art_ref: no art map at unit level
+        CHECK(s.u8() == 0u);       // has_mount: no anchor table at unit level
+    }
+    // #52b (DEF0 v3) unit level: the art map + anchor table fill the
+    // per-component art_ref and the mount TRS of the entry's socket.
+    {
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs;
+        const std::map<std::string, std::string> art{{"eng1", "art/gizmo.glb"}};
+        ve::cook::MountTRS mt;
+        mt.t = {1.0, 2.0, 3.0};
+        mt.q = {0.0, 0.0, 0.7071067811865475, 0.7071067811865475};
+        const std::map<std::string, ve::cook::MountTRS> anchors{{"hp_engine_L", mt}};
+        REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(kMiniHull, payload, refs, &err, &types,
+                                                    nullptr, nullptr, &art, &anchors), err);
+        CHECK(has_bytes(payload, "art/gizmo.glb"));
+        CHECK(has_f64(payload, 3.0));   // mount t
+        CHECK(has_f64(payload, 0.7071067811865475));  // mount q
     }
     // category cross-check (#55c): entry category must equal the type's.
     {
@@ -581,7 +627,7 @@ TEST_CASE("cook_component_type_defs_driver") {
           std::vector<std::string>{"art/gizmo.glb", "defs/parts/thruster_mx.def.toml"});
     // type def -> its art refs (authored against the TYPE DEF's directory).
     CHECK(mf.at("defs/parts/thruster_mx.def.toml").deps ==
-          std::vector<std::string>{"art/main_x.bin"});
+          std::vector<std::string>{"art/gizmo.glb", "art/main_x.bin"});
     // the type def unit keeps raw source bytes (#55: no new payload kind).
     ve::cook::Unit tu;
     REQUIRE(ve::cook::read_unit_file(out + "/units/defs/parts/thruster_mx.def.toml.ck", tu, &err));
@@ -592,6 +638,10 @@ TEST_CASE("cook_component_type_defs_driver") {
     CHECK(has_bytes(hu.payload, "power.draw"));
     CHECK(has_f64(hu.payload, 25000.0));
     CHECK(has_f64(hu.payload, 900.0));
+    // #52b (DEF0 v3; gate G11 passes by construction): eng1 resolves to
+    // the gizmo (its node set carries the component id), the content ID
+    // rides the hull's manifest deps, and the payload names the art.
+    CHECK(has_bytes(hu.payload, "art/gizmo.glb"));
 
     // untouched sources: everything skips (hull's effective sha unchanged).
     auto r2 = ve::cook::cook_incremental(src, out);
@@ -603,7 +653,7 @@ TEST_CASE("cook_component_type_defs_driver") {
     // type def bytes) — a preset edit can never leave a stale hull payload.
     write("defs/parts/thruster_mx.def.toml",
           "component_type = \"thruster.mx\"\ncategory = \"main\"\n"
-          "refs = [\"../../art/main_x.bin\"]\n[attrs]\nmass = 1234\npower.draw = 25000\n");
+          "refs = [\"../../art/main_x.bin\", \"../../art/gizmo.glb\"]\n[attrs]\nmass = 1234\npower.draw = 25000\n");
     auto r3 = ve::cook::cook_incremental(src, out);
     REQUIRE_MESSAGE(r3.ok, r3.error);
     CHECK(r3.counts.cooked == 2u);  // the type def AND the hull
