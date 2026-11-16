@@ -147,8 +147,9 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         if (!cook_hulldef_unit(text, dummy, dummy_refs, &pe, &type_view, &used_types))
             continue;
         // Hull-only check: a cooked hull payload starts with the version u32
-        // (3); plain-def passthrough bytes can never be 0x00000003 (5.9b peek).
-        if (!(dummy.size() >= 4 && dummy[0] == 3 && dummy[1] == 0 && dummy[2] == 0 && dummy[3] == 0))
+        // (4 as of #51); plain-def passthrough bytes can never be 0x00000004
+        // (5.9b peek). Keep in lockstep with kPayloadVersion in hulldef.cpp.
+        if (!(dummy.size() >= 4 && dummy[0] == 4 && dummy[1] == 0 && dummy[2] == 0 && dummy[3] == 0))
             continue;
         hull_def_set.insert(id);
         hull_refs.emplace(id, std::move(dummy_refs));
@@ -527,7 +528,7 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         // TOML bytes (5.8 passthrough) -- their first 4 bytes can never be
         // 0x00000002, so this peeks without parsing.
         auto is_hull_payload = [](const Bytes& p) {
-            return p.size() >= 4 && p[0] == 3 && p[1] == 0 && p[2] == 0 && p[3] == 0;
+            return p.size() >= 4 && p[0] == 4 && p[1] == 0 && p[2] == 0 && p[3] == 0;
         };
         auto load_hull = [&](const std::string& did, HullInputs& h, std::string* e) -> bool {
             Unit du;

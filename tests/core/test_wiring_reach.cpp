@@ -62,7 +62,7 @@ Bytes sock_payload() {
 // DEF0 v3 with ONE authored wire: w1 power (cap 100) eng_1 -> socket hp_engine.
 Bytes def_payload() {
     Bytes b;
-    pu32(b, 3);
+    pu32(b, 4);
     pstr(b, "class.light_freighter");
     pu8(b, 1); pf64(b, 1000.0);
     pu8(b, 1); pf64(b, 0.0); pf64(b, 0.5); pf64(b, -0.5);
@@ -93,6 +93,9 @@ Bytes def_payload() {
     pu32(b, 1);  // wires: w1 power, eng_1 -> hp_engine
     pstr(b, "w1"); pu8(b, 0); pu8(b, 1); pf64(b, 100.0);
     pu8(b, 1); pstr(b, "eng_1"); pu8(b, 0); pstr(b, "hp_engine");
+    pu32(b, 1);  // #51 route: single cell (1,0,-1)
+    pi32(b, 1); pi32(b, 0); pi32(b, -1);
+    pu32(b, 1); pu32(b, 1); pu32(b, 0);  // #51b index: 1 section -> {wire 0}
     pu32(b, 0);
     pu32(b, 1); pstr(b, "../samples/test_ship.glb");
     return b;

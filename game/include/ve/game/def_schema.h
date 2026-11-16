@@ -70,6 +70,7 @@ enum class field_kind : std::uint8_t {
     tag_list,    // inline array of tag strings (component.tags)
     path_list,   // inline array of def paths (top-level refs)
     int_boxes,   // flat [lo0,lo1,lo2,hi0,hi1,hi2] integer box (section.cells)
+    int_cells,   // array of [x,y,z] integer triples (wire.route, #51)
     attr_map,    // registry-key -> number map ([component.attrs])
 };
 
@@ -129,6 +130,7 @@ inline constexpr std::array kWire_fields = {
     def_field{"capacity", field_kind::number_si, 1, false, std::nullopt, {}},
     def_field{"from", field_kind::endpoint, 1, true, std::nullopt, {}},
     def_field{"to", field_kind::endpoint, 1, true, std::nullopt, {}},
+    def_field{"route", field_kind::int_cells, 0, true, std::nullopt, {}},  // #51
 };
 inline constexpr std::array kSeam_fields = {
     def_field{"partner", field_kind::def_path, 1, true, std::nullopt, {}},

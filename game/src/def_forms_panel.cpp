@@ -150,7 +150,8 @@ bool def_forms_panel::composite_ok(const def_field& f, std::string_view text,
         if (n == 0) { msg = "attr map is empty"; return false; }
         return true;
     }
-    case field_kind::int_boxes: {
+    case field_kind::int_boxes:
+    case field_kind::int_cells: {  // #51 route: same flat-integer panel grammar
         std::string_view v = text;
         int n = 0;
         while (!v.empty()) {
@@ -280,7 +281,8 @@ void def_forms_panel::render(gfx::ui_context& ui, const char* title,
         }
         case field_kind::tag_list:
         case field_kind::attr_map:
-        case field_kind::int_boxes: {
+        case field_kind::int_boxes:
+        case field_kind::int_cells: {  // #51
             // Free-text with panel-side composite grammar (draw_text_field
             // only enforces non-empty).
             auto& st = edit_state(path);

@@ -87,8 +87,8 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
 
     // ---- DEF0 payload v3 (layout pinned in ve/core/cooked.h) ----
     Reader r{def0.payload};
-    if (r.u32() != 3)
-        return std::unexpected("DEF0 payload: version must be 3");
+    if (r.u32() != 4)
+        return std::unexpected("DEF0 payload: version must be 4");
     hull_info hull{};
     hull.mesh_content_id = mesh_content_id;
     hull.class_tag = r.str();
@@ -172,7 +172,17 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
         w.to.ref = r.str();
         if (w.from.kind > 1 || w.to.kind > 1)
             r.bad = true;  // endpoint kind out of DEF0 range
+        const std::uint32_t ncell = r.u32();  // #51 route: spatial law lives
+        for (std::uint32_t k = 0; k < ncell && !r.bad; ++k)  // at cook (G12);
+            { r.i32(); r.i32(); r.i32(); }  // simulation consumes it in 9.6
         wires.push_back(std::move(w));
+    }
+    {  // #51b section->wires index: read-and-skip (query site 9.6).
+        const std::uint32_t nrow = r.u32();
+        for (std::uint32_t s = 0; s < nrow && !r.bad; ++s) {
+            const std::uint32_t n = r.u32();
+            for (std::uint32_t k = 0; k < n && !r.bad; ++k) r.u32();
+        }
     }
     const std::uint32_t nseam = r.u32();
     for (std::uint32_t i = 0; i < nseam && !r.bad; ++i) {  // seams skipped.

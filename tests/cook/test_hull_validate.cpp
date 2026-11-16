@@ -83,7 +83,9 @@ HullInputs mk_hull() {
     // G10 (#47b) contract: clamp strength + mass attrs, undock verb.
     h.def.comps[4].attrs = {{"dock.clamp_strength", 500000.0}, {"mass", 800.0}};
     h.def.comps[4].facets.push_back({"port.undock", "", 0});
-    h.def.wires.push_back({"w1", 0, 1, 0, "engine", "hp_engine"});  // comp -> hardpoint
+    // comp -> hardpoint; both endpoints sit in cell (1,0,-1) so the #51
+    // route is the single-cell trivial path (G12a attach, no steps).
+    h.def.wires.push_back({"w1", 0, 1, 0, "engine", "hp_engine", {{1, 0, -1}}});
     h.def.comps[0].facets.push_back({"repair.target", "w1", 1});
     return h;
 }
@@ -358,5 +360,39 @@ TEST_CASE("cook_hull_validate_gates") {
         no_mount.def.comps[4].has_mount = 0;
         std::string e3 = run_fail(no_mount);
         CHECK_MESSAGE(e3.find("dockport_1' has no mount transform") != std::string::npos, e3);
+    }
+    // G12 (#51, 9.3): wire-route spatial gates. Full-pass fixture rides the
+    // trivial single-cell route; each violation is pinned exactly once, and
+    // the door-seam-positive case proves door_1's seam is what carries the
+    // A->B crossing (removing it is what the negative case shows).
+    {
+        HullInputs mis = mk_hull();
+        mis.def.wires[0].route = {{0, 0, -1}, {1, 0, -1}};  // starts off-anchor
+        std::string e = run_fail(mis);
+        CHECK_MESSAGE(e.find("route starts at (0,0,-1), not at its 'from' endpoint cell (1,0,-1) (#51 G12a)") != std::string::npos, e);
+
+        HullInputs offend = mk_hull();
+        offend.def.wires[0].route = {{1, 0, -1}, {1, 0, 0}};  // ends off-anchor
+        std::string ee = run_fail(offend);
+        CHECK_MESSAGE(ee.find("route ends at (1,0,0), not at its 'to' endpoint cell (1,0,-1) (#51 G12a)") != std::string::npos, ee);
+
+        HullInputs jump = mk_hull();
+        jump.def.wires[0].route = {{1, 0, -1}, {1, 1, -2}, {1, 0, -1}};  // diagonal leap
+        std::string e2 = run_fail(jump);
+        CHECK_MESSAGE(e2.find("cells 0 (1,0,-1) and 1 (1,1,-2) are not 6-adjacent (#51 G12b)") != std::string::npos, e2);
+
+        HullInputs off = mk_hull();
+        off.def.wires[0].route = {{1, 0, -1}, {2, 0, -1}, {1, 0, -1}};  // (2,0,-1) outside A
+        std::string e3 = run_fail(off);
+        CHECK_MESSAGE(e3.find("route cell (2,0,-1) is in 0 sections") != std::string::npos, e3);
+
+        HullInputs wall = mk_hull();
+        wall.def.wires[0].route = {{1, 0, -1}, {1, 0, 0}, {1, 0, -1}};  // A->B not at door_1's seam
+        std::string e4 = run_fail(wall);
+        CHECK_MESSAGE(e4.find("crosses section 'A' -> 'B' between cells (1,0,-1) -> (1,0,0) with no door seam (#51 G12d)") != std::string::npos, e4);
+
+        HullInputs thru = mk_hull();
+        thru.def.wires[0].route = {{1, 0, -1}, {0, 0, -1}, {0, 0, 0}, {0, 0, -1}, {1, 0, -1}};
+        run_pass(thru);  // crossing at door_1's (0,0,-1)<->(0,0,0) seam is legal
     }
 }

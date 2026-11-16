@@ -203,8 +203,9 @@ TEST_CASE("def_forms_panel") {
     // ---- doc model over the ratified fixture --------------------------
     CHECK(doc.value("hull_mass") == "98000");
     CHECK(doc.value("grid.tolerance") == "0.1 m");
-    CHECK(doc.value("component.7.facet.1.target") == "w_engL");   // panel_main repair
-    CHECK(doc.value("component.7.id") == "panel_main");
+    // door_2/door_3 seams landed at indices 7/8 (#51): panel_main shifted 7->9.
+    CHECK(doc.value("component.9.facet.1.target") == "w_engL");   // panel_main repair
+    CHECK(doc.value("component.9.id") == "panel_main");
     CHECK(doc.value("wire.0.id") == "w_engL");
     CHECK(doc.value("hull_com.1") == "0.25 m");
     CHECK(doc.value("section.0.name") == "bridge");
@@ -265,7 +266,7 @@ TEST_CASE("def_forms_panel") {
         // untouched lines byte-identical incl. comments:
         CHECK(count_occurrences(src, "# Sections tile the hull without overlap (#19a).") == 1);
         CHECK(count_occurrences(src, "cell = \"2 m\"") == 1);
-        CHECK(count_occurrences(src, "[[component]]") == 11);
+        CHECK(count_occurrences(src, "[[component]]") == 13);
     }
 
     // ---- array element commit (hull_com.0) -----------------------------
@@ -304,7 +305,7 @@ TEST_CASE("def_forms_panel") {
     // ---- picker: candidates derived from the def's own wire ids --------
     {
         gfx::ui_context ui;
-        const char* path = "component.7.facet.1.target";
+        const char* path = "component.9.facet.1.target";
         render(ui, path, 6);
         click_center(ui, path);  // opens the picker ([pick] is the primary rect)
         render(ui, path, 12);    // candidates now drawn
@@ -319,7 +320,7 @@ TEST_CASE("def_forms_panel") {
         panel.render(ui, "def forms", 8, 8, 720, 700, panel.leaf_index(path), 12);
         ui.end_frame();
     }
-    CHECK(panel.doc().value("component.7.facet.1.target") == "w_engR");
+    CHECK(panel.doc().value("component.9.facet.1.target") == "w_engR");
     CHECK(panel.doc().source().find("target = \"w_engR\"") != std::string::npos);
 
     // ---- attr map: value edited through the composite field ------------

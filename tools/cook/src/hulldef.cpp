@@ -15,6 +15,7 @@
 //                      component TYPE def inherit its category + [attrs]
 //                      preset, overridden key-by-key (#52a/#55).
 //   [[wire]]           id/type power|signal|power+signal, optional capacity,
+//                      required route = ordered [[x,y,z],...] cell path (#51),
 //                      from/to = "socket.<id>" | "component.<id>" (#26a).
 //   [[seam]]           partner def ref + shared socket + optional offset
 //                      (#46d; partner joins the manifest dep graph).
@@ -43,7 +44,7 @@
 namespace ve::cook {
 namespace {
 
-constexpr std::uint32_t kPayloadVersion = 3;  // DEF0 v3: per-component art_ref + mount TRS (cooked.h layout, #52b)
+constexpr std::uint32_t kPayloadVersion = 4;  // DEF0 v4: per-wire route + section->wires index (cooked.h layout, #51); v3 added per-component art_ref + mount TRS (#52b)
 
 // LE byte writer — same byte doctrine as the SOCK/MESH payloads (cooked.h).
 struct Writer {
@@ -303,7 +304,35 @@ struct WireRow {
     double capacity = 0.0;
     std::uint8_t from_kind = 0, to_kind = 0;  // 0 socket, 1 component
     std::string from_ref, to_ref;
+    std::vector<std::array<std::int32_t, 3>> route;  // ordered #44 cell path (#51)
 };
+
+// #51 wire route grammar: `route = [[x,y,z], ...]` — an ordered chain of
+// CELL lattice points (integer cell coords, same kind gate as section
+// boxes). Spatial law (endpoint attach, adjacency, lattice membership,
+// door-seam-only boundary crossing) is validated at gate G12.
+bool parse_route(const TomlTable& t, const std::string& where,
+                 std::vector<std::array<std::int32_t, 3>>& route, std::string& err) {
+    const TomlValue* r = at(t, "route");
+    if (!r)
+        return fail(err, where + "route is required (#51): an ordered path of cell coords");
+    if (r->kind != TomlValue::kArray || r->array.empty())
+        return fail(err, where + "route must be a non-empty array of [x,y,z] cells (#51)");
+    for (std::size_t i = 0; i < r->array.size(); ++i) {
+        const TomlValue& c = r->array[i];
+        if (c.kind != TomlValue::kArray || c.array.size() != 3)
+            return fail(err, where + "route[" + std::to_string(i) +
+                                 "] must be [x,y,z] of 3 integers (cell coords)");
+        std::array<std::int32_t, 3> cell{};
+        for (int ax = 0; ax < 3; ++ax) {
+            if (c.array[ax].kind != TomlValue::kInteger)
+                return fail(err, where + "route cell coords must be integers (cell coords)");
+            cell[ax] = static_cast<std::int32_t>(c.array[ax].integer);
+        }
+        route.push_back(cell);
+    }
+    return true;
+}
 
 // "socket.<id>" / "component.<id>" endpoint grammar (#26a).
 bool parse_endpoint(const TomlTable& t, std::string_view key, const std::string& where,
@@ -344,6 +373,7 @@ bool parse_wire(const TomlValue& row, const std::string& where, WireRow& w, std:
     }
     if (!parse_endpoint(t, "from", where + ".", w.from_kind, w.from_ref, err)) return false;
     if (!parse_endpoint(t, "to", where + ".", w.to_kind, w.to_ref, err)) return false;
+    if (!parse_route(t, where + ".", w.route, err)) return false;
     return true;
 }
 
@@ -606,6 +636,35 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
         w.str(wire.from_ref);
         w.u8(wire.to_kind);
         w.str(wire.to_ref);
+        w.u32(static_cast<std::uint32_t>(wire.route.size()));
+        for (const auto& cell : wire.route)
+            for (std::int32_t v : cell) w.i32(v);
+    }
+    // #51: section->wires index, DERIVED at cook — the query site for
+    // damage severing (9.6: a hit on a section cuts exactly the wires routed
+    // through it). Row i corresponds to section row i above (authored order,
+    // deterministic); entries are indices into the wire table above,
+    // ascending, a wire listed once per section any of its route cells lies
+    // in. Gate G12 later requires every route cell to sit in exactly one
+    // section, so a valid def yields a well-defined index; cells outside all
+    // boxes simply contribute nothing here (the gate catches that case).
+    w.u32(static_cast<std::uint32_t>(sections.size()));
+    for (const auto& [sname, boxes] : sections) {
+        std::vector<std::uint32_t> hits;
+        for (std::size_t i = 0; i < wires.size(); ++i) {
+            bool through = false;
+            for (const auto& cell : wires[i].route) {
+                for (const auto& b : boxes) {
+                    if (cell[0] >= b[0] && cell[0] <= b[3] &&
+                        cell[1] >= b[1] && cell[1] <= b[4] &&
+                        cell[2] >= b[2] && cell[2] <= b[5]) { through = true; break; }
+                }
+                if (through) break;
+            }
+            if (through) hits.push_back(static_cast<std::uint32_t>(i));
+        }
+        w.u32(static_cast<std::uint32_t>(hits.size()));
+        for (std::uint32_t h : hits) w.u32(h);
     }
     w.u32(static_cast<std::uint32_t>(seams.size()));
     for (const auto& s : seams) {

@@ -98,13 +98,14 @@ TEST_CASE("cook_hull_def") {
         "defs/comptypes/thruster_rcs.def.toml", "defs/comptypes/turret_dorsal.def.toml",
         "samples/component_gizmos.glb", "samples/test_ship.glb"});
 
-    // ---- decode DEF0 v2 exactly (layout pinned in cooked.h) ----
+    // ---- decode DEF0 v4 exactly (layout pinned in cooked.h) ----
     ve::cook::Unit du;
     REQUIRE(ve::cook::read_unit_file(out + "/units/defs/test_ship.def.toml.ck", du, &err));
     CHECK(du.id == "defs/test_ship.def.toml");
     CHECK(du.type == ve::core::cooked::kUnitDef0);
     Reader s{du.payload};
-    CHECK(s.u32() == 3u);  // payload version (v3: #52b art_ref + mount)
+    CHECK(s.u32() == 4u);  // payload version (v4: #51 route + #51b index;
+                           // v3 added #52b art_ref + mount)
     CHECK(s.str() == "class.light_freighter");
     CHECK(s.u8() == 1); CHECK(s.f64() == 98000.0);           // hull_mass kg (#14)
     CHECK(s.u8() == 1);
@@ -130,9 +131,10 @@ TEST_CASE("cook_hull_def") {
     CHECK(s.str() == "engineering");
     CHECK(s.u32() == 1u);
     for (const int v : {-1, 0, 1, 1, 1, 3}) CHECK(s.i32() == v);
-    // components: authored order, 11 rows (7 hp-mounted + 4 interior anchors
-    // whose socket names pair 1:1 with the GLB's named empties, #46a)
-    CHECK(s.u32() == 11u);
+    // components: authored order, 13 rows (7 hp-mounted + 6 interior anchors
+    // whose socket names pair 1:1 with the GLB's named empties, #46a;
+    // door_2/door_3 are the extra wire-route door seams, #51)
+    CHECK(s.u32() == 13u);
     auto expect_comp = [&](const std::string& id, const std::string& type, int cat,
                            const std::string& sock, int tags, int face = 0) {
         CHECK(s.str() == id);
@@ -186,6 +188,10 @@ TEST_CASE("cook_hull_def") {
     skip_attr(0); skip_facet(1); skip_art_mount();  // use.seat 1.2 m (#28a)
     expect_comp("door_1", "door.hatch", 3, "door_1", 0, 5);  // face +z (#46c1)
     skip_attr(0); skip_facet(1); skip_art_mount();  // interior anchor, socket==name (#46a)
+    expect_comp("door_2", "door.hatch", 3, "door_2", 0, 6);  // -z midship->bridge (#51)
+    skip_attr(0); skip_facet(1); skip_art_mount();
+    expect_comp("door_3", "door.hatch", 3, "door_3", 0, 6);  // -z bridge->engine_bay (#51)
+    skip_attr(0); skip_facet(1); skip_art_mount();
     expect_comp("panel_main", "panel.dash", 3, "panel_main", 0);
     skip_attr(0);
     CHECK(s.u32() == 2u);  // facets: use.panel plain...
@@ -214,20 +220,41 @@ TEST_CASE("cook_hull_def") {
     // wires (#26a)
     CHECK(s.u32() == 6u);
     auto expect_wire = [&](const std::string& id, int type, bool cap, double cap_v,
-                           int fk, const std::string& f, int tk, const std::string& t) {
+                           int fk, const std::string& f, int tk, const std::string& t,
+                           const std::vector<std::array<int, 3>>& route) {
         CHECK(s.str() == id);
         CHECK(static_cast<int>(s.u8()) == type);
         CHECK(static_cast<int>(s.u8()) == (cap ? 1 : 0));
         if (cap) CHECK(s.f64() == cap_v);
         CHECK(static_cast<int>(s.u8()) == fk); CHECK(s.str() == f);
         CHECK(static_cast<int>(s.u8()) == tk); CHECK(s.str() == t);
+        CHECK(s.u32() == route.size());  // #51 ordered cell route
+        for (const auto& c : route)
+            for (int v : c) CHECK(s.i32() == v);
     };
-    expect_wire("w_engL", 0, false, 0.0, 1, "reactor_1", 0, "hp_engine_L");
-    expect_wire("w_engR", 0, false, 0.0, 1, "reactor_1", 0, "hp_engine_R");
-    expect_wire("w_rcs", 0, false, 0.0, 1, "battery_1", 0, "hp_wingtip_R");
-    expect_wire("w_sensor", 0, false, 0.0, 1, "battery_1", 0, "hp_wingtip_L");
-    expect_wire("w_turret", 0, true, 6000.0, 1, "reactor_1", 0, "hp_dorsal_turret");
-    expect_wire("w_fire_ctrl", 2, false, 0.0, 1, "seat_pilot", 1, "turret_dorsal");
+    expect_wire("w_engL", 0, false, 0.0, 1, "reactor_1", 0, "hp_engine_L",
+                {{-1,0,1},{0,0,1},{0,0,0},{0,0,-1},{0,0,-2},{0,0,-3},{1,0,-3}});
+    expect_wire("w_engR", 0, false, 0.0, 1, "reactor_1", 0, "hp_engine_R",
+                {{-1,0,1},{0,0,1},{0,0,0},{0,0,-1},{0,0,-2},{0,0,-3},{-1,0,-3}});
+    expect_wire("w_rcs", 0, false, 0.0, 1, "battery_1", 0, "hp_wingtip_R",
+                {{1,0,1},{0,0,1},{0,0,0},{-1,0,0},{-2,0,0},{-3,0,0}});
+    expect_wire("w_sensor", 0, false, 0.0, 1, "battery_1", 0, "hp_wingtip_L",
+                {{1,0,1},{0,0,1},{0,0,0},{1,0,0},{2,0,0},{3,0,0}});
+    expect_wire("w_turret", 0, true, 6000.0, 1, "reactor_1", 0, "hp_dorsal_turret",
+                {{-1,0,1},{0,0,1},{0,0,0},{0,1,0}});
+    expect_wire("w_fire_ctrl", 2, false, 0.0, 1, "seat_pilot", 1, "turret_dorsal",
+                {{0,0,-2},{0,0,-1},{0,0,0},{0,1,0}});
+    // #51b section->wires index (authored section order: bridge, midship,
+    // engine_bay, engineering) — which routes pass through each section.
+    CHECK(s.u32() == 4u);
+    auto expect_sec = [&](std::vector<unsigned> idx) {
+        CHECK(s.u32() == idx.size());
+        for (unsigned i : idx) CHECK(s.u32() == i);
+    };
+    expect_sec({0, 1, 5});
+    expect_sec({0, 1, 2, 3, 4, 5});
+    expect_sec({0, 1});
+    expect_sec({0, 1, 2, 3, 4});
     // seams (#46d): parsed between wires and refs; sample has none (5.9b adds
     // a two-def seam gate). 5.8 payload had no seam field at all, so this
     // count is v2's new slot.
@@ -338,6 +365,15 @@ TEST_CASE("cook_hull_def_gates") {
               "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
               "[[wire]]\nid = \"w\"\ntype = \"power\"\nfrom = \"reactor_1\"\nto = \"socket.hp\"\n",
               "socket.<id>");  // #26a endpoint grammar
+    must_fail("class_tag = \"class.mini\"\n"
+              "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+              "[[wire]]\nid = \"w\"\ntype = \"power\"\nfrom = \"socket.a\"\nto = \"socket.b\"\n",
+              "route is required");  // #51: a wire without a route cannot exist
+    must_fail("class_tag = \"class.mini\"\n"
+              "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+              "[[wire]]\nid = \"w\"\ntype = \"power\"\nfrom = \"socket.a\"\nto = \"socket.b\"\n"
+              "route = [[0, 0, 0], [1.5, 0, 1]]\n",
+              "integers");  // #51 route cells are integer cell coords
     must_fail("class_tag = \"class.mini\"\n"
               "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
               "[[component]]\nid = \"x\"\ntype = \"t\"\ncategory = \"main\"\nsocket = \"a\"\n"
@@ -680,4 +716,54 @@ TEST_CASE("cook_component_type_defs_driver") {
 
     std::filesystem::remove_all(src);
     std::filesystem::remove_all(out);
+}
+
+TEST_CASE("cook_wire_section_index") {
+    // #51b: the section->wires index is DERIVED at cook, one row per
+    // authored section, wire indices ascending, each wire listed at most
+    // once per section — even when its route leaves and re-enters it.
+    // Grammar-only cook (no SOCK/validator), so route cells need no
+    // anchors: this pins the index derivation in isolation.
+    std::string err;
+    ve::cook::Bytes payload;
+    std::vector<std::string> refs;
+    const std::string def =
+        "class_tag = \"class.mini\"\n"
+        "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+        "[[section]]\nname = \"A\"\ncells = [[0, 0, 0, 1, 0, 0]]\n"
+        "[[section]]\nname = \"B\"\ncells = [[2, 0, 0, 2, 0, 0]]\n"
+        "[[wire]]\nid = \"w\"\ntype = \"power\"\nfrom = \"socket.a\"\nto = \"socket.b\"\n"
+        "route = [[0, 0, 0], [1, 0, 0], [2, 0, 0], [1, 0, 0], [0, 0, 0]]\n";
+    REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(def, payload, refs, &err), err);
+    Reader s{payload};
+    CHECK(s.u32() == 4u);
+    CHECK(s.str() == "class.mini");
+    CHECK(s.u8() == 0u);  // no hull_mass
+    CHECK(s.u8() == 0u);  // no com
+    CHECK(s.u8() == 0u);  // no inertia
+    CHECK(s.f64() == 1.0); CHECK(s.u32() == 2u);  // grid cell + subcell ratio
+    CHECK(s.f64() == 1.0); CHECK(s.f64() == 0.0);  // cell_height + tolerance
+    CHECK(s.u32() == 2u);  // sections (authored order)
+    CHECK(s.str() == "A"); CHECK(s.u32() == 1u);
+    for (int v : {0, 0, 0, 1, 0, 0}) CHECK(s.i32() == v);
+    CHECK(s.str() == "B"); CHECK(s.u32() == 1u);
+    for (int v : {2, 0, 0, 2, 0, 0}) CHECK(s.i32() == v);
+    CHECK(s.u32() == 0u);  // comps
+    CHECK(s.u32() == 0u);  // catalog
+    CHECK(s.u32() == 1u);  // wires
+    CHECK(s.str() == "w");
+    CHECK(s.u8() == 0u); CHECK(s.u8() == 0u);  // type, no capacity
+    CHECK(s.u8() == 0u); CHECK(s.str() == "a");  // socket.a
+    CHECK(s.u8() == 0u); CHECK(s.str() == "b");  // socket.b
+    CHECK(s.u32() == 5u);  // route cells
+    const std::vector<std::array<int, 3>> want{
+        {0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {1, 0, 0}, {0, 0, 0}};
+    for (const auto& c : want)
+        for (int v : c) CHECK(s.i32() == v);
+    CHECK(s.u32() == 2u);  // one index row per section row
+    CHECK(s.u32() == 1u); CHECK(s.u32() == 0u);  // A: w listed ONCE despite re-entry
+    CHECK(s.u32() == 1u); CHECK(s.u32() == 0u);  // B: w
+    CHECK(s.u32() == 0u);  // seams
+    CHECK(s.u32() == 0u);  // refs
+    CHECK(s.at == payload.size());  // full payload consumed, no trailing gap
 }

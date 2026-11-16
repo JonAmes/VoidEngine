@@ -190,7 +190,7 @@ TEST_CASE("glb_cook_poc") {
     Reader s{su.payload};
     CHECK(s.str() == "test_ship.glb");  // content-ID link to the MESH unit
     CHECK(s.u32() == 2u);               // payload_ver v2
-    CHECK(s.u32() == 12u);              // 8 hardpoints + 4 interior empties
+    CHECK(s.u32() == 14u);              // 8 hardpoints + 6 interior empties
     struct Want { const char* name; int kind, cat; double x, y, z; };
     static const Want want[] = {  // node-index order
         {"hp_engine_L", 0, 0, 2.0, 0.0, -6.0},   {"hp_engine_R", 0, 0, -2.0, 0.0, -6.0},
@@ -203,6 +203,8 @@ TEST_CASE("glb_cook_poc") {
         {"seat_pilot", 2, 3, 0.5, 0.55, -4.0},   // (name == def component id,
         {"panel_main", 3, 3, 0.5, 0.0, -3.5},    //  #46a pairing key)
         {"berth_1", 5, 3, 2.0, 0.0, 4.0},
+        {"door_2", 1, 3, 0.0, 0.0, -2.0},         // extra wire-route door seams
+        {"door_3", 1, 3, 0.0, 0.0, -4.0},         //  (#51 G12d)
     };
     for (const auto& w : want) {
         CHECK(s.str() == w.name);

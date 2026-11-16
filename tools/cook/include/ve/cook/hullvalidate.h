@@ -64,6 +64,7 @@ struct DefView {
         std::uint8_t type = 0;
         std::uint8_t from_kind = 0, to_kind = 0;  // 0 socket, 1 component
         std::string from_ref, to_ref;
+        std::vector<std::array<std::int32_t, 3>> route;  // ordered cell path (#51)
     };
     std::vector<Wire> wires;
     struct Seam { std::string partner_ref, socket; };

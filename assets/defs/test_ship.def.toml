@@ -130,6 +130,28 @@ action = "use.door"
 range = "1.2 m"
 
 [[component]]
+id = "door_2"
+type = "door.hatch"
+category = "utility"
+socket = "door_2"
+face = "-z"   # #51: joins midship (cell (0,0,-1)) to bridge (cell (0,0,-2))
+
+[[component.facet]]
+action = "use.door"
+range = "1.2 m"
+
+[[component]]
+id = "door_3"
+type = "door.hatch"
+category = "utility"
+socket = "door_3"
+face = "-z"   # #51: joins bridge (cell (0,0,-2)) to engine_bay (cell (0,0,-3))
+
+[[component.facet]]
+action = "use.door"
+range = "1.2 m"
+
+[[component]]
 id = "panel_main"
 type = "panel.dash"
 category = "utility"
@@ -177,24 +199,28 @@ id = "w_engL"
 type = "power"
 from = "component.reactor_1"
 to = "socket.hp_engine_L"
+route = [[-1,0,1],[0,0,1],[0,0,0],[0,0,-1],[0,0,-2],[0,0,-3],[1,0,-3]]
 
 [[wire]]
 id = "w_engR"
 type = "power"
 from = "component.reactor_1"
 to = "socket.hp_engine_R"
+route = [[-1,0,1],[0,0,1],[0,0,0],[0,0,-1],[0,0,-2],[0,0,-3],[-1,0,-3]]
 
 [[wire]]
 id = "w_rcs"
 type = "power"
 from = "component.battery_1"
 to = "socket.hp_wingtip_R"
+route = [[1,0,1],[0,0,1],[0,0,0],[-1,0,0],[-2,0,0],[-3,0,0]]
 
 [[wire]]
 id = "w_sensor"
 type = "power"
 from = "component.battery_1"
 to = "socket.hp_wingtip_L"
+route = [[1,0,1],[0,0,1],[0,0,0],[1,0,0],[2,0,0],[3,0,0]]
 
 [[wire]]
 id = "w_turret"
@@ -202,9 +228,11 @@ type = "power"
 capacity = 6000
 from = "component.reactor_1"
 to = "socket.hp_dorsal_turret"
+route = [[-1,0,1],[0,0,1],[0,0,0],[0,1,0]]
 
 [[wire]]
 id = "w_fire_ctrl"
 type = "power+signal"
 from = "component.seat_pilot"
 to = "component.turret_dorsal"
+route = [[0,0,-2],[0,0,-1],[0,0,0],[0,1,0]]

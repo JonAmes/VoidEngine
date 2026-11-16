@@ -82,7 +82,7 @@ bool is_airlock_type(std::string_view t) { return t.rfind("airlock.", 0) == 0; }
 
 bool decode_def_payload(const Bytes& payload, DefView& out, std::string* err) {
     Reader r{payload};
-    if (r.u32() != 3u) { if (err) *err = "DEF0 payload version must be 3"; return false; }
+    if (r.u32() != 4u) { if (err) *err = "DEF0 payload version must be 4"; return false; }
     out.class_tag = r.str();
     if (r.u8()) r.f64();               // hull_mass (validated at 5.10 loadout use)
     if (r.u8()) { r.f64(); r.f64(); r.f64(); }
@@ -153,7 +153,20 @@ bool decode_def_payload(const Bytes& payload, DefView& out, std::string* err) {
         wire.from_ref = r.str();
         wire.to_kind = r.u8();
         wire.to_ref = r.str();
+        const std::uint32_t ncell = r.u32();  // #51 ordered cell route
+        for (std::uint32_t i = 0; i < ncell && !r.bad; ++i) {
+            std::array<std::int32_t, 3> cell{r.i32(), r.i32(), r.i32()};
+            wire.route.push_back(cell);
+        }
         out.wires.push_back(std::move(wire));
+    }
+    {  // #51b section->wires index: derived data, validated by construction,
+       // not gated — read-and-skip to keep the Reader positioned.
+        const std::uint32_t nrow = r.u32();
+        for (std::uint32_t s = 0; s < nrow && !r.bad; ++s) {
+            const std::uint32_t n = r.u32();
+            for (std::uint32_t k = 0; k < n && !r.bad; ++k) r.u32();
+        }
     }
     const std::uint32_t nseam = r.u32();
     for (std::uint32_t s = 0; s < nseam && !r.bad; ++s) {
@@ -446,6 +459,101 @@ bool cook_hull_validate(const HullInputs& hull,
                         "' is not a manifest dep of '" + hull.def_id + "' (#52b)");
         if (!c.has_mount)
             return fail("component '" + c.id + "' has no mount transform (#52b)");
+    }
+    // ---- G12 (9.3 #51): wire-route spatial gates ----------------------
+    // Grammar shape is cooked-verified; this is the spatial law:
+    //   G12a endpoints: route[0] / route.back() sit on the wire's own
+    //        endpoint anchor cells (no teleporting onto arbitrary lattice
+    //        points),
+    //   G12b adjacency: consecutive cells differ by one 6-neighbour step,
+    //   G12c lattice: every route cell lies in exactly one section (same
+    //        law as anchors, #44 — off-lattice = 0 sections, overlap = >1),
+    //   G12d door seams: a route may cross a section boundary only at the
+    //        (cell, cell+face) pair of a door.* component — same
+    //        walk-graph discipline, 5.9b.
+    // Order per wire is pinned by tests. G12 runs after G7 so endpoint
+    // anchors exist; component endpoints resolve via their own socket
+    // anchor (G2-proven).
+    std::vector<std::pair<Cell, Cell>> door_seams;
+    for (const auto& c : d.comps) {
+        if (!is_door_type(c.type)) continue;
+        auto sit = anchor_of.find(c.socket);
+        if (sit == anchor_of.end()) continue;  // G2 already failed
+        Cell a = cell_of(*sit->second, d), b = a;
+        for (int ax = 0; ax < 3; ++ax) b[ax] += kFaceDir[c.face][ax];
+        door_seams.emplace_back(a, b);
+    }
+    auto cell_str = [](const Cell& c) {
+        return "(" + std::to_string(c[0]) + "," + std::to_string(c[1]) +
+               "," + std::to_string(c[2]) + ")";
+    };
+    auto endpoint_cell = [&](std::uint8_t kind, const std::string& ref,
+                             Cell& out_cell) -> bool {
+        std::string socket = ref;
+        if (kind == 1) {  // component endpoint: its own socket anchor
+            socket.clear();
+            for (const auto& c : d.comps)
+                if (c.id == ref) { socket = c.socket; break; }
+            if (socket.empty()) return false;  // G7 already failed
+        }
+        auto it = anchor_of.find(socket);
+        if (it == anchor_of.end()) return false;  // G7/G2 already failed
+        out_cell = cell_of(*it->second, d);
+        return true;
+    };
+    for (const auto& w : d.wires) {
+        Cell c0{}, c1{};
+        if (!endpoint_cell(w.from_kind, w.from_ref, c0) ||
+            !endpoint_cell(w.to_kind, w.to_ref, c1))
+            continue;  // earlier gates own this error
+        if (w.route.empty())
+            return fail("wire '" + w.id + "' has an empty route (#51)");
+        if (w.route.front() != c0)
+            return fail("wire '" + w.id + "' route starts at " +
+                        cell_str(w.route.front()) + ", not at its 'from' "
+                        "endpoint cell " + cell_str(c0) + " (#51 G12a)");
+        if (w.route.back() != c1)
+            return fail("wire '" + w.id + "' route ends at " +
+                        cell_str(w.route.back()) + ", not at its 'to' "
+                        "endpoint cell " + cell_str(c1) + " (#51 G12a)");
+        for (std::size_t i = 0; i + 1 < w.route.size(); ++i) {
+            const Cell& a = w.route[i];
+            const Cell& b = w.route[i + 1];
+            const int man = std::abs(a[0] - b[0]) + std::abs(a[1] - b[1]) +
+                            std::abs(a[2] - b[2]);
+            if (man != 1)
+                return fail("wire '" + w.id + "' route cells " +
+                            std::to_string(i) + " " + cell_str(a) + " and " +
+                            std::to_string(i + 1) + " " + cell_str(b) +
+                            " are not 6-adjacent (#51 G12b)");
+        }
+        for (const auto& cell : w.route) {
+            const auto hit = sections_containing(cell);
+            if (hit.size() != 1)
+                return fail("wire '" + w.id + "' route cell " + cell_str(cell) +
+                            " is in " + std::to_string(hit.size()) +
+                            " sections — not inside the hull lattice "
+                            "(#51 G12c)");
+        }
+        for (std::size_t i = 0; i + 1 < w.route.size(); ++i) {
+            const Cell& a = w.route[i];
+            const Cell& b = w.route[i + 1];
+            const auto ha = sections_containing(a);
+            const auto hb = sections_containing(b);
+            if (d.sections[ha[0]].name == d.sections[hb[0]].name) continue;
+            bool seam = false;
+            for (const auto& [s0, s1] : door_seams)
+                if ((s0 == a && s1 == b) || (s0 == b && s1 == a)) {
+                    seam = true;
+                    break;
+                }
+            if (!seam)
+                return fail("wire '" + w.id + "' route crosses section '" +
+                            d.sections[ha[0]].name + "' -> '" +
+                            d.sections[hb[0]].name + "' between cells " +
+                            cell_str(a) + " -> " + cell_str(b) +
+                            " with no door seam (#51 G12d)");
+        }
     }
     return true;
 }
