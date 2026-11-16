@@ -26,3 +26,17 @@
   regroup-6 write-back re-groups 3 for cells via form char 'Y').
 - Mutation discipline paid off again: the route-ends-off-anchor guard survived
   the first mutation round (no test pinned it) — pin added, guard re-proven.
+
+## 9.4 (611bea9) wire tube visuals
+- **MESH payload is PLANAR channel blocks** (pos|nrm|uv|tan|tri|idx per
+  cooked.h) — an interleaved-vertex emit cooked fine but the decoder read
+  garbage mesh #2. Pin a full-consumption CHECK (reader.at == payload.size())
+  so any channel-order bug trips immediately.
+- Tri count is 2 per side quad: (n-1)*sides*2. A silent x1 corrupts every
+  offset after mesh #1, not just counts.
+- Geometry determinism: fixed kRingC/kRingS literal table + integer
+  dominant-axis frames; no libm anywhere in hulldef tube code — payload bytes
+  are bit-identical across machines (replay doctrine).
+- tubes_out is opt-in: inline WRLD hull copies pass null (tubes are a
+  per-source companion, sock doctrine); manifest edge .wires -> hull def,
+  source_sha = hull def sha (edited def re-cooks both together).
