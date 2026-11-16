@@ -127,7 +127,8 @@ TEST_CASE("manifest_browser_panel") {
     std::string err;
     REQUIRE_MESSAGE(core::cooked::read_manifest((out / "manifest.bin").string(), manifest, &err), err);
     // #52a: the staged tree now also carries 10 component TYPE defs + gizmo.
-    REQUIRE(manifest.size() == 15);
+    // #51c: plus the hull def's companion .wires tube unit.
+    REQUIRE(manifest.size() == 16);
     const std::string def_id = "defs/test_ship.def.toml";
     const std::string glb_id = "samples/test_ship.glb";
     const std::string sock_id = "samples/test_ship.glb.sock";
@@ -139,7 +140,7 @@ TEST_CASE("manifest_browser_panel") {
         "defs/comptypes/power_reactor.def.toml", "defs/comptypes/seat_pilot.def.toml",
         "defs/comptypes/sensor_array.def.toml", "defs/comptypes/thruster_main.def.toml",
         "defs/comptypes/thruster_rcs.def.toml", "defs/comptypes/turret_dorsal.def.toml",
-        def_id,
+        def_id, def_id + ".wires",  // #51c tube companion sorts right after
         "samples/component_gizmos.glb", "samples/component_gizmos.glb.sock",
         glb_id, sock_id});
     // refs + #52a type-def + #52b art edges:
@@ -152,6 +153,8 @@ TEST_CASE("manifest_browser_panel") {
         "samples/component_gizmos.glb", glb_id});
     CHECK(manifest[glb_id].deps.empty());                              // leaf
     CHECK(manifest[sock_id].deps == std::vector<std::string>{glb_id}); // companion
+    CHECK(manifest[def_id + ".wires"].deps ==
+          std::vector<std::string>{def_id});                            // #51c companion
 
     // Host-side snapshot assembly (exactly what the watcher host does):
     // manifest rows + stat of the cooked unit + live-source sha256.
@@ -184,7 +187,7 @@ TEST_CASE("manifest_browser_panel") {
         return std::nullopt;
     };
     panel.set_rows(build_rows(false));
-    CHECK(panel.row_count() == 15);
+    CHECK(panel.row_count() == 16);
 
     gfx::font0 font;
     prep_font(font);

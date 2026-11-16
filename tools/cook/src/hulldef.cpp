@@ -59,6 +59,11 @@ struct Writer {
         std::memcpy(t, &v, 8);
         for (int i = 0; i < 8; ++i) b.push_back(t[i]);
     }
+    void f32(float v) {
+        unsigned char t[4];
+        std::memcpy(t, &v, 4);
+        for (int i = 0; i < 4; ++i) b.push_back(t[i]);
+    }
     void str(const std::string& s) {
         u32(static_cast<std::uint32_t>(s.size()));
         b.insert(b.end(), s.begin(), s.end());
@@ -379,13 +384,118 @@ bool parse_wire(const TomlValue& row, const std::string& where, WireRow& w, std:
 
 }  // namespace
 
+// ---- #51c: cook-generated wire tube mesh (wire visuals) -----------------
+// A thin-tube MESH payload (layout pinned in ve/core/cooked.h) per hull:
+// ONE submesh per wire, name = wire id — the mount key the render side uses
+// to draw each tube in its reachability colour ("dark not dead", #51c).
+// No MAT0 material (0xFFFFFFFF = none), no textures, no new passes or deps.
+// Geometry: a 6-sided prism swept along the route polyline; polyline points
+// are CELL CENTRES in hull-local metres — cell (x,y,z) maps to
+// ((x+0.5)*cell_m, (y+0.5)*height_m, (z+0.5)*cell_m), keeping the tube off
+// the wall planes (G12d lets legal crossings pierce a face at its centre).
+// Routes are 6-adjacent chains only AFTER gate G12, which runs later, so
+// the builder must not trust adjacency: segment frames come from the
+// delta's DOMINANT axis with exact integer axes and a literal ring cos/sin
+// table — no libm anywhere, so payload bytes are bit-identical on every
+// machine (determinism doctrine). A doomed def may cook a garbage tube
+// shape; the gate still cooks it out. Tri winding: ring k is CCW around the
+// outgoing tangent t with frame (u, b=t×u, u×b=t); quad tris (a,b,c)+(a,c,d)
+// face outward — the cooklet owns culling (MESH layout comment).
+constexpr float kTubeRadius = 0.05f;  // cosmetic thin conduit (#51c)
+constexpr int kTubeSides = 6;
+constexpr float kRingC[kTubeSides] = {1.f, .5f, -.5f, -1.f, -.5f, .5f};
+constexpr float kRingS[kTubeSides] = {0.f, .8660254f, .8660254f,
+                                      0.f, -.8660254f, -.8660254f};
+
+void emit_wire_tubes(const std::vector<WireRow>& wires, double cell_m,
+                     double height_m, Bytes& out) {
+    Writer wr;
+    wr.u32(static_cast<std::uint32_t>(wires.size()));
+    for (const auto& wire : wires) {
+        wr.str(wire.id);
+        wr.u32(0xFFFFFFFFu);  // material_index: none (#51c)
+        const auto n = static_cast<std::uint32_t>(wire.route.size());
+        wr.u32(n * kTubeSides);
+        // MESH layout is PLANAR channel blocks (pos|nrm|uv|tan), not
+        // interleaved — collect vertices in ring-major order, emit channels.
+        std::vector<float> pos, nrm, uvs, tan;
+        pos.reserve(n * kTubeSides * 3);
+        nrm.reserve(n * kTubeSides * 3);
+        uvs.reserve(n * kTubeSides * 2);
+        tan.reserve(n * kTubeSides * 4);
+        float dist = 0.f;  // uv.u = cumulative path length (metres)
+        std::array<int, 3> prev{1, 0, 0};  // last ring repeats last frame
+        for (std::uint32_t i = 0; i < n; ++i) {
+            const auto& cell = wire.route[i];
+            std::array<int, 3> d{0, 0, 0};
+            if (i + 1 < n) {
+                const auto& nx = wire.route[i + 1];
+                d = {nx[0] - cell[0], nx[1] - cell[1], nx[2] - cell[2]};
+                prev = d;
+            } else {
+                d = prev;
+            }
+            // dominant-axis frame: t on the step axis, u fixed per axis,
+            // b = t×u. All exact ints; sign of the step rides into t.
+            int axis = 0;
+            if (std::abs(d[1]) > std::abs(d[axis])) axis = 1;
+            if (std::abs(d[2]) > std::abs(d[axis])) axis = 2;
+            std::array<float, 3> t{0.f, 0.f, 0.f}, u{0.f, 0.f, 0.f};
+            t[axis] = d[axis] < 0 ? -1.f : 1.f;
+            if (axis == 0) u[1] = 1.f; else u[0] = 1.f;
+            const std::array<float, 3> b{t[1] * u[2] - t[2] * u[1],
+                                         t[2] * u[0] - t[0] * u[2],
+                                         t[0] * u[1] - t[1] * u[0]};
+            // world distance advanced entering this vertex (first stays 0)
+            if (i > 0)
+                dist += static_cast<float>(std::abs(d[axis])) *
+                        static_cast<float>(axis == 1 ? height_m : cell_m);
+            const float cx = static_cast<float>((cell[0] + 0.5) * cell_m);
+            const float cy = static_cast<float>((cell[1] + 0.5) * height_m);
+            const float cz = static_cast<float>((cell[2] + 0.5) * cell_m);
+            for (int k = 0; k < kTubeSides; ++k) {
+                const float rc = kRingC[k], rs = kRingS[k];
+                const std::array<float, 3> nr{rc * u[0] + rs * b[0],
+                                              rc * u[1] + rs * b[1],
+                                              rc * u[2] + rs * b[2]};
+                pos.insert(pos.end(),
+                           {cx + kTubeRadius * nr[0], cy + kTubeRadius * nr[1],
+                            cz + kTubeRadius * nr[2]});
+                nrm.insert(nrm.end(), nr.begin(), nr.end());
+                uvs.push_back(dist);
+                uvs.push_back(static_cast<float>(k) / kTubeSides);
+                tan.insert(tan.end(), {t[0], t[1], t[2], 1.f});
+            }
+        }
+        for (float v : pos) wr.f32(v);
+        for (float v : nrm) wr.f32(v);
+        for (float v : uvs) wr.f32(v);
+        for (float v : tan) wr.f32(v);
+        wr.u32(n > 0 ? (n - 1) * kTubeSides * 2 : 0u);  // 2 tris per side quad
+        for (std::uint32_t i = 0; i + 1 < n; ++i)
+            for (int k = 0; k < kTubeSides; ++k) {
+                const std::uint32_t a = i * kTubeSides + k,
+                                    b2 = i * kTubeSides + (k + 1) % kTubeSides,
+                                    c2 = (i + 1) * kTubeSides + (k + 1) % kTubeSides,
+                                    d2 = (i + 1) * kTubeSides + k;
+                wr.u32(a); wr.u32(b2); wr.u32(c2);
+                wr.u32(a); wr.u32(c2); wr.u32(d2);
+            }
+    }
+    wr.u32(0u);  // material_count: no MAT0 (#51c)
+    wr.u32(0u);  // socket_count: tubes carry no anchors
+    wr.u32(0u);  // root_extras_len
+    out = std::move(wr.b);
+}
+
 bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
                        std::vector<std::string>& refs_out, std::string* err,
                        const std::map<std::string, CompTypeDef>* type_defs,
                        std::vector<std::string>* used_types_out,
                        std::vector<std::string>* entry_refs_out,
                        const std::map<std::string, std::string>* art_by_comp,
-                       const std::map<std::string, MountTRS>* anchors) {
+                       const std::map<std::string, MountTRS>* anchors,
+                       Bytes* tubes_out) {
     std::string local;
     std::string& e = err ? *err : local;
     TomlValue root;
@@ -675,6 +785,11 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
     }
     w.u32(static_cast<std::uint32_t>(refs_out.size()));
     for (const auto& r : refs_out) w.str(r);
+
+    // #51c: companion thin-tube MESH payload for the wire visuals, built
+    // from the same ordered wire table (never re-parsed). Driver writes it
+    // as the <def id>.wires unit — see cook.cpp (sock-sibling doctrine).
+    if (tubes_out) emit_wire_tubes(wires, cell_m, height_m, *tubes_out);
 
     payload_out = std::move(w.b);
     return true;

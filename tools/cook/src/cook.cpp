@@ -309,6 +309,8 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
         std::vector<std::string> mesh_tex_deps; // filled by the .glb cook (3.8)
         Unit sock_unit;                 // 5.6: companion SOCK unit for .glb sources
         bool has_sock = false;
+        Bytes tubes_payload;            // #51c: companion tube MESH for hull defs
+        bool has_tubes = false;
 
         if (unit.type == kUnitTex0) {
             // PNG -> TEX0: one-time decode to RGBA8 at cook time. Payload:
@@ -443,11 +445,13 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
                 if (!cook_hulldef_unit(text, unit.payload, def_refs, &def_err,
                                        &type_view, &used_types, &entry_refs,
                                        art_it == hull_art.end() ? nullptr : &art_it->second,
-                                       anch_it == hull_mounts.end() ? nullptr : &anch_it->second)) {
+                                       anch_it == hull_mounts.end() ? nullptr : &anch_it->second,
+                                       &tubes_payload)) {
                     result.error = "def '" + id + "': " + def_err;
                     ++result.counts.failures;
                     continue;
                 }
+                has_tubes = true;  // #51c: emit the <def id>.wires sibling unit
                 // #52b edges: hull -> type defs it merged with (IDs already
                 // resolved; inherited art reaches the hull transitively
                 // through this edge) + each entry's OWN art refs override
@@ -510,9 +514,32 @@ CookResult cook_incremental(const std::string& src_dir, const std::string& out_d
             se.deps = {id};
             manifest[sid] = std::move(se);
         }
+        if (has_tubes) {
+            // #51c companion tube MESH unit (wire visuals): thin tubes cooked
+            // from the wire routes — one submesh per wire, name = wire id,
+            // so the render side mounts/dims each tube by reachability
+            // ("dark not dead"). Same source-hash lifecycle as the .sock
+            // sibling; manifest edge wires -> hull def (derived from DEF0).
+            const std::string wid = id + ".wires";
+            Unit wu;
+            wu.id = wid;
+            wu.type = kUnitMesh;
+            wu.payload = std::move(tubes_payload);
+            if (!write_unit_file(unit_path(out_dir, wid), wu, &err)) {
+                result.error = err;
+                ++result.counts.failures;
+                continue;
+            }
+            ManifestEntry we;
+            we.id = wid;
+            we.source_sha = sha;
+            we.deps = {id};
+            manifest[wid] = std::move(we);
+        }
         manifest_changed = true;
         cooked_ids.insert(id);
         if (has_sock) cooked_ids.insert(id + ".sock");
+        if (has_tubes) cooked_ids.insert(id + ".wires");
         ++result.counts.cooked;
         }
     }

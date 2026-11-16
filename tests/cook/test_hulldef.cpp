@@ -48,6 +48,12 @@ struct Reader {
         at += 8;
         return v;
     }
+    float f32() {
+        float v = 0;
+        std::memcpy(&v, &b[at], 4);
+        at += 4;
+        return v;
+    }
     std::string str() {
         const auto n = u32();
         std::string s(reinterpret_cast<const char*>(&b[at]), n);
@@ -766,4 +772,97 @@ TEST_CASE("cook_wire_section_index") {
     CHECK(s.u32() == 0u);  // seams
     CHECK(s.u32() == 0u);  // refs
     CHECK(s.at == payload.size());  // full payload consumed, no trailing gap
+}
+
+TEST_CASE("cook_wire_tube_mesh") {
+    // #51c: cook builds a companion thin-tube MESH payload from the wire
+    // routes: one submesh per wire, name = wire id (the mount key the render
+    // side dims per reachability — "dark not dead"), no material. Grammar
+    // hull, cell = height = 1 m, radius 0.05 m — geometry pinned exactly.
+    // Determinism doctrine: fixed ring table + integer axes, no libm.
+    std::string err;
+    ve::cook::Bytes tubes, payload;
+    std::vector<std::string> refs;
+    const std::string def =
+        "class_tag = \"class.mini\"\n"
+        "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+        "[[section]]\nname = \"A\"\ncells = [[0, 0, 0, 2, 0, 0]]\n"
+        "[[wire]]\nid = \"w\"\ntype = \"power\"\nfrom = \"socket.a\"\nto = \"socket.b\"\n"
+        "route = [[0, 0, 0], [1, 0, 0], [2, 0, 0]]\n";
+    REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(def, payload, refs, &err, nullptr,
+                                                nullptr, nullptr, nullptr, nullptr,
+                                                &tubes),
+                    err);
+    Reader s{tubes};
+    CHECK(s.u32() == 1u);          // mesh_count: one submesh per wire
+    CHECK(s.str() == "w");         // name = wire id (the mount key)
+    CHECK(s.u32() == 0xFFFFFFFFu); // material: none
+    CHECK(s.u32() == 18u);         // vertex_count = 3 rings x 6 sides
+    std::vector<float> pos, nrm, uvs, tan;
+    for (int i = 0; i < 18 * 3; ++i) pos.push_back(s.f32());
+    for (int i = 0; i < 18 * 3; ++i) nrm.push_back(s.f32());
+    for (int i = 0; i < 18 * 2; ++i) uvs.push_back(s.f32());
+    for (int i = 0; i < 18 * 4; ++i) tan.push_back(s.f32());
+    // Segment 0 steps +x: frame t=+x, u=+y, b=+z. Ring k0 rides +u.
+    // v0 = cell centre (0.5,0.5,0.5) + 0.05*(0,1,0).
+    CHECK(pos[0] == doctest::Approx(0.5f)); CHECK(pos[1] == doctest::Approx(0.55f)); CHECK(pos[2] == doctest::Approx(0.5f));
+    CHECK(nrm[0] == 0.f); CHECK(nrm[1] == 1.f); CHECK(nrm[2] == 0.f);
+    // v1 (k=1): cos/sin table ring — nrm = 0.5u + .8660254b.
+    CHECK(pos[3] == doctest::Approx(0.5f)); CHECK(pos[4] == doctest::Approx(0.5f + 0.05f * 0.5f)); CHECK(pos[5] == doctest::Approx(0.5f + 0.05f * 0.8660254f));
+    CHECK(nrm[3] == 0.f); CHECK(nrm[4] == doctest::Approx(0.5f)); CHECK(nrm[5] == doctest::Approx(0.8660254f));
+    // v2 (k=2): nrm = -0.5u + .8660254b -> y drops below centre again.
+    CHECK(pos[6] == doctest::Approx(0.5f)); CHECK(pos[7] == doctest::Approx(0.5f - 0.05f * 0.5f));
+    // uv: v = k/6 around, u = metres travelled. Ring1 u=1, ring2 u=2.
+    CHECK(uvs[0] == 0.f); CHECK(uvs[1] == 0.f);
+    CHECK(uvs[2] == 0.f); CHECK(uvs[3] == doctest::Approx(1.f / 6.f));
+    CHECK(uvs[12] == doctest::Approx(1.f)); CHECK(uvs[13] == 0.f);  // v6 = ring1 k0
+    CHECK(uvs[24] == doctest::Approx(2.f));                          // v12 = ring2 k0
+    // tangent = segment direction + w flag 1.
+    CHECK(tan[0] == 1.f); CHECK(tan[1] == 0.f); CHECK(tan[2] == 0.f); CHECK(tan[3] == 1.f);
+    // ring2 (v12): last step was still +x (dominant-axis frame is exact).
+    CHECK(tan[48] == 1.f); CHECK(tan[50] == 0.f);
+    CHECK(s.u32() == 24u);  // tri_count = 2 segments x 6 quads x 2 tris
+    std::vector<std::uint32_t> idx;
+    for (int i = 0; i < 24 * 3; ++i) idx.push_back(s.u32());
+    // First quad (ring0 k0): two CCW-ish tris over ring step.
+    CHECK(idx[0] == 0u); CHECK(idx[1] == 1u); CHECK(idx[2] == 7u);
+    CHECK(idx[3] == 0u); CHECK(idx[4] == 7u); CHECK(idx[5] == 6u);
+    bool in_range = true;
+    for (std::uint32_t v : idx) in_range = in_range && v < 18u;
+    CHECK(in_range);
+    CHECK(s.u32() == 0u);  // material_count
+    CHECK(s.u32() == 0u);  // sock_count
+    CHECK(s.u32() == 0u);  // extras_count
+    CHECK(s.at == tubes.size());  // full payload consumed, no trailing gap
+
+    // Single-cell route: one closed ring, zero triangles — degenerate but
+    // valid bytes (a doomed def may cook an ugly tube; G12 cooks it out).
+    ve::cook::Bytes one, pay1;
+    std::vector<std::string> refs1;
+    const std::string def1 =
+        "class_tag = \"class.mini\"\n"
+        "[grid]\ncell = \"2 m\"\nsubcell_ratio = 2\ncell_height = \"2.2 m\"\ntolerance = \"0 m\"\n"
+        "[[section]]\nname = \"A\"\ncells = [[0, 0, 0, 0, 0, 0]]\n"
+        "[[wire]]\nid = \"stub\"\ntype = \"power\"\nfrom = \"socket.a\"\nto = \"socket.b\"\n"
+        "route = [[0, 0, 0]]\n";
+    REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(def1, pay1, refs1, &err, nullptr,
+                                                nullptr, nullptr, nullptr, nullptr,
+                                                &one),
+                    err);
+    Reader t{one};
+    CHECK(t.u32() == 1u);
+    CHECK(t.str() == "stub");
+    CHECK(t.u32() == 0xFFFFFFFFu);
+    CHECK(t.u32() == 6u);      // one ring
+    t.at += 6 * 3 * 4;         // pos
+    t.at += 6 * 3 * 4;         // nrm
+    t.at += 6 * 2 * 4;         // uv
+    t.at += 6 * 4 * 4;         // tan
+    CHECK(t.u32() == 0u);      // no segments -> no triangles
+    CHECK(t.u32() == 0u); CHECK(t.u32() == 0u); CHECK(t.u32() == 0u);
+    CHECK(t.at == one.size());
+
+    // tubes_out == nullptr: DEF0 cook path unaffected (companion is opt-in).
+    ve::cook::Bytes again;
+    REQUIRE(ve::cook::cook_hulldef_unit(def, again, refs, &err));
 }

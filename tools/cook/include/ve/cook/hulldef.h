@@ -86,12 +86,17 @@ bool cook_hulldef_comp_requests(const std::string& toml_text,
 // anchor name -> world TRS (from the hull's cooked SOCK deps) supplying
 // the per-component mount transform. Both optional; null emits art_ref ''
 // and has_mount 0.
+// 9.4 (#51c) optional tubes_out: receives the companion thin-tube MESH
+// payload (cooked.h MESH layout, one submesh per wire named by wire id)
+// built from the same ordered route table; the driver writes it as the
+// <def id>.wires sibling unit. Null = not wanted (e.g. inline WRLD copies).
 bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
                        std::vector<std::string>& refs_out, std::string* err,
                        const std::map<std::string, CompTypeDef>* type_defs = nullptr,
                        std::vector<std::string>* used_types_out = nullptr,
                        std::vector<std::string>* entry_refs_out = nullptr,
                        const std::map<std::string, std::string>* art_by_comp = nullptr,
-                       const std::map<std::string, MountTRS>* anchors = nullptr);
+                       const std::map<std::string, MountTRS>* anchors = nullptr,
+                       Bytes* tubes_out = nullptr);
 
 }  // namespace ve::cook
