@@ -40,3 +40,26 @@
 - tubes_out is opt-in: inline WRLD hull copies pass null (tubes are a
   per-source companion, sock doctrine); manifest edge .wires -> hull def,
   source_sha = hull def sha (edited def re-cooks both together).
+
+## 9.5 (b72589a) loadout editor wire-route edit mode
+- **One route law, two entry points.** Grammar (9.5a) + spatial G12a–G12d now
+  both live in `ve::game::route_law` (text: `route_text_ok`/`parse_route_text`/
+  `route_text_of`; spatial: `route_section`/`route_door_seam`/`route_wire` +
+  `route_law_error`). Cook G12 = thin wrapper `route_views_from_def`
+  (DEF0+SOCK -> views; endpoint cells via the wire's own component socket
+  anchors) + the shared law. Editor refusal strings are byte-identical to
+  cook's by construction — pinned editor-vs-cook equal, not by copy.
+- **Entry-gated write-back.** Draft goes grammar-then-law; a refusal leaves
+  the TOML at zero bytes and shows the cook-shaped error; an accept
+  canonicalizes only that wire's `route` line, unchanged wire lines stay
+  byte-for-byte (diff-stable files, watch-mode cook stays incremental).
+- **doctest `-tc` matches case names EXACTLY** — `cook_hull_validate` does NOT
+  select `cook_hull_validate_gates`. A mutation ladder filtered to the base
+  case reported four live spatial guards as survivors; they were never
+  exercised. Triage that phantom with a stderr call-count probe at the law's
+  entry (fewer calls than fixtures = pins aren't running), then list EVERY
+  pin-bearing TEST_CASE into the filter.
+- **Payload can carry what the grammar cannot**: TOML `route` needs >=1 cell
+  but a hand-built DEF0 row can have zero cells — the G12 empty guard is the
+  load-bearing check (its mutant, and the membership guard's, segfault the
+  test binary = caught, exactly the UB they stop). `nil` pin added.
