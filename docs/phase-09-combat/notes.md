@@ -77,3 +77,24 @@
 - **Total order for the pick:** candidates scanned in container order, incumbent replaced only on STRICTLY smaller dist → with ordered containers the result is input-permutation-independent (test pins nearest wins even when the far box is scanned first) and zero-dist ties resolve to first-in-order (ordered-container sim rule, no unordered-map iteration).
 - **doctest `Approx(x).epsilon(0.0)` never passes** — the allowed margin is a strict inequality and 0*scale margin fails even bit-identical values. Pin dyadic closed-form values with plain `==` (as swept.h tests do) and reserve epsilon(1e-12) for quat/libm ulp cases.
 - Closed-form rotated pin: ray through a yaw-45 box half-extent h on the ray-normal slab gives dist = D − h/cos45; normal = yaw45·(0,0,1). Range boundary: `t0 > dt` reject means t0 == range HITS (inclusive max range).
+
+## 9.8 (8a457e0) gun projectiles — ordinary entities, one physics path
+- projectile_step calls the SAME assemble_tick_inputs + integrate_step_dt the
+  ship spine calls (empty tick_command -> wells only). Everything the engine
+  already guarantees for ships — determinism, LOD lattice compression
+  (dt_ticks=divisor, sample at interval start), state_hash/replay_interval_hash —
+  covers rounds for free. Zero new integrator math.
+- Drift cuts both ways by construction: spawn vel = ship.vel + aim_dir*muzzle.
+  A1 pins the lead solution (sin th = u/muzzle) to tick 29; entry x is EXACTLY
+  the static -X face (395) because drift is along z — do NOT subtract target
+  drift from the closing speed unless it is on the firing axis (A3 does:
+  receding 60 m/s -> t_e = 395/740, tick 32).
+- No tunneling even when a coarse block walks a round clean past a 10 m slab:
+  the step sweeps its own integrate segment (p0 -> p0 + v_new*dt) vs the
+  moving target OBB — #45e pays off in combat for free.
+- ttl expiry is a TERMINAL step: end-born > ttl returns expired and does NOT
+  advance state — caller despawns; re-stepping is idempotent.
+- Mutation trap: brace-init `{0,0,0}` as the sweep's target_vel arg fails to
+  compile under the mutation (template deduction vs obb arg). `target_vel * 0.0`
+  keeps the symbol referenced and compiles — the compilable form for this
+  guard.
