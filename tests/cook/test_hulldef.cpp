@@ -223,12 +223,13 @@ TEST_CASE("cook_hull_def") {
     {
         const std::vector<std::pair<std::string, double>> want = {
             {"weapon.damage", 250000.0},
+            {"weapon.heat_capacity", 360000.0},
             {"weapon.heat_dissipate", 20000.0},
             {"weapon.heat_per_shot", 120000.0},
             {"weapon.range", 4000.0},
             {"weapon.rof", 0.5},
             {"weapon.spread", 0.0005}};
-        CHECK(s.u32() == 6u);
+        CHECK(s.u32() == 7u);
         for (const auto& [k, v] : want) {
             CHECK(s.str() == k);
             CHECK(s.f64() == doctest::Approx(v).epsilon(1e-12));
@@ -236,9 +237,9 @@ TEST_CASE("cook_hull_def") {
     }
     skip_facet(0); skip_art_mount();
     expect_comp("gun_cannon", "gun.autocannon", 2, "hp_gun_cannon", 0);
-    skip_attr(6); skip_facet(0); skip_art_mount();
+    skip_attr(7); skip_facet(0); skip_art_mount();
     expect_comp("rocket_pod", "gun.rocket", 2, "hp_pod_rocket", 0);
-    skip_attr(6); skip_facet(0); skip_art_mount();
+    skip_attr(7); skip_facet(0); skip_art_mount();
     // catalog: type -> category, first-seen order
     CHECK(s.u32() == 13u);
     {

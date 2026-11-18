@@ -41,6 +41,7 @@ add_executable(engine_tests
     core/test_swept_contact.cpp
     core/test_weapon_laser.cpp
     core/test_projectile.cpp
+    core/test_gun_cycle.cpp
     core/test_ecs.cpp
     core/test_sim_aero.cpp
     core/test_aero_heat.cpp

@@ -48,12 +48,16 @@ inline constexpr std::string_view kAttr_weapon_rof           = "weapon.rof";
 inline constexpr std::string_view kAttr_weapon_spread        = "weapon.spread";
 inline constexpr std::string_view kAttr_weapon_heat_per_shot = "weapon.heat_per_shot";
 inline constexpr std::string_view kAttr_weapon_heat_dissipate = "weapon.heat_dissipate";
+// 9.10: J ceiling past which the gun's overheat band throws its tag and the
+// firing gate refuses (heat is an UNBOUNDED reservoir; this is the limit,
+// not a clamp).
+inline constexpr std::string_view kAttr_weapon_heat_capacity = "weapon.heat_capacity";
 
 // Every Phase 5 key, declaration order. Tooling iterates THIS for
 // validation; adding a key means adding it here (duplicate/format gates in
 // tests catch mistakes at build time). The name marks the set's Phase 5
 // origin; #46e-style additions (see #47b above) ride the same ratified set.
-inline constexpr std::array<std::string_view, 24> kPhase5_attr_keys = {
+inline constexpr std::array<std::string_view, 25> kPhase5_attr_keys = {
     kAttr_thrust_force,       kAttr_thrust_isp,       kAttr_thrust_gimbal,
     kAttr_power_supply,
     kAttr_power_draw,         kAttr_mass,             kAttr_lift_coeff,
@@ -64,6 +68,7 @@ inline constexpr std::array<std::string_view, 24> kPhase5_attr_keys = {
     kAttr_weapon_damage,      kAttr_weapon_range,     kAttr_weapon_rof,       // 9.6
     kAttr_weapon_spread,      kAttr_weapon_heat_per_shot,
     kAttr_weapon_heat_dissipate,
+    kAttr_weapon_heat_capacity,  // 9.10 (overheat band threshold, J)
 };
 
 // Key grammar check: segments [a-z][a-z0-9_]* joined by single '.'.

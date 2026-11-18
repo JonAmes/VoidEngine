@@ -13,3 +13,4 @@ weapon.rof = 0.2
 weapon.spread = 0.002
 weapon.heat_per_shot = 15000
 weapon.heat_dissipate = 5000
+weapon.heat_capacity = 90000
