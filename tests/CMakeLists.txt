@@ -39,6 +39,7 @@ add_executable(engine_tests
     core/test_terrain_stamps.cpp
     core/test_terrain_streaming.cpp
     core/test_swept_contact.cpp
+    core/test_weapon_laser.cpp
     core/test_ecs.cpp
     core/test_sim_aero.cpp
     core/test_aero_heat.cpp
