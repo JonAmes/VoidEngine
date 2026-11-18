@@ -98,3 +98,11 @@
   compile under the mutation (template deduction vs obb arg). `target_vel * 0.0`
   keeps the symbol referenced and compiles — the compilable form for this
   guard.
+
+## 9.9 (64dc74c) rocket boost dart — 9.8 + a bounded delta-v reservoir
+- #19e reservoir pattern reduced to a transient entity: one fp64 `dv_remaining`, no bands/tags — nobody observes a bullet, so the stats pipeline binding of the full reservoir is skipped. The drain law is `applied = min(accel*dt, dv_remaining)`; the min IS the floor: dyadic budgets hit EXACTLY 0.0 (50/(20/60)=150 ticks), non-dyadic land exactly 0 via one partial tick, a dry dart coasts, the budget can never go negative, and the drained amount is a pure function of applied impulse (determinism).
+- Boost window `[born, born+boost_ticks)` is command-exact and `rocket_step` is single-tick only (dt_ticks=1): window boundaries must not be block-approximated. Callers LOD rockets by simply stepping every tick — darts are cheap and short-lived.
+- Steering = full authority (heading snaps to a unit steer aim) ONLY inside the window; `steer_aim` outside it or non-unit is ignored, and post-boost the dart is bit-identical to an unsteered 9.8 round (R1 vs R3 pins). Launch keeps 9.8's unit-aim + velocity-inheritance laws.
+- Boost accel is added to `assemble_tick_inputs`' well accel and fed to the SAME `integrate_step_dt` — one physics path; R6 (y=50, boost +Y 20 vs g −10) pins the net +10 closed form, so gravity bends the boost arc exactly like everything else.
+- Contact + ttl are the 9.8 rules verbatim (swept slab + target_vel, strict-less nearest, terminal-idempotent expiry) — `rocket_step` reuses them, so 9.8's mutation-proven collision guarantees cover rockets for free.
+- Test pins (all closed-form semi-implicit, dt=1/60): boost v(60)=120 and p(60)=100+20·1830/3600; mid-boost steer@30 split v=(110,0,10), p=(105+2.583, 2.583); reservoir cutoff tick 150 → v=150 exact; contact cmd 118 entry x=395. Six guards mutation-proven from /tmp/mut99.py (window <=, cap removed, steering dead, unit-steer off, launch unit-aim off, ttl off).
