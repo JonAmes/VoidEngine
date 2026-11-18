@@ -63,3 +63,10 @@
   but a hand-built DEF0 row can have zero cells — the G12 empty guard is the
   load-bearing check (its mutant, and the membership guard's, segfault the
   test binary = caught, exactly the UB they stop). `nil` pin added.
+
+## 9.6 (a2e41c6) weapon component types + attr registry
+- **Registry keys are membership, not consumers.** The six `weapon.*` keys join `kPhase5_attr_keys` (18→24) and the cook attrs gate; nothing sim-side reads them yet — 9.7–9.10 are the consumers. Bare SI numbers per #42 (damage J, range m, rof 1/s, spread rad, heat J, heat J/s); no new velocity-suffix table.
+- **Hardpoint anchors must satisfy BOTH #44 gates to be usable**: on the cell lattice (x/z multiples of `cell_m`, y multiples of `cell_height` = 2.2 m — the dorsal turret at y=2.2 and engines at y=0 set the rule) AND inside exactly one section box (G4 "anchor is in 0 sections"). First pick y=-2 passed the lattice but fell below every section's y-range; second pick z-cell collided with no section. Lattice alone is not enough.
+- **A registry extension without a negative pin is dead weight.** `weapon.*` keys cooking fine proves nothing; the load-bearing pin is the near-miss key `weapon.dmage` dying at "not in the ratified attr-key registry" (key grammar accepts it, membership kills it). Mutation `if (false && !known)` fails exactly there.
+- **Component-append doctrine holds**: 9.6 weapon `[[component]]` entries appended at END of the component list (before first `[[wire]]`) so `component.N` def_forms/loadout pins didn't shift from mid-file insertion — same trick as 9.3's door_2/door_3.
+- **Count ripples when a sample grows**: DEF0 components 13→16, catalog 10→13, manifest 16→19 (+3 TYPE defs), GLB sockets 8→11 / nodes 14→17, loadout panel wants list +3, ship_designer fixture sockets 14→17. Regenerate both goldens (`VE_GOLDEN_UPDATE=1`) after moving anchor translations.
