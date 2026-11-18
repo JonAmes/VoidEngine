@@ -126,9 +126,9 @@ TEST_CASE("manifest_browser_panel") {
     core::cooked::Manifest manifest;
     std::string err;
     REQUIRE_MESSAGE(core::cooked::read_manifest((out / "manifest.bin").string(), manifest, &err), err);
-    // #52a: the staged tree now also carries 10 component TYPE defs + gizmo.
-    // #51c: plus the hull def's companion .wires tube unit.
-    REQUIRE(manifest.size() == 16);
+    // #52a: the staged tree now also carries component TYPE defs + gizmo.
+    // #51c: plus the hull def's companion .wires tube unit. 9.6: +3 gun TYPE defs.
+    REQUIRE(manifest.size() == 19);
     const std::string def_id = "defs/test_ship.def.toml";
     const std::string glb_id = "samples/test_ship.glb";
     const std::string sock_id = "samples/test_ship.glb.sock";
@@ -136,6 +136,8 @@ TEST_CASE("manifest_browser_panel") {
     for (const auto& [id, e] : manifest) ids.push_back(id);
     CHECK(ids == std::vector<std::string>{              // std::map order: ID ascending
         "defs/comptypes/berth_crew.def.toml", "defs/comptypes/door_hatch.def.toml",
+        "defs/comptypes/gun_autocannon.def.toml", "defs/comptypes/gun_laser.def.toml",
+        "defs/comptypes/gun_rocket.def.toml",
         "defs/comptypes/panel_dash.def.toml", "defs/comptypes/power_battery.def.toml",
         "defs/comptypes/power_reactor.def.toml", "defs/comptypes/seat_pilot.def.toml",
         "defs/comptypes/sensor_array.def.toml", "defs/comptypes/thruster_main.def.toml",
@@ -146,6 +148,8 @@ TEST_CASE("manifest_browser_panel") {
     // refs + #52a type-def + #52b art edges:
     CHECK(manifest[def_id].deps == std::vector<std::string>{
         "defs/comptypes/berth_crew.def.toml", "defs/comptypes/door_hatch.def.toml",
+        "defs/comptypes/gun_autocannon.def.toml", "defs/comptypes/gun_laser.def.toml",
+        "defs/comptypes/gun_rocket.def.toml",
         "defs/comptypes/panel_dash.def.toml", "defs/comptypes/power_battery.def.toml",
         "defs/comptypes/power_reactor.def.toml", "defs/comptypes/seat_pilot.def.toml",
         "defs/comptypes/sensor_array.def.toml", "defs/comptypes/thruster_main.def.toml",
@@ -187,7 +191,7 @@ TEST_CASE("manifest_browser_panel") {
         return std::nullopt;
     };
     panel.set_rows(build_rows(false));
-    CHECK(panel.row_count() == 16);
+    CHECK(panel.row_count() == 19);
 
     gfx::font0 font;
     prep_font(font);

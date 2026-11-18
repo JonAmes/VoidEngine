@@ -37,11 +37,23 @@ inline constexpr std::string_view kAttr_drag_coeff      = "drag.coeff";       //
 inline constexpr std::string_view kAttr_heat_tolerance  = "heat.tolerance";   // #47b
 inline constexpr std::string_view kAttr_dock_clamp_strength = "dock.clamp_strength"; // #47b
 
+// Phase 9 task 9.6 (PLAN #19/#51 weapon attrs): membership + cook-gate keys
+// only; consumers land in 9.7-9.9 (beam range, ballistics, heat). Bare SI
+// numbers (#42) — no new velocity-suffix table (user decision #42 keeps
+// suffixes to the ratified set; weapon values are authored in SI directly):
+// damage J, range m, rof 1/s, spread rad, heat_per_shot J, heat_dissipate J/s.
+inline constexpr std::string_view kAttr_weapon_damage        = "weapon.damage";
+inline constexpr std::string_view kAttr_weapon_range         = "weapon.range";
+inline constexpr std::string_view kAttr_weapon_rof           = "weapon.rof";
+inline constexpr std::string_view kAttr_weapon_spread        = "weapon.spread";
+inline constexpr std::string_view kAttr_weapon_heat_per_shot = "weapon.heat_per_shot";
+inline constexpr std::string_view kAttr_weapon_heat_dissipate = "weapon.heat_dissipate";
+
 // Every Phase 5 key, declaration order. Tooling iterates THIS for
 // validation; adding a key means adding it here (duplicate/format gates in
 // tests catch mistakes at build time). The name marks the set's Phase 5
 // origin; #46e-style additions (see #47b above) ride the same ratified set.
-inline constexpr std::array<std::string_view, 18> kPhase5_attr_keys = {
+inline constexpr std::array<std::string_view, 24> kPhase5_attr_keys = {
     kAttr_thrust_force,       kAttr_thrust_isp,       kAttr_thrust_gimbal,
     kAttr_power_supply,
     kAttr_power_draw,         kAttr_mass,             kAttr_lift_coeff,
@@ -49,6 +61,9 @@ inline constexpr std::array<std::string_view, 18> kPhase5_attr_keys = {
     kAttr_ftl_flow,           kAttr_sensor_range,     kAttr_sensor_res,
     kAttr_cargo_capacity,     kAttr_interact_range,
     kAttr_drag_coeff,         kAttr_heat_tolerance,   kAttr_dock_clamp_strength,
+    kAttr_weapon_damage,      kAttr_weapon_range,     kAttr_weapon_rof,       // 9.6
+    kAttr_weapon_spread,      kAttr_weapon_heat_per_shot,
+    kAttr_weapon_heat_dissipate,
 };
 
 // Key grammar check: segments [a-z][a-z0-9_]* joined by single '.'.

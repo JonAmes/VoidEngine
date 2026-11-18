@@ -287,7 +287,7 @@ TEST_CASE("ship_designer_flight") {
     CHECK(fixture.hull().hull_mass == 98000.0);
     CHECK(fixture.hull().hull_inertia_diag ==
           dvec3(420000.0, 980000.0, 1120000.0));  // DEF0 passthrough exact
-    CHECK(fixture.sockets().size() == 14);  // 8 hp + 6 interior anchors (+door_2/3 #51)(#46a)
+    CHECK(fixture.sockets().size() == 17);  // 11 hp (3 gun, 9.6) + 6 interior
     CHECK(fixture.hull().mesh_content_id == 0xA5EEDULL);
     CHECK(loaded->mesh_unit_id == "samples/test_ship.glb");
     REQUIRE(find_socket(fixture, "hp_engine_L") != nullptr);

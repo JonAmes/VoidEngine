@@ -266,7 +266,7 @@ TEST_CASE("def_forms_panel") {
         // untouched lines byte-identical incl. comments:
         CHECK(count_occurrences(src, "# Sections tile the hull without overlap (#19a).") == 1);
         CHECK(count_occurrences(src, "cell = \"2 m\"") == 1);
-        CHECK(count_occurrences(src, "[[component]]") == 13);
+        CHECK(count_occurrences(src, "[[component]]") == 16);
     }
 
     // ---- array element commit (hull_com.0) -----------------------------

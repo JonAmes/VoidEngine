@@ -98,6 +98,8 @@ TEST_CASE("cook_hull_def") {
     // art edges, then the authored top-level refs.
     CHECK(mf.at("defs/test_ship.def.toml").deps == std::vector<std::string>{
         "defs/comptypes/berth_crew.def.toml", "defs/comptypes/door_hatch.def.toml",
+        "defs/comptypes/gun_autocannon.def.toml", "defs/comptypes/gun_laser.def.toml",
+        "defs/comptypes/gun_rocket.def.toml",
         "defs/comptypes/panel_dash.def.toml", "defs/comptypes/power_battery.def.toml",
         "defs/comptypes/power_reactor.def.toml", "defs/comptypes/seat_pilot.def.toml",
         "defs/comptypes/sensor_array.def.toml", "defs/comptypes/thruster_main.def.toml",
@@ -137,10 +139,10 @@ TEST_CASE("cook_hull_def") {
     CHECK(s.str() == "engineering");
     CHECK(s.u32() == 1u);
     for (const int v : {-1, 0, 1, 1, 1, 3}) CHECK(s.i32() == v);
-    // components: authored order, 13 rows (7 hp-mounted + 6 interior anchors
-    // whose socket names pair 1:1 with the GLB's named empties, #46a;
-    // door_2/door_3 are the extra wire-route door seams, #51)
-    CHECK(s.u32() == 13u);
+    // components: authored order, 16 rows (10 hp-mounted incl. 9.6 guns +
+    // 6 interior anchors whose socket names pair 1:1 with the GLB's named
+    // empties, #46a; door_2/door_3 are the extra wire-route door seams, #51)
+    CHECK(s.u32() == 16u);
     auto expect_comp = [&](const std::string& id, const std::string& type, int cat,
                            const std::string& sock, int tags, int face = 0) {
         CHECK(s.str() == id);
@@ -213,14 +215,39 @@ TEST_CASE("cook_hull_def") {
     skip_attr(2); skip_facet(0); skip_art_mount();
     expect_comp("battery_1", "power.battery", 3, "hp_battery", 0);
     skip_attr(2); skip_facet(0); skip_art_mount();
+    // 9.6 weapon mounts (#19/#51): category gun (2), gun-category sockets,
+    // TYPE-def art inherited (#52a), and the TYPE-def [attrs] PRESET merged
+    // into DEF0 -- the gun_laser attrs are pinned value-by-value below, so a
+    // broken merge or a wrong unit fails here.
+    expect_comp("gun_laser", "gun.laser", 2, "hp_gun_laser", 0);
+    {
+        const std::vector<std::pair<std::string, double>> want = {
+            {"weapon.damage", 250000.0},
+            {"weapon.heat_dissipate", 20000.0},
+            {"weapon.heat_per_shot", 120000.0},
+            {"weapon.range", 4000.0},
+            {"weapon.rof", 0.5},
+            {"weapon.spread", 0.0005}};
+        CHECK(s.u32() == 6u);
+        for (const auto& [k, v] : want) {
+            CHECK(s.str() == k);
+            CHECK(s.f64() == doctest::Approx(v).epsilon(1e-12));
+        }
+    }
+    skip_facet(0); skip_art_mount();
+    expect_comp("gun_cannon", "gun.autocannon", 2, "hp_gun_cannon", 0);
+    skip_attr(6); skip_facet(0); skip_art_mount();
+    expect_comp("rocket_pod", "gun.rocket", 2, "hp_pod_rocket", 0);
+    skip_attr(6); skip_facet(0); skip_art_mount();
     // catalog: type -> category, first-seen order
-    CHECK(s.u32() == 10u);
+    CHECK(s.u32() == 13u);
     {
         const std::vector<std::pair<std::string, int>> want = {
             {"thruster.main", 0}, {"thruster.rcs", 1}, {"sensor.array", 3},
             {"turret.dorsal", 2}, {"seat.pilot", 3}, {"door.hatch", 3},
             {"panel.dash", 3}, {"berth.crew", 3}, {"power.reactor", 3},
-            {"power.battery", 3}};
+            {"power.battery", 3}, {"gun.laser", 2}, {"gun.autocannon", 2},
+            {"gun.rocket", 2}};
         for (const auto& [t, c] : want) { CHECK(s.str() == t); CHECK(static_cast<int>(s.u8()) == c); }
     }
     // wires (#26a)
@@ -320,6 +347,20 @@ TEST_CASE("cook_hull_def_gates") {
             "[component.attrs]\nmass = 800\ndock.clamp_strength = 500000\n"
             "[[component.facet]]\naction = \"port.undock\"\nrange = \"1.2 m\"\n";
         CHECK_MESSAGE(cook(dock_def, payload, refs), err);
+    }
+
+    // 9.6: the six weapon keys joined the ratified registry; a near-miss
+    // spelling passes the generic key GRAMMAR but must still die at the
+    // membership gate -- this is what makes the kPhase5_attr_keys addition
+    // load-bearing (mutation: bypass `known` -> this fails).
+    {
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs;
+        const std::string typo = minimal +
+            "[[component]]\nid = \"g\"\ntype = \"gun.laser\"\ncategory = \"gun\"\nsocket = \"hp\"\n"
+            "[component.attrs]\nweapon.dmage = 1\n";
+        CHECK_FALSE(cook(typo, payload, refs));
+        CHECK(err.find("not in the ratified attr-key registry") != std::string::npos);
     }
 
     // schema gates: each must fail with the reason in err.

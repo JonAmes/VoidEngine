@@ -194,6 +194,27 @@ socket = "hp_battery"
 mass = 120
 power.supply = 50000
 
+# 9.6 weapon mounts: no [component.attrs] here on purpose -- the weapon
+# attrs ride the TYPE def [attrs] preset (#52a merge), which is exactly
+# what the cook_hull_def weapon-mount pins check in DEF0.
+[[component]]
+id = "gun_laser"
+type = "gun.laser"
+category = "gun"
+socket = "hp_gun_laser"
+
+[[component]]
+id = "gun_cannon"
+type = "gun.autocannon"
+category = "gun"
+socket = "hp_gun_cannon"
+
+[[component]]
+id = "rocket_pod"
+type = "gun.rocket"
+category = "gun"
+socket = "hp_pod_rocket"
+
 [[wire]]
 id = "w_engL"
 type = "power"

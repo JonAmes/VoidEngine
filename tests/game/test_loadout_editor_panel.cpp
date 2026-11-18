@@ -169,7 +169,7 @@ TEST_CASE("loadout_editor_panel") {
     auto lhb = sim::load_hull_loadout(def0b, socku, 0xAULL);
     const std::string lhb_err = lhb ? std::string{} : lhb.error();
     REQUIRE_MESSAGE(lhb.has_value(), lhb_err);
-    CHECK(lhb->loadout.mounts().size() == 13);
+    CHECK(lhb->loadout.mounts().size() == 16);
 
     // Host-built catalog: sensor.array DIFFERS from the authored sensor_scan
     // (2000 W vs 1500 W, "150 km" suffix) so edit effects stay distinguishable.
@@ -199,7 +199,7 @@ TEST_CASE("loadout_editor_panel") {
     CHECK(panel.total_mass() == 100670.0);
     CHECK(panel.power_supply() == 170000.0);   // reactor + battery
     CHECK(panel.power_draw() == 57300.0);
-    CHECK(panel.mount_count() == 13);
+    CHECK(panel.mount_count() == 16);
 
     gfx::font0 font;
     prep_font(font);
@@ -241,7 +241,7 @@ TEST_CASE("loadout_editor_panel") {
 
     // ---- unmount sensor_scan ([x] on its socket row) ----------------------
     click(ui, "un:hp_wingtip_L", h_all);
-    CHECK(panel.mount_count() == 12);
+    CHECK(panel.mount_count() == 15);
     CHECK(panel.total_mass() == 100610.0);  // 60 kg gone
     CHECK(panel.power_draw() == 55800.0);   // 1500 W gone
 
@@ -257,14 +257,14 @@ TEST_CASE("loadout_editor_panel") {
     click(ui, "cat:thruster.rcs", h_all);
     REQUIRE(panel.last_reject() != nullptr);
     CHECK(*panel.last_reject() == "category mismatch (thruster.rcs @ hp_wingtip_L)");
-    CHECK(panel.mount_count() == 12);  // candidate never entered state
+    CHECK(panel.mount_count() == 15);  // candidate never entered state
     render(ui, h_all);
     CHECK_GT(glyph_verts(ui.frame()), base);  // REFUSED label drawn
 
     // ---- mount the right part (also demonstrates "easy to fix") -----------
     click(ui, "cat:sensor.array", h_all);
     CHECK(panel.last_reject() == nullptr);
-    CHECK(panel.mount_count() == 13);
+    CHECK(panel.mount_count() == 16);
     CHECK(panel.total_mass() == 100670.0);
     CHECK(panel.power_draw() == 57800.0);  // new sensor draws 2000 W, not 1500
 
@@ -272,7 +272,7 @@ TEST_CASE("loadout_editor_panel") {
     const std::string emitted = panel.emit_source();
     CHECK(emitted.find("sensor_array_hp_wingtip_l") != std::string::npos);
     CHECK(emitted.find("id = \"sensor_scan\"") == std::string::npos);  // block removed
-    CHECK(count_of(emitted, "[[component]]") == 13);
+    CHECK(count_of(emitted, "[[component]]") == 16);
     CHECK(emitted.find("w_engL") != std::string::npos);                // wires intact
     CHECK(emitted.find("# Phase 5 sample hull def") != std::string::npos);  // comments intact
     CHECK(emitted.find("15 deg") != std::string::npos);                // #42 suffixes intact
@@ -287,21 +287,22 @@ TEST_CASE("loadout_editor_panel") {
     auto relaunched = sim::load_hull_loadout(def0a, socku, 0xAULL);
     REQUIRE_MESSAGE(relaunched, "");
     const auto& mm = relaunched->loadout.mounts();
-    REQUIRE(mm.size() == 13);
+    REQUIRE(mm.size() == 16);
     // Panel working order == reloaded order == def component order.
     const std::vector<std::string> want = {
         "engine_L", "engine_R", "rcs_wt", "turret_dorsal", "seat_pilot",
         "door_1", "door_2", "door_3",  // extra wire-route seams (#51)
         "panel_main", "berth_1", "reactor_1", "battery_1",
+        "gun_laser", "gun_cannon", "rocket_pod",  // 9.6 weapon mounts
         "sensor_array_hp_wingtip_l"};
-    for (std::size_t i = 0; i < 13; ++i) {
+    for (std::size_t i = 0; i < 16; ++i) {
         CHECK(mm[i].instance_id == want[i]);
     }
-    CHECK(mm[12].type_id == "sensor.array");  // 13 rows: +door_2/door_3 (#51)
-    CHECK(mm[12].socket_id == "hp_wingtip_L");
+    CHECK(mm[15].type_id == "sensor.array");  // 16 rows: +door_2/3, +3 guns
+    CHECK(mm[15].socket_id == "hp_wingtip_L");
     // #42 suffix converted on the way through the cooklet: "150 km" -> 150000.
     double range = -1.0, draw = -1.0, mass = -1.0;
-    for (const auto& a : mm[12].attrs) {
+    for (const auto& a : mm[15].attrs) {
         if (a.key == "sensor.range") range = a.value;
         if (a.key == "power.draw") draw = a.value;
         if (a.key == "mass") mass = a.value;
@@ -313,7 +314,7 @@ TEST_CASE("loadout_editor_panel") {
     // ---- hull swap (#24d): whole loadout replaced by the option's own -----
     click(ui, "use:" + id_b, h_all);
     CHECK(*panel.current_def_id() == id_b);
-    CHECK(panel.mount_count() == 13);  // def_b = def_a + door_2/door_3 (#51)
+    CHECK(panel.mount_count() == 16);  // def_b = def_a + door_2/door_3 (#51)
     CHECK(panel.total_mass() == 51670.0);  // 49000 hull + same 2670 kg kit
     CHECK(panel.power_draw() == 57300.0);  // B still has the ORIGINAL sensor
     // A's edits are untouched under the swap (independent working copies):
