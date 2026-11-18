@@ -13,6 +13,7 @@
 #include <ve/core/sim/replay.h>
 
 #include <cmath>
+#include <optional>
 #include <vector>
 
 namespace {
@@ -249,4 +250,168 @@ TEST_CASE("projectile_replay_hash") {
     REQUIRE(pr.has_value());
     for (tick_t t = 0; t < 200; ++t) (void)projectile_step(w, *pr, t, 1, {});
     CHECK(std::abs(h1.second - pr->state.pos.y) <= 1.12);  // hand-computed bound
+}
+
+TEST_CASE("rocket_boost_dart") {
+    const rail_world w = test_world();
+
+    // R1) Boost tick bounds + closed-form trajectory. Window [0,60),
+    //     accel 20, budget 1000 (never cuts). Semi-implicit pins at n=60:
+    //     v = 100 + 20*1 = 120 EXACT; p = 100 + 20*(60*61/2)/3600
+    //       = 110.1666...67. Step cmd 60 (first OUTSIDE window) adds nothing.
+    {
+        auto r = launch_rocket(ship_at({0.0, 3000.0, 0.0}), {1.0, 0.0, 0.0},
+                               100.0, 60, 20.0, 1000.0, 1000, 0, 1);
+        REQUIRE(r.has_value());
+        CHECK(r->state.vel.x == 100.0);       // inherited launch (ship at rest)
+        for (tick_t t = 0; t < 60; ++t) {
+            auto res = rocket_step(w, *r, t, std::nullopt, {});
+            REQUIRE(res.life == projectile_life::alive);
+        }
+        CHECK(r->state.vel.x == doctest::Approx(120.0).epsilon(1e-12));
+        CHECK(r->state.pos.x == doctest::Approx(100.0 + 20.0 * 1830.0 / 3600.0).epsilon(1e-9));
+        CHECK(r->dv_remaining == doctest::Approx(1000.0 - 20.0).epsilon(1e-9));
+        auto res = rocket_step(w, *r, 60, std::nullopt, {});  // window closed
+        REQUIRE(res.life == projectile_life::alive);
+        CHECK(r->state.vel.x == doctest::Approx(120.0).epsilon(1e-12));  // coast
+        for (tick_t t = 61; t < 120; ++t) (void)rocket_step(w, *r, t, std::nullopt, {});
+        // p = p60 + 120*1 (ticks 61..120, v constant from cmd-60 step onward)
+        CHECK(r->state.pos.x == doctest::Approx(220.0 + 20.0 * 1830.0 / 3600.0).epsilon(1e-9));
+    }
+
+    // R2) Mid-boost steer to +Z at cmd 30: x boosts ticks 0..29, z boosts
+    //     30..59. v=(110,0,10); p.x = 100 + 20*465/3600 + 110*0.5 =
+    //     157.5833...; p.z = 20*465/3600 = 2.5833...
+    {
+        auto r = launch_rocket(ship_at({0.0, 3000.0, 0.0}), {1.0, 0.0, 0.0},
+                               100.0, 60, 20.0, 1000.0, 1000, 0, 1);
+        REQUIRE(r.has_value());
+        for (tick_t t = 0; t < 60; ++t) {
+            const std::optional<dvec3> steer =
+                t == 30 ? std::optional<dvec3>{dvec3{0.0, 0.0, 1.0}} : std::nullopt;
+            auto res = rocket_step(w, *r, t, steer, {});
+            REQUIRE(res.life == projectile_life::alive);
+        }
+        CHECK(r->state.vel.x == doctest::Approx(110.0).epsilon(1e-12));
+        CHECK(r->state.vel.z == doctest::Approx(10.0).epsilon(1e-12));
+        // R2 comment: p.x = v0*0.5 (50) + 20*465/3600 + coast 110*0.5 (55)
+        CHECK(r->state.pos.x == doctest::Approx(105.0 + 20.0 * 465.0 / 3600.0).epsilon(1e-9));
+        CHECK(r->state.pos.z == doctest::Approx(20.0 * 465.0 / 3600.0).epsilon(1e-9));
+    }
+
+    // R2b) Non-unit steer is IGNORED (unit-steer law): {0,0,2} at cmd 30
+    //      mid-boost -> heading never changes -> trajectory identical to R1.
+    {
+        auto r = launch_rocket(ship_at({0.0, 3000.0, 0.0}), {1.0, 0.0, 0.0},
+                               100.0, 60, 20.0, 1000.0, 1000, 0, 1);
+        REQUIRE(r.has_value());
+        for (tick_t t = 0; t < 120; ++t) {
+            const std::optional<dvec3> steer =
+                t == 30 ? std::optional<dvec3>{dvec3{0.0, 0.0, 2.0}} : std::nullopt;
+            (void)rocket_step(w, *r, t, steer, {});
+        }
+        CHECK(r->state.vel.z == 0.0);
+        CHECK(r->state.pos.z == 0.0);
+        CHECK(r->state.vel.x == doctest::Approx(120.0).epsilon(1e-12));
+    }
+
+    // R3) Steering POST-boost is drift: same launch as R1 but steer +Z at
+    //     cmd 70 (outside the [0,60) window) -> z stays exactly 0.
+    {
+        auto r = launch_rocket(ship_at({0.0, 3000.0, 0.0}), {1.0, 0.0, 0.0},
+                               100.0, 60, 20.0, 1000.0, 1000, 0, 1);
+        REQUIRE(r.has_value());
+        for (tick_t t = 0; t < 120; ++t) {
+            const std::optional<dvec3> steer =
+                t == 70 ? std::optional<dvec3>{dvec3{0.0, 0.0, 1.0}} : std::nullopt;
+            (void)rocket_step(w, *r, t, steer, {});
+        }
+        CHECK(r->state.vel.z == 0.0);
+        CHECK(r->state.pos.z == 0.0);
+        CHECK(r->state.vel.x == doctest::Approx(120.0).epsilon(1e-12));  // identical to R1
+        CHECK(r->state.pos.x == doctest::Approx(220.0 + 20.0 * 1830.0 / 3600.0).epsilon(1e-9));
+    }
+
+    // R4) Reservoir cut-off: budget 50 < accel*window (20*5=100 over the
+    //     300-tick window). Full thrust for exactly 150 ticks (50/(20/60)),
+    //     dv lands EXACTLY 0 (dyadic), then coasts: v = 100+50 = 150,
+    //     p(150) = 100*2.5 + 20*(150*151/2)/3600 = 250 + 113250/3600.
+    {
+        auto r = launch_rocket(ship_at({0.0, 3000.0, 0.0}), {1.0, 0.0, 0.0},
+                               100.0, 300, 20.0, 50.0, 1000, 0, 1);
+        REQUIRE(r.has_value());
+        for (tick_t t = 0; t < 150; ++t) (void)rocket_step(w, *r, t, std::nullopt, {});
+        CHECK(r->dv_remaining == 0.0);  // dyadic-exact drain, never negative
+        CHECK(r->state.vel.x == doctest::Approx(150.0).epsilon(1e-12));
+        CHECK(r->state.pos.x == doctest::Approx(250.0 + 20.0 * 11325.0 / 3600.0).epsilon(1e-9));
+        for (tick_t t = 150; t < 200; ++t) (void)rocket_step(w, *r, t, std::nullopt, {});
+        CHECK(r->state.vel.x == doctest::Approx(150.0).epsilon(1e-12));  // dry: coasts
+        CHECK(r->dv_remaining == 0.0);
+    }
+
+    // R5) Non-dyadic budget drains to EXACTLY 0 via the partial tick:
+    //     accel 10, budget 0.4 -> ticks 0,1 full (1/60 each), tick 2 partial
+    //     (0.066...67), v gain sums to exactly 0.4 (Approx).
+    {
+        auto r = launch_rocket(ship_at({0.0, 3000.0, 0.0}), {1.0, 0.0, 0.0},
+                               100.0, 300, 10.0, 0.4, 1000, 0, 1);
+        REQUIRE(r.has_value());
+        for (tick_t t = 0; t < 3; ++t) (void)rocket_step(w, *r, t, std::nullopt, {});
+        CHECK(r->dv_remaining == 0.0);
+        CHECK(r->state.vel.x == doctest::Approx(100.4).epsilon(1e-12));
+        (void)rocket_step(w, *r, 3, std::nullopt, {});
+        CHECK(r->state.vel.x == doctest::Approx(100.4).epsilon(1e-12));
+    }
+
+    // R6) Boost bends against gravity: y=50 (constant core, g=-10), boost
+    //     +Y accel 20 -> NET +10 closed form. n=30: p = 50 + 10*465/3600,
+    //     v = 10. (Wells and boost share one integration — no second path.)
+    {
+        auto r = launch_rocket(ship_at({0.0, 50.0, 0.0}), {0.0, 1.0, 0.0},
+                               0.0, 300, 20.0, 1000.0, 1000, 0, 1);
+        REQUIRE(r.has_value());
+        for (tick_t t = 0; t < 30; ++t) (void)rocket_step(w, *r, t, std::nullopt, {});
+        CHECK(r->state.vel.y == doctest::Approx(5.0).epsilon(1e-12));   // net +10 * 0.5 s
+        CHECK(r->state.pos.y == doctest::Approx(50.0 + 10.0 * 465.0 / 3600.0).epsilon(1e-9));
+    }
+
+    // R7) Contact + ttl ride the 9.8 rules unchanged: launch speed 200
+    //     toward the (400,3000,0) slab -> entry x=395 inside step cmd 118
+    //     (p_117 = 393.33 < 395 <= p_118 = 396.67); separate dart ttl 2
+    //     dies terminal.
+    {
+        auto r = launch_rocket(ship_at({0.0, 3000.0, 0.0}), {1.0, 0.0, 0.0},
+                               200.0, 0, 20.0, 50.0, 1000, 0, 1);
+        REQUIRE(r.has_value());
+        std::optional<projectile_hit> hit;
+        int hit_cmd = -1;
+        for (tick_t t = 0; t < 130 && !hit; ++t) {
+            auto res = rocket_step(w, *r, t, std::nullopt, hull_at({400.0, 3000.0, 0.0}));
+            if (res.life == projectile_life::struck) { hit = res.hit; hit_cmd = static_cast<int>(t); }
+        }
+        REQUIRE(hit.has_value());
+        CHECK(hit_cmd == 118);
+        CHECK(hit->component == 42u);
+        CHECK(hit->at.pos.x == doctest::Approx(395.0).epsilon(1e-12));
+
+        auto d = launch_rocket(ship_at({0.0, 3000.0, 0.0}), {1.0, 0.0, 0.0},
+                               100.0, 300, 20.0, 1000.0, 2, 0, 1);
+        REQUIRE(d.has_value());
+        (void)rocket_step(w, *d, 0, std::nullopt, {});
+        (void)rocket_step(w, *d, 1, std::nullopt, {});
+        const dvec3 p_last = d->state.pos, v_last = d->state.vel;
+        auto res = rocket_step(w, *d, 2, std::nullopt, {});
+        CHECK(res.life == projectile_life::expired);
+        CHECK(d->state.pos == p_last);  // terminal: no advance
+        CHECK(d->state.vel == v_last);
+    }
+
+    // R8) Degenerate launches refuse (exception-free core).
+    {
+        CHECK_FALSE(launch_rocket(ship_at({}), {0.0, 0.0, 0.0}, 0.0, 60, 20.0, 50.0, 100, 0, 1).has_value());
+        CHECK_FALSE(launch_rocket(ship_at({}), {0.0, 0.0, -2.0}, 0.0, 60, 20.0, 50.0, 100, 0, 1).has_value());
+        CHECK_FALSE(launch_rocket(ship_at({}), {1.0, 0.0, 0.0}, -1.0, 60, 20.0, 50.0, 100, 0, 1).has_value());
+        CHECK_FALSE(launch_rocket(ship_at({}), {1.0, 0.0, 0.0}, 0.0, 60, -1.0, 50.0, 100, 0, 1).has_value());
+        CHECK_FALSE(launch_rocket(ship_at({}), {1.0, 0.0, 0.0}, 0.0, 60, 20.0, -1.0, 100, 0, 1).has_value());
+    }
 }

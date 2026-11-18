@@ -67,4 +67,42 @@ projectile_step_result projectile_step(
     const rail_world& w, projectile& pr, tick_t command_tick, std::int64_t dt_ticks,
     std::span<const comp_bounds> targets, math::dvec3 target_vel = {0.0, 0.0, 0.0});
 
+// ---- 9.9: rocket — steerable dart (boost = bounded reservoir) ----
+// Boost is the #19e reservoir pattern reduced to a transient entity: a
+// bounded fp64 delta-v budget drained per fixed tick by the applied impulse
+// (dv_applied = min(accel*dt, remaining); a pure function of applied
+// impulse, and the floor means a dry dart coasts, never thrusts
+// "negative"). No bands — nobody observes a bullet. Steering exists ONLY
+// inside the boost window (full authority: heading snaps to a unit steer
+// aim); after boost the dart is exactly a 9.8 projectile — "steering
+// input post-boost is drift". Boost acceleration adds to the well
+// acceleration from the same assemble_tick_inputs, so gravity bends the
+// boost arc like everything else.
+
+struct rocket {
+    rigid_state state{};              // pos/vel fp64; att identity, omega zero (dart)
+    math::dvec3 heading{0.0, 0.0, 1.0}; // thrust direction (unit), steered in boost
+    std::int32_t owner = -1;
+    tick_t born = 0;
+    tick_t ttl_ticks = 0;
+    tick_t boost_ticks = 0;           // window: steps with command_tick in [born, born+boost)
+    double boost_accel = 0.0;         // m/s^2 along heading
+    double dv_remaining = 0.0;        // the bounded reservoir (m/s), floored at 0
+};
+
+// Inherits the launch ship's velocity exactly like a gun round (drift cuts
+// both ways): vel = ship.vel + aim*launch_m_s, heading = aim.
+std::optional<rocket> launch_rocket(const rigid_state& ship, math::dvec3 aim_dir,
+                                    double launch_m_s, tick_t boost_ticks,
+                                    double boost_accel, double dv_budget,
+                                    tick_t ttl_ticks, tick_t now, std::int32_t owner);
+
+// `steer_aim`: desired unit heading, honored ONLY on boost steps (non-unit
+// steer is ignored — drift for that tick; caller error is survivable here).
+// Same terminal-expiry and contact rules as projectile_step.
+projectile_step_result rocket_step(
+    const rail_world& w, rocket& r, tick_t command_tick,
+    std::optional<math::dvec3> steer_aim,
+    std::span<const comp_bounds> targets, math::dvec3 target_vel = {0.0, 0.0, 0.0});
+
 } // namespace ve::core::sim
