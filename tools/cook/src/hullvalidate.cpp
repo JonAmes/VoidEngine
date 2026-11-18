@@ -78,6 +78,27 @@ const char* kFaceName[7] = {"none", "+x", "-x", "+y", "-y", "+z", "-z"};
 bool is_door_type(std::string_view t) { return t.rfind("door.", 0) == 0; }
 bool is_airlock_type(std::string_view t) { return t.rfind("airlock.", 0) == 0; }
 
+// #51: resolve a wire endpoint to its anchor CELL. kind 0 = socket name,
+// kind 1 = component id (endpoint rides that component's own socket
+// anchor — G2-proven to exist by the time G12 runs). false = unresolved:
+// earlier gates own that error, so G12 skips the wire.
+bool endpoint_cell(std::uint8_t kind, const std::string& ref, const DefView& d,
+                   const std::map<std::string, const SockAnchor*>& anchor_of,
+                   Cell& out_cell) {
+    std::string socket = ref;
+    if (kind == 1) {  // component endpoint: its own socket anchor
+        socket.clear();
+        for (const auto& c : d.comps)
+            if (c.id == ref) { socket = c.socket; break; }
+        if (socket.empty()) return false;  // G7 already failed
+    }
+    auto it = anchor_of.find(socket);
+    if (it == anchor_of.end()) return false;  // G7/G2 already failed
+    out_cell = cell_of(*it->second, d);
+    return true;
+}
+
+
 } // namespace
 
 bool decode_def_payload(const Bytes& payload, DefView& out, std::string* err) {
@@ -213,6 +234,45 @@ Bytes encode_sock_payload(const SockView& in) {
         for (double v : a.q) put_f64(p, v);
     }
     return p;
+}
+
+// RouteViews assembly (9.5) — endpoint cells via SOCK anchors (#46b),
+// door seams from door.* components' anchors + face (#46c1 encoding),
+// sections verbatim. Used by the cook G12 gate below AND host-side for
+// the loadout editor route mode, so the editor sees exactly the law's
+// inputs cook uses.
+RouteViews route_views_from_def(const DefView& def, const std::vector<SockView>& socks) {
+    std::map<std::string, const SockAnchor*> anchor_of;
+    for (const auto& sv : socks)
+        for (const auto& a : sv.anchors)
+            anchor_of[a.name] = &a;  // glb cook already failed on dup names
+    RouteViews rv;
+    for (const auto& sec : def.sections) {
+        game::route_section rs;
+        rs.name = sec.name;
+        for (const auto& bx : sec.boxes) rs.boxes.push_back(game::route_box{bx});
+        rv.sections.push_back(std::move(rs));
+    }
+    for (const auto& c : def.comps) {
+        if (!is_door_type(c.type)) continue;
+        auto sit = anchor_of.find(c.socket);
+        if (sit == anchor_of.end()) continue;  // G2 already failed
+        game::route_cell a = cell_of(*sit->second, def), b = a;
+        for (int ax = 0; ax < 3; ++ax) b[ax] += kFaceDir[c.face][ax];
+        rv.door_seams.push_back({a, b});
+    }
+    for (const auto& w : def.wires) {
+        game::route_wire vw;
+        vw.id = w.id;
+        if (!endpoint_cell(w.from_kind, w.from_ref, def, anchor_of, vw.from_cell) ||
+            !endpoint_cell(w.to_kind, w.to_ref, def, anchor_of, vw.to_cell)) {
+            rv.wires.emplace_back();  // unresolved: G12 skips, editors omit
+            continue;
+        }
+        vw.route.assign(w.route.begin(), w.route.end());
+        rv.wires.emplace_back(std::move(vw));
+    }
+    return rv;
 }
 
 bool cook_hull_validate(const HullInputs& hull,
@@ -460,100 +520,23 @@ bool cook_hull_validate(const HullInputs& hull,
         if (!c.has_mount)
             return fail("component '" + c.id + "' has no mount transform (#52b)");
     }
-    // ---- G12 (9.3 #51): wire-route spatial gates ----------------------
-    // Grammar shape is cooked-verified; this is the spatial law:
-    //   G12a endpoints: route[0] / route.back() sit on the wire's own
-    //        endpoint anchor cells (no teleporting onto arbitrary lattice
-    //        points),
-    //   G12b adjacency: consecutive cells differ by one 6-neighbour step,
-    //   G12c lattice: every route cell lies in exactly one section (same
-    //        law as anchors, #44 — off-lattice = 0 sections, overlap = >1),
-    //   G12d door seams: a route may cross a section boundary only at the
-    //        (cell, cell+face) pair of a door.* component — same
-    //        walk-graph discipline, 5.9b.
-    // Order per wire is pinned by tests. G12 runs after G7 so endpoint
+    // ---- G12 (9.3 #51; law shared in 9.5): wire-route spatial gates ----
+    // The SPATIAL LAW is ONE implementation in ve::game::route_law (#51
+    // G12a endpoints, G12b adjacency, G12c lattice membership, G12d door
+    // seams — checked in that order per wire, pinned by tests), consumed
+    // here AND by the loadout editor route mode: an edit legal in the
+    // editor is exactly a route that passes cook, with byte-identical
+    // refuse strings in both places (same "one gate fn" doctrine as 5.9b
+    // loadout assemble). This gate assembles the views from cooked data
+    // and refuses on the law's message. G12 runs after G7 so endpoint
     // anchors exist; component endpoints resolve via their own socket
     // anchor (G2-proven).
-    std::vector<std::pair<Cell, Cell>> door_seams;
-    for (const auto& c : d.comps) {
-        if (!is_door_type(c.type)) continue;
-        auto sit = anchor_of.find(c.socket);
-        if (sit == anchor_of.end()) continue;  // G2 already failed
-        Cell a = cell_of(*sit->second, d), b = a;
-        for (int ax = 0; ax < 3; ++ax) b[ax] += kFaceDir[c.face][ax];
-        door_seams.emplace_back(a, b);
-    }
-    auto cell_str = [](const Cell& c) {
-        return "(" + std::to_string(c[0]) + "," + std::to_string(c[1]) +
-               "," + std::to_string(c[2]) + ")";
-    };
-    auto endpoint_cell = [&](std::uint8_t kind, const std::string& ref,
-                             Cell& out_cell) -> bool {
-        std::string socket = ref;
-        if (kind == 1) {  // component endpoint: its own socket anchor
-            socket.clear();
-            for (const auto& c : d.comps)
-                if (c.id == ref) { socket = c.socket; break; }
-            if (socket.empty()) return false;  // G7 already failed
-        }
-        auto it = anchor_of.find(socket);
-        if (it == anchor_of.end()) return false;  // G7/G2 already failed
-        out_cell = cell_of(*it->second, d);
-        return true;
-    };
-    for (const auto& w : d.wires) {
-        Cell c0{}, c1{};
-        if (!endpoint_cell(w.from_kind, w.from_ref, c0) ||
-            !endpoint_cell(w.to_kind, w.to_ref, c1))
-            continue;  // earlier gates own this error
-        if (w.route.empty())
-            return fail("wire '" + w.id + "' has an empty route (#51)");
-        if (w.route.front() != c0)
-            return fail("wire '" + w.id + "' route starts at " +
-                        cell_str(w.route.front()) + ", not at its 'from' "
-                        "endpoint cell " + cell_str(c0) + " (#51 G12a)");
-        if (w.route.back() != c1)
-            return fail("wire '" + w.id + "' route ends at " +
-                        cell_str(w.route.back()) + ", not at its 'to' "
-                        "endpoint cell " + cell_str(c1) + " (#51 G12a)");
-        for (std::size_t i = 0; i + 1 < w.route.size(); ++i) {
-            const Cell& a = w.route[i];
-            const Cell& b = w.route[i + 1];
-            const int man = std::abs(a[0] - b[0]) + std::abs(a[1] - b[1]) +
-                            std::abs(a[2] - b[2]);
-            if (man != 1)
-                return fail("wire '" + w.id + "' route cells " +
-                            std::to_string(i) + " " + cell_str(a) + " and " +
-                            std::to_string(i + 1) + " " + cell_str(b) +
-                            " are not 6-adjacent (#51 G12b)");
-        }
-        for (const auto& cell : w.route) {
-            const auto hit = sections_containing(cell);
-            if (hit.size() != 1)
-                return fail("wire '" + w.id + "' route cell " + cell_str(cell) +
-                            " is in " + std::to_string(hit.size()) +
-                            " sections — not inside the hull lattice "
-                            "(#51 G12c)");
-        }
-        for (std::size_t i = 0; i + 1 < w.route.size(); ++i) {
-            const Cell& a = w.route[i];
-            const Cell& b = w.route[i + 1];
-            const auto ha = sections_containing(a);
-            const auto hb = sections_containing(b);
-            if (d.sections[ha[0]].name == d.sections[hb[0]].name) continue;
-            bool seam = false;
-            for (const auto& [s0, s1] : door_seams)
-                if ((s0 == a && s1 == b) || (s0 == b && s1 == a)) {
-                    seam = true;
-                    break;
-                }
-            if (!seam)
-                return fail("wire '" + w.id + "' route crosses section '" +
-                            d.sections[ha[0]].name + "' -> '" +
-                            d.sections[hb[0]].name + "' between cells " +
-                            cell_str(a) + " -> " + cell_str(b) +
-                            " with no door seam (#51 G12d)");
-        }
+    const RouteViews rv = route_views_from_def(d, hull.socks);
+    for (const auto& wv : rv.wires) {
+        if (!wv) continue;  // unresolved endpoint: earlier gates own this
+        if (std::string e = game::route_law_error(rv.sections, rv.door_seams, *wv);
+            !e.empty())
+            return fail(e);
     }
     return true;
 }

@@ -14,10 +14,12 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "ve/core/cooked.h"  // Bytes, Unit
+#include "ve/game/route_law.h"  // 9.5: shared #51 route law (ve_cooklet links ve_game)
 
 namespace ve::cook {
 
@@ -70,6 +72,19 @@ struct DefView {
     struct Seam { std::string partner_ref, socket; };
     std::vector<Seam> seams;
 };
+
+// ---- route views for route-editing front-ends (9.5 #51) -----------------
+// Cooked hull data -> ve::game::route_law views, assembled ONE way (also
+// used by the cook G12 gate itself) so the loadout editor edits exactly
+// what cook validates. `wires` is parallel to def.wires; nullopt =
+// endpoint anchor unresolved (cook: earlier gates own the error and skip
+// the wire; editors: omit it).
+struct RouteViews {
+    std::vector<game::route_section> sections;
+    std::vector<game::route_door_seam> door_seams;
+    std::vector<std::optional<game::route_wire>> wires;
+};
+RouteViews route_views_from_def(const DefView& def, const std::vector<SockView>& socks);
 
 bool decode_def_payload(const Bytes& payload, DefView& out, std::string* err);
 bool decode_sock_payload(const Bytes& payload, SockView& out, std::string* err);

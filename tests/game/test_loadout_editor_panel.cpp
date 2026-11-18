@@ -17,6 +17,7 @@
 #include <doctest/doctest.h>
 
 #include <ve/cook/cook.h>
+#include <ve/cook/hullvalidate.h>
 #include <ve/core/sim/loadout_load.h>
 #include <ve/game/def_schema.h>
 #include <ve/game/loadout_editor_panel.h>
@@ -436,4 +437,149 @@ TEST_CASE("loadout_editor_gates") {
     CHECK(emitted.find("id = \"p_main_hp_m\"") != std::string::npos);
     CHECK(emitted.find("id = \"p_util_hp_u\"") != std::string::npos);
     CHECK(emitted.find("class_tag") == 0);  // root keys untouched, still first
+}
+
+TEST_CASE("loadout_editor_wire_routes") {
+    // Phase 9 task 9.5 (#51): route edit mode. The host feeds the panel the
+    // SAME view builder the cook G12 gate wraps (route_views_from_def over
+    // decoded DEF0+SOCK), and an accepted edit must pass the REAL watch-mode
+    // cook — one law, byte-identical refusal strings, pinned end-to-end.
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("ve_ldt_route_" + std::to_string(ve_test::pid()));
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root / "defs");
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples", root / "samples",
+                          std::filesystem::copy_options::recursive);
+    const std::string def_a =
+        read_text(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml");
+    std::ofstream(root / "defs" / "test_ship.def.toml", std::ios::binary) << def_a;
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/comptypes",
+                          root / "defs" / "comptypes",
+                          std::filesystem::copy_options::recursive);
+    const auto out = root / "out";
+    {
+        const auto r = ve::cook::cook_incremental(root.string(), out.string());
+        REQUIRE_MESSAGE(r.ok, r.error);
+    }
+    const std::string id_a = "defs/test_ship.def.toml";
+    std::string err;
+    core::cooked::Unit def0a, socku;
+    REQUIRE_MESSAGE(core::cooked::read_unit_file((out / "units" / (id_a + ".ck")).string(), def0a, &err), err);
+    REQUIRE_MESSAGE(core::cooked::read_unit_file(
+                        (out / "units" / "samples/test_ship.glb.sock.ck").string(), socku, &err), err);
+    auto lha = sim::load_hull_loadout(def0a, socku, 0xAULL);
+    const std::string lha_err = lha ? std::string{} : lha.error();
+    REQUIRE_MESSAGE(lha.has_value(), lha_err);
+
+    // Host-side route views: exactly the builder the cook gate uses.
+    ve::cook::DefView defv;
+    ve::cook::SockView sockv;
+    REQUIRE_MESSAGE(ve::cook::decode_def_payload(def0a.payload, defv, &err), err);
+    REQUIRE_MESSAGE(ve::cook::decode_sock_payload(socku.payload, sockv, &err), err);
+    const auto rv = ve::cook::route_views_from_def(defv, {sockv});
+    REQUIRE(rv.sections.size() == 4);
+    REQUIRE(rv.door_seams.size() == 3);       // door_1/2/3 seams (#51 9.3 sample)
+    REQUIRE(rv.wires.size() == 6);
+    for (const auto& w : rv.wires) REQUIRE(w.has_value());  // every endpoint -> cell
+
+    auto snap = snapshot_from(id_a, "test ship", *lha, def_a, {});
+    snap.sections = rv.sections;
+    snap.door_seams = rv.door_seams;
+    for (const auto& w : rv.wires) snap.wires.push_back(*w);
+    game::loadout_editor_panel panel;
+    panel.set_hulls({std::move(snap)});
+
+    gfx::font0 font;
+    prep_font(font);
+    gfx::ui_context ui;
+    const std::int32_t h_all = 760;
+    auto render = [&]() {
+        const gfx::ui_io none{};
+        ui.begin_frame(none, font, 1280, 720);
+        panel.render(ui, 8, 8, 720, h_all);
+        ui.end_frame();
+    };
+    render();
+    CHECK(panel.rect_for("rt:w_engL").w > 0);  // wire rows only draw with views
+    REQUIRE(panel.wire_route("w_engL") != nullptr);
+    CHECK(panel.wire_route("w_engL")->route.size() == 7);
+
+    auto click_at = [&](const std::string& key) {
+        const auto r = panel.rect_for(key);
+        REQUIRE(r.w > 0);
+        const float cx = static_cast<float>(r.x + r.w / 2), cy = static_cast<float>(r.y + r.h / 2);
+        const gfx::ui_io down = click_down(cx, cy), up = click_up(cx, cy);
+        ui.begin_frame(down, font, 1280, 720); panel.render(ui, 8, 8, 720, h_all); ui.end_frame();
+        ui.begin_frame(up, font, 1280, 720); panel.render(ui, 8, 8, 720, h_all); ui.end_frame();
+        render();  // settle: rects for newly drawn widgets captured
+    };
+    auto type_text = [&](const std::string& text) {  // full draft + ENTER one frame
+        gfx::ui_io io{};
+        io.chars.assign(text.begin(), text.end());
+        io.enter = true;
+        ui.begin_frame(io, font, 1280, 720); panel.render(ui, 8, 8, 720, h_all); ui.end_frame();
+        render();
+    };
+
+    // ---- enter edit mode --------------------------------------------------
+    click_at("rt:w_engL");
+    REQUIRE(panel.editing_wire() != nullptr);
+    CHECK(*panel.editing_wire() == "w_engL");
+    CHECK(panel.rect_for("route").w > 0);
+
+    // ---- grammar refuse: SHARED route_law string (9.5a), zero state -------
+    click_at("route");
+    click_at("rclr");
+    click_at("route");
+    type_text("x,0,1");
+    REQUIRE(panel.last_reject() != nullptr);
+    CHECK(*panel.last_reject() == "cell coord 'x' is not an integer");
+    CHECK(panel.wire_route("w_engL")->route.size() == 7);
+
+    // ---- spatial refuse: byte-identical to the cook G12b pin --------------
+    click_at("rclr");
+    click_at("route");
+    type_text("-1,0,1,0,0,1,0,0,0,0,0,-1,0,0,-3,1,0,-3");
+    REQUIRE(panel.last_reject() != nullptr);
+    CHECK(*panel.last_reject() ==
+          "wire 'w_engL' route cells 3 (0,0,-1) and 4 (0,0,-3) are not 6-adjacent (#51 G12b)");
+    CHECK(panel.wire_route("w_engL")->route.size() == 7);
+    CHECK(panel.editing_wire() != nullptr);  // refused draft keeps edit mode (#48)
+
+    // ---- legal edit: mid-section side-step, accepted by the shared law ----
+    click_at("rclr");
+    click_at("route");
+    type_text("-1,0,1,0,0,1,0,0,0,-1,0,0,0,0,0,0,0,-1,0,0,-2,0,0,-3,1,0,-3");
+    CHECK(panel.last_reject() == nullptr);
+    CHECK(panel.wire_route("w_engL")->route.size() == 9);
+    click_at("rd:w_engL");  // [done] leaves edit mode
+    CHECK(panel.editing_wire() == nullptr);
+
+    // ---- write-back: edited wire canonical, untouched wires authored bytes -
+    const std::string emitted = panel.emit_source();
+    CHECK(emitted.find("[[-1, 0, 1], [0, 0, 1], [0, 0, 0], [-1, 0, 0], [0, 0, 0], "
+                       "[0, 0, -1], [0, 0, -2], [0, 0, -3], [1, 0, -3]]") !=
+          std::string::npos);  // canonical form of the EDITED route
+    CHECK(emitted.find("[[-1,0,1],[0,0,1],[0,0,0],[0,0,-1],[0,0,-2],[0,0,-3],[-1,0,-3]]") !=
+          std::string::npos);  // w_engR authored line byte-preserved
+    CHECK(count_of(emitted, "[[wire]]") == 6);
+
+    // ---- end-to-end: an editor-accepted edit MUST pass the real cook ------
+    std::ofstream(root / "defs" / "test_ship.def.toml", std::ios::binary) << emitted;
+    const auto recook = ve::cook::cook_incremental(root.string(), out.string());
+    REQUIRE_MESSAGE(recook.ok, recook.error);
+    core::cooked::Unit def0c;
+    REQUIRE_MESSAGE(core::cooked::read_unit_file((out / "units" / (id_a + ".ck")).string(), def0c, &err), err);
+    ve::cook::DefView defc;
+    REQUIRE_MESSAGE(ve::cook::decode_def_payload(def0c.payload, defc, &err), err);
+    auto we = std::find_if(defc.wires.begin(), defc.wires.end(),
+                           [](const auto& w) { return w.id == "w_engL"; });
+    REQUIRE(we != defc.wires.end());
+    CHECK(we->route.size() == 9);
+    CHECK((we->route.front() == std::array<std::int32_t, 3>{-1, 0, 1}));
+    CHECK((we->route.back() == std::array<std::int32_t, 3>{1, 0, -3}));
+    auto wr = std::find_if(defc.wires.begin(), defc.wires.end(),
+                           [](const auto& w) { return w.id == "w_engR"; });
+    REQUIRE(wr != defc.wires.end());
+    CHECK(wr->route.size() == 7);  // untouched wire survived recook
 }

@@ -29,6 +29,7 @@
 #include "ve/core/sim/inertia.h"
 #include "ve/core/sim/loadout.h"
 #include "ve/gfx/ui.h"
+#include "ve/game/route_law.h"
 
 namespace ve::game {
 
@@ -61,6 +62,14 @@ struct loadout_snapshot {
     std::vector<core::sim::component_type> types;
     std::vector<loadout_catalog_part> catalog;
     std::vector<core::sim::mount_request> mounts;  // current kit
+    // #51 route edit mode (9.5): the hull's wire/section/door-seam view in
+    // route_law shapes — the SAME law the cook G12 gate runs, so an edit
+    // accepted here is exactly an edit that passes cook. `wires` is working
+    // state (route drafts commit into it); host fills it from cooked hull
+    // data (or the def's authored routes).
+    std::vector<route_section> sections;
+    std::vector<route_door_seam> door_seams;
+    std::vector<route_wire> wires;
 };
 
 class loadout_editor_panel {
@@ -72,7 +81,8 @@ public:
                 std::int32_t w, std::int32_t h);
 
     // Hit rects for headless tests (keys "use:<def_id>", "un:<socket_id>",
-    // "pick:<socket_id>", "cat:<type_id>").
+    // "pick:<socket_id>", "cat:<type_id>", "rt:<wire_id>" route edit,
+    // "rd:<wire_id>" route done, "rclr" route clear draft).
     gfx::rect rect_for(const std::string& key) const;
 
     // ---- state for pins ----------------------------------------------------
@@ -82,8 +92,15 @@ public:
     double power_supply() const;      // sum power.supply attrs
     double power_draw() const;        // sum power.draw attrs
     // Non-null after an on-entry refusal; cleared by any successful edit or
-    // selection change. Format: "<error name> (<type> @ <socket>)".
+    // selection change. Mount refusals: "<error name> (<type> @ <socket>)".
+    // Route refusals (9.5): the shared route_law reason verbatim (grammar or
+    // G12a-d string, byte-identical to the cook gate's).
     const std::string* last_reject() const;
+
+    // Route edit mode (9.5): non-null while a wire's route is being edited;
+    // working wire lookup (its .route is the CURRENT committed route).
+    const std::string* editing_wire() const;
+    const route_wire* wire_route(std::string_view id) const;
 
     // Write-back (#16): current hull def's TOML rewritten to the working
     // mount list — unmounted components' blocks removed, new mounts appended
@@ -100,10 +117,19 @@ private:
                const std::string& attempted_type, const std::string& attempted_socket);
     std::vector<core::sim::mass_point> mass_parts(const loadout_snapshot& s) const;
 
+    route_wire* find_wire(loadout_snapshot& s, std::string_view id);
+    // Re-validate a full candidate route through the SHARED law (grammar
+    // done by the text field's parse); refuse (reason recorded) or commit.
+    bool apply_route(std::size_t wire_idx, std::vector<route_cell> candidate);
+
     std::vector<loadout_snapshot> m_hulls;
     std::size_t m_cur = 0;
     std::optional<std::string> m_pick_socket;  // picker window target
+    std::optional<std::string> m_route_edit;   // wire id while route editing
     std::optional<std::string> m_reject;
+    // Route draft text buffer (persistent: text_field edits it across
+    // frames; re-seeded from the wire's route on entry, cleared by [clear]).
+    char m_route_buf[256] = {};
     std::map<std::string, gfx::rect> m_rects;
 };
 

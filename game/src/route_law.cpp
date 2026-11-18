@@ -1,7 +1,9 @@
-// Phase 9 task 9.5a — shared wire-route text grammar (see route_law.h).
+// Phase 9 tasks 9.5a/9.5 — shared wire-route text grammar + spatial law
+// (see route_law.h).
 #include "ve/game/route_law.h"
 
 #include <charconv>
+#include <cmath>
 #include <cstdlib>
 
 namespace ve::game {
@@ -82,6 +84,81 @@ bool parse_route_text(std::string_view text, std::vector<route_cell>& route, std
                          static_cast<std::int32_t>(nums[i + 2])});
     }
     return true;
+}
+
+namespace {
+std::string cell_str(const route_cell& c) {
+    return "(" + std::to_string(c[0]) + "," + std::to_string(c[1]) +
+           "," + std::to_string(c[2]) + ")";
+}
+bool cell_in_box(const route_cell& c, const route_box& box) {
+    for (int ax = 0; ax < 3; ++ax)
+        if (c[ax] < box.bounds[ax] || c[ax] > box.bounds[ax + 3]) return false;
+    return true;
+}
+std::vector<std::size_t> sections_containing(const std::vector<route_section>& secs,
+                                             const route_cell& c) {
+    std::vector<std::size_t> hit;
+    for (std::size_t s = 0; s < secs.size(); ++s)
+        for (const auto& box : secs[s].boxes)
+            if (cell_in_box(c, box)) { hit.push_back(s); break; }
+    return hit;
+}
+} // namespace
+
+std::string route_law_error(const std::vector<route_section>& sections,
+                            const std::vector<route_door_seam>& seams,
+                            const route_wire& w) {
+    // Strings moved byte-for-byte out of the cook gate (9.3 -> 9.5): cook
+    // hullvalidate is now a wrapper, so editor refusal == cook refusal.
+    if (w.route.empty())
+        return "wire '" + w.id + "' has an empty route (#51)";
+    if (w.route.front() != w.from_cell)
+        return "wire '" + w.id + "' route starts at " +
+               cell_str(w.route.front()) + ", not at its 'from' "
+               "endpoint cell " + cell_str(w.from_cell) + " (#51 G12a)";
+    if (w.route.back() != w.to_cell)
+        return "wire '" + w.id + "' route ends at " +
+               cell_str(w.route.back()) + ", not at its 'to' "
+               "endpoint cell " + cell_str(w.to_cell) + " (#51 G12a)";
+    for (std::size_t i = 0; i + 1 < w.route.size(); ++i) {
+        const route_cell& a = w.route[i];
+        const route_cell& b = w.route[i + 1];
+        const int man = std::abs(a[0] - b[0]) + std::abs(a[1] - b[1]) +
+                        std::abs(a[2] - b[2]);
+        if (man != 1)
+            return "wire '" + w.id + "' route cells " +
+                   std::to_string(i) + " " + cell_str(a) + " and " +
+                   std::to_string(i + 1) + " " + cell_str(b) +
+                   " are not 6-adjacent (#51 G12b)";
+    }
+    for (const auto& cell : w.route) {
+        const auto hit = sections_containing(sections, cell);
+        if (hit.size() != 1)
+            return "wire '" + w.id + "' route cell " + cell_str(cell) +
+                   " is in " + std::to_string(hit.size()) +
+                   " sections — not inside the hull lattice "
+                   "(#51 G12c)";
+    }
+    for (std::size_t i = 0; i + 1 < w.route.size(); ++i) {
+        const route_cell& a = w.route[i];
+        const route_cell& b = w.route[i + 1];
+        const auto ha = sections_containing(sections, a);
+        const auto hb = sections_containing(sections, b);
+        if (sections[ha[0]].name == sections[hb[0]].name) continue;
+        bool seam = false;
+        for (const auto& s : seams)
+            if ((s.a == a && s.b == b) || (s.a == b && s.b == a)) {
+                seam = true;
+                break;
+            }
+        if (!seam)
+            return "wire '" + w.id + "' route crosses section '" +
+                   sections[ha[0]].name + "' -> '" + sections[hb[0]].name +
+                   "' between cells " + cell_str(a) + " -> " + cell_str(b) +
+                   " with no door seam (#51 G12d)";
+    }
+    return {};
 }
 
 std::string route_text_of(const std::vector<route_cell>& route) {

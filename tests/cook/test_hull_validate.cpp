@@ -394,5 +394,13 @@ TEST_CASE("cook_hull_validate_gates") {
         HullInputs thru = mk_hull();
         thru.def.wires[0].route = {{1, 0, -1}, {0, 0, -1}, {0, 0, 0}, {0, 0, -1}, {1, 0, -1}};
         run_pass(thru);  // crossing at door_1's (0,0,-1)<->(0,0,0) seam is legal
+
+        // A hand-built DEF0 payload CAN carry a zero-cell route row (the TOML
+        // grammar requires >=1 cell, the payload does not): the G12 empty
+        // guard is what stops front()/back() reading off the end.
+        HullInputs nil = mk_hull();
+        nil.def.wires[0].route.clear();
+        std::string e5 = run_fail(nil);
+        CHECK_MESSAGE(e5.find("has an empty route (#51)") != std::string::npos, e5);
     }
 }
