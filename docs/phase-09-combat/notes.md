@@ -152,3 +152,39 @@
   repair-refusal off, band-dir flip). Full ci_local GREEN 437.20s.
 - 9.12/9.13 ride this: breach = section air Reservoir vent (same band/tag
   pattern), wire sever = kill cascades through the SAME WiringReach.
+
+## 9.12 (77d7c16) section breach — per-section air + door-isolated vent
+- `section_air` field (core/src/breach.cpp): per-section air = 6.9 Reservoir
+  behind unique_ptr `air_entry` (reservoir self-refers the section's OWN
+  TagSet for authored bands — 9.11 self-ref pattern; ctor sets VALUE only,
+  capacity clamp rides set_ceiling — trap recidivist).
+- Vent law per tick: pipeline flows (refill supply attr, fail-open empty id)
+  FIRST, then per breach: BFS from the breached section along edges whose
+  door is OPEN or ABSENT (DoorField 7.13 facts; edges iterated in
+  registration order, FIFO queue — ordered containers, rule 5); every
+  section in the reachable region loses the breach rate through the
+  set_value door. Floor clamps at EXACTLY 0.0 (dry stays dry, never
+  negative). Simplification documented: rate leaks from EVERY section in
+  the region, not one redistributed total; multiple breaches each add
+  their own rate.
+- Isolation: door shut before step T freezes neighbors from tick T on
+  (dock_ring pinned 95.0 forever after exactly 2 drains); the breached
+  section keeps venting until `breach_patch` — PLAN's "until doors are
+  closed or a patch repair runs" = spread stops at doors, leak stops at
+  patch.
+- atmo.venting / atmo.empty are CALLER-authored bands (opaque strings,
+  AGENTS rule 1: core never names "atmo"): shipped hysteresis-free bands
+  throw/un-throw inside set_value with no step wait (venting tag at
+  at_or_below 95 throws the exact tick value lands on 95.0, un-throws at
+  96.0). Occupant #18d KO path = a condition_met gate on the section's
+  TagSet (pinned flip at the empty tick) — zero new machinery (#19c).
+- Fail-safes: breach_open refuses unknown section, rate <= 0, non-finite,
+  duplicate (idempotent); breach_patch false when nothing there;
+  air_configure rejects dup id / cap <= 0 / self-edge leaving NO partial
+  field (built off-tree then moved).
+- Refill math: 60 J/s = +1.0/tick EXACT (60*(1/60) == 1.0), ceiling clamp
+  pins 100.0 forever under the pump. Whole-ship hull-breach threshold
+  untouched here (9.14 owns the dramatic tier).
+- 6-guard mutation ladder ALL-CAUGHT non-vacuous (doors-ignored, drain
+  door emptied, BFS never seeds, ceiling doubled, patch erase off, rate
+  fail-safe off); full ci_local GREEN 415.15s.
