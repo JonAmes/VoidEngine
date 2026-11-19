@@ -118,3 +118,37 @@
 - Tests: `gun_rof_ticks` (spacing rof 2/7/0.5 → {0,30,…}/{0,9,…}/{0,120,240}, llround law, fail-safe never-fires, degenerate/nan aims, splitmix chain hand-pinned at seed 0xC0FFEE shots 0–2 (python replay), shot-keyed-not-tick-keyed (late first shot bit-identical), refusal no-ops, seed divergence, cone containment over 24 shots, spread-missing = exact aim) + `gun_heat_cycle` (dyadic timeline: leak 30 J/s = 0.5/tick, shot 2 J, capacity 3, rof 30 = interval 2; refused-at-6 pins heat 3.0 = the shot-4 accumulation (1.5+1.5) not 3.5 — refusal never added heat; t=7 fires at 2.5 proving mid-tick un-throw; +8 idle returns to 3.0).
 - 7 guards mutation-proven (`/tmp/mut100.py` + round-2 `mut100b.py`): interval `<`→`<=`, rof fail-safe off (fires at 60/0=UB-interval), overheat gate off (caught as doctest FAILURE after the test was made crash-proof with a bounds CHECK — a sanitizer CRASH is detection but leaves `test cases: 0`, which the ladder must not count as proof), stream tick-keyed, shots frozen, heat door empty (`+ per_shot * 0.0` keeps it compilable), unit-aim off.
 - CI green 413.44s (/tmp/ci_100.log). Pitfall: after a mutation ladder, the binary carries the LAST mutated object until rebuilt — a "failure" from the stale mutated binary looks like a test regression.
+
+## 9.11 (3ea0643) damage pipeline — shield → component health → offline
+- `damage_sink` (core/sim/damage.h): shield = ONE ship-wide Reservoir (regen
+  supply attr through the pipeline at the reservoir door, capacity attr sets
+  ceiling at configure; capacity attr missing/<=0/non-finite = absorbs NOTHING
+  — fail-safe like 9.10 rof). Components = ordered vector<unique_ptr>: a
+  Reservoir self-refers its OWN TagSet, so unique_ptr pins addresses.
+- Hit law (sink_apply_hit, fp64): absorb = min(damage, shield value) FIRST,
+  overflow lands on the hit component only; reservoir floor clamps hp at 0
+  (never negative); zero-crossing band {0, tag, at_or_below} throws inside
+  set_value — no step wait; repeat hits change nothing (hp already 0).
+- OFFLINE machinery = shipped WiringReach `kill_component` (the #26 "function-
+  zeroing modifier": kill zeroes every attr the component names as
+  function_attr/draw_attr through the standard dark source; idempotent) +
+  `revive_component` for repair. Proof in `component_offline_zeroing`:
+  engine thrust attr AND draw go 0; shield regen attr goes 0 so the reservoir
+  door multiplies flow to zero (regen stops with NO shield-side code); gun
+  weapon.rof goes 0 and the 9.10 fail-safe silently refuses fire — zero new
+  systems (#26e "all read the tag, no new machinery" satisfied through the
+  modifier mechanism rather than tag polling).
+- `ship.component.offline` is PLAN-literal, lives on the component TagSet
+  (hull-local ref), read by anything via condition_met (6.6 gate; effects
+  condition_met already gates bundles on it for free).
+- ctor trap: Reservoir(initial, bands, tags) sets VALUE only — capacity clamp
+  rides set_ceiling; forgetting it made regen overfill the shield (caught by
+  the exact pins). Repairs clamp at ceiling via the same door.
+- Refusals = zero state change: unknown component ref, damage < 0 or NaN,
+  repair hp <= 0 or NaN (nullopt/false).
+- Tests exact-== throughout (dyadic pins; regen 60 J/s = exactly +1.0/tick
+  since 60.0*(1.0/60.0) == 1.0). 6 guards ALL-CAUGHT non-vacuous (absorb
+  max-flip, drain-door empty, transition-law always, kill-call off,
+  repair-refusal off, band-dir flip). Full ci_local GREEN 437.20s.
+- 9.12/9.13 ride this: breach = section air Reservoir vent (same band/tag
+  pattern), wire sever = kill cascades through the SAME WiringReach.
