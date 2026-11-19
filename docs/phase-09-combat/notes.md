@@ -226,7 +226,7 @@
 - 3-guard mutation ladder ALL-CAUGHT (mount-hop removed from flood,
   repair live-wire gate off, sever counts already-severed rows).
 
-## 9.14 (—) whole-hull destruction — ship-wide hull-integrity reservoir (#56)
+## 9.14 (affec22) whole-hull destruction — ship-wide hull-integrity reservoir (#56)
 - Mechanism RATIFIED by the user at task start (decision #56 in PLAN.md):
   the dramatic tier of #19c is a SHIP-WIDE hull-integrity Reservoir —
   the 9.11 single shield pool pattern — living on the 9.12 section_air
