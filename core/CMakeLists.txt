@@ -43,6 +43,7 @@ add_library(ve_core STATIC
     src/weapon.cpp
     src/projectile.cpp
     src/gun.cpp
+    src/damage.cpp
     src/aero.cpp
     src/aero_heat.cpp
     src/contacts.cpp
