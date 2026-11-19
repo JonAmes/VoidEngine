@@ -189,7 +189,7 @@
   door emptied, BFS never seeds, ceiling doubled, patch erase off, rate
   fail-safe off); full ci_local GREEN 415.15s.
 
-## 9.13 (—) wire sever cascade — section->wire cook index + #46a mount hop
+## 9.13 (a814d08) wire sever cascade — section->wire cook index + #46a mount hop
 - Cook side: hull def `[[section]].repair_facets = [...]` names repair
   targets; cooklet validates facet refs through the facet table and appends
   `(facet_id, {ascending wire ids routed through the section box})` to
