@@ -116,4 +116,36 @@ void section_air::step(const DoorField& doors) {
     }
 }
 
+bool section_air::integrity_hit(double damage) {
+    if (!integrity) return false;                              // tier unconfigured
+    if (!std::isfinite(damage) || damage <= 0.0) return false;  // fail-SAFE
+    if (destroyed) return false;  // terminal event: zero state change after
+    // Overflow landing on the structure drains through the set_value door
+    // (floor clamps at exactly 0.0; ceiling never rises).
+    integrity->integrity.set_value(integrity->integrity.value() - damage);
+    // Zero-crossing = the dramatic hull breach: terminal sim event. The
+    // authored band throws INSIDE set_value's re-eval; the flag marks the
+    // event exactly once (first landing on 0.0).
+    if (integrity->integrity.value() == 0.0) destroyed = true;
+    return true;
+}
+
+Reservoir* section_air::integrity_value() {
+    return integrity ? &integrity->integrity : nullptr;
+}
+
+TagSet* section_air::hull_tags() {
+    return integrity ? &integrity->tags : nullptr;
+}
+
+bool integrity_configure(section_air& field, const hull_integrity_setup& setup) {
+    if (!std::isfinite(setup.capacity) || setup.capacity <= 0.0) return false;
+    if (field.integrity) return false;  // reconfigure while configured = refused
+    // unique_ptr keeps the TagSet address fixed for the Reservoir's self-ref.
+    field.integrity = std::make_unique<section_air::integrity_entry>(
+        setup.capacity, setup.bands);
+    field.integrity->integrity.set_ceiling(setup.capacity);  // ctor sets VALUE only
+    return true;
+}
+
 }  // namespace ve::core::sim

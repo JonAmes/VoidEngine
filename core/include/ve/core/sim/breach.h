@@ -110,6 +110,33 @@ struct section_air {
     [[nodiscard]] Reservoir* air(std::string_view section_id);
     // Live band tags thrown by a section's air reservoir.
     [[nodiscard]] TagSet* section_tags(std::string_view section_id);
+
+    // ---- 9.14 whole-ship destruction (PLAN #19c dramatic tier; mechanism
+    // ratified as user decision #56, 2026-11-19: ship-wide hull-integrity
+    // Reservoir — the 9.11 single shield pool pattern) ----
+    // Hull-wall hit overflow that lands on the STRUCTURE (not absorbed by
+    // shield/component health) drains the pool through the set_value door;
+    // the authored zero-crossing band throws on the hull's own TagSet.
+    // Small-breach AIR venting never touches it, and component OFFLINE
+    // pile-up can never drain it (separate domains; the pile-up test is
+    // the guard). When the value first lands on 0.0 the hull is
+    // DESTROYED — a terminal sim event: further hits refuse with zero
+    // state change. Configure AFTER air_configure (it rebuilds the field).
+    bool integrity_hit(double damage);  // refused (false, zero change) when
+                                        // unconfigured, damage <= 0 / NaN /
+                                        // non-finite, or already destroyed
+    [[nodiscard]] bool is_destroyed() const { return destroyed; }
+    Reservoir* integrity_value();       // null = dramatic tier unconfigured
+    TagSet* hull_tags();                // null when unconfigured
+
+    struct integrity_entry {  // unique_ptr: TagSet address fixed for Reservoir
+        TagSet tags;
+        Reservoir integrity;
+        integrity_entry(double capacity, std::vector<reservoir_band> bands)
+            : integrity(capacity, std::move(bands), &tags) {}
+    };
+    std::unique_ptr<integrity_entry> integrity;  // null = tier unconfigured
+    bool destroyed = false;
 };
 
 // Build the field: configure order is the section INDEX order (deterministic
@@ -120,5 +147,15 @@ bool air_configure(section_air& field,
                    std::span<const section_air_setup> setups,
                    std::span<const air_edge> edges,
                    StatsPipeline& pipe);
+
+// Dramatic-tier authoring (9.14): finite capacity > 0; bands validated by
+// the shipped band machinery (nonempty tags). Reconfiguring while already
+// configured = refused (false). The pool starts FULL (capacity) with the
+// ceiling clamped at configure (9.11 trap: ctor sets VALUE only).
+struct hull_integrity_setup {
+    double capacity = 0.0;
+    std::vector<reservoir_band> bands;  // e.g. {0.0, "hull.breached", at_or_below}
+};
+bool integrity_configure(section_air& field, const hull_integrity_setup& setup);
 
 }  // namespace ve::core::sim

@@ -225,3 +225,35 @@
   was never written — the in-flight dirty work was the facet plumbing).
 - 3-guard mutation ladder ALL-CAUGHT (mount-hop removed from flood,
   repair live-wire gate off, sever counts already-severed rows).
+
+## 9.14 (—) whole-hull destruction — ship-wide hull-integrity reservoir (#56)
+- Mechanism RATIFIED by the user at task start (decision #56 in PLAN.md):
+  the dramatic tier of #19c is a SHIP-WIDE hull-integrity Reservoir —
+  the 9.11 single shield pool pattern — living on the 9.12 section_air
+  breach field (the breach domain owns both tiers). Rejected at the same
+  checkpoint: single-hit magnitude gate, aggregate open-breach vent-rate.
+- Authoring: `integrity_configure(field, {capacity, bands})` AFTER
+  air_configure (air_configure rebuilds the field). Bad capacity
+  (<=0/NaN) refused leaving the tier unconfigured; reconfigure while
+  configured refused (no pool swap mid-flight). Ctor sets VALUE only —
+  ceiling clamped at configure (the standing 9.11 trap).
+- Drain law: `integrity_hit(damage)` = overflow that landed on the
+  STRUCTURE (the caller's game-side routing decides what counts —
+  shield soak and component health are the 9.11 sink domain, untouched
+  here). set_value door floors at exactly 0.0. Refusals: unconfigured
+  tier, damage <= 0 / NaN / non-finite, already destroyed — all zero
+  state change (fail-SAFE).
+- Terminal event: first landing on 0.0 flips `is_destroyed()` and the
+  authored zero-crossing band has thrown on the HULL's own TagSet
+  (hull.breached in the test). Further hits refuse; the wreck keeps
+  simulating (air steps on — Phase 11 owns downstream meaning).
+- The two isolations are the law, each pinned: (a) breach AIR venting
+  runs full-rate for ticks and the pool never moves; (b) the 9.11
+  component_offline_zeroing fixture killed to ALL systems offline (dark
+  set = 3, all derived attrs 0) and the pool sits at full capacity,
+  not destroyed — component pile-up can never reach the dramatic
+  threshold. Separate domains = the guard, no cross-wiring exists.
+- All values dyadic (60/25/35/10, air 100-4x2.5=90, 87.5) — exact ==
+  pins, no Approx anywhere.
+- Design note: `integrity_entry` is unique_ptr-owned because Reservoir
+  holds a raw TagSet* to its own tags (same fix as air_entry).
