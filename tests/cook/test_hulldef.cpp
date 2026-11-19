@@ -202,11 +202,16 @@ TEST_CASE("cook_hull_def") {
     skip_attr(0); skip_facet(1); skip_art_mount();
     expect_comp("panel_main", "panel.dash", 3, "panel_main", 0);
     skip_attr(0);
-    CHECK(s.u32() == 2u);  // facets: use.panel plain...
+    CHECK(s.u32() == 3u);  // facets: use.panel plain...
     CHECK(s.str() == "use.panel"); CHECK(s.f64() == 1.2); CHECK(s.u8() == 0); CHECK(s.u8() == 0);
-    {  // ...and repair.target naming a real wire id (#28a; existence gate = 5.9b)
+    {  // ...and repair.target naming real wire ids (#28a; existence gate =
+       // 5.9b); 9.13 added the w_engR splice point...
         CHECK(s.str() == "repair.target"); CHECK(s.f64() == 1.2); CHECK(s.u8() == 0);
         CHECK(s.u8() == 1u); CHECK(s.str() == "w_engL");
+    }
+    {  // ...so the engine_bay cut set is fully field-repairable here.
+        CHECK(s.str() == "repair.target"); CHECK(s.f64() == 1.2); CHECK(s.u8() == 0);
+        CHECK(s.u8() == 1u); CHECK(s.str() == "w_engR");
     }
     skip_art_mount();
     expect_comp("berth_1", "berth.crew", 3, "berth_1", 0);

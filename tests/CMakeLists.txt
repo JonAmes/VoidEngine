@@ -44,6 +44,7 @@ add_executable(engine_tests
     core/test_gun_cycle.cpp
     core/test_damage_pipeline.cpp
     core/test_breach_venting.cpp
+    core/test_wire_sever_cascade.cpp
     core/test_ecs.cpp
     core/test_sim_aero.cpp
     core/test_aero_heat.cpp

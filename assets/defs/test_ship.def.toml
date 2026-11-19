@@ -166,6 +166,11 @@ action = "repair.target"   # #28a: target names a real wire id (5.9b gate)
 range = "1.2 m"
 target = "w_engL"
 
+[[component.facet]]
+action = "repair.target"   # 9.13: second splice point so the engine_bay
+range = "1.2 m"            # cut set {w_engL, w_engR} is fully field-
+target = "w_engR"          # repairable from spares
+
 [[component]]
 id = "berth_1"
 type = "berth.crew"

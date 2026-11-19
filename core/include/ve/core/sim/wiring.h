@@ -32,6 +32,7 @@
 // here).
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -88,7 +89,15 @@ public:
 
     // ---- topology-change events; each triggers EXACTLY one recompute ----
     // Unknown ref / wire id, or a no-state-change op: refused, no recompute.
-    bool mount(std::string_view ref);            // component enters the net
+    // mount_socket (#46a pairing, carried by the loadout): when the socket
+    // is a wire-table node, the component's terminals bond to it — an
+    // UNDIRECTED one-hop attach, so power/signal reaching the hardpoint
+    // socket node reaches the component mounted there, and a source
+    // component feeds its mount socket. A mount socket that no wire names
+    // simply has no node: attach is then a legal no-op (interior empties,
+    // buses nobody wired). Severing a wire at a hardpoint therefore
+    // cascades dark through exactly the components mounted there (9.13).
+    bool mount(std::string_view ref, std::string_view mount_socket = {});
     bool unmount(std::string_view ref);          // loadout removal
     bool sever_wire(std::string_view id);        // damage: out of the graph
     bool repair_wire(std::string_view id);       // spare swapped in
@@ -112,6 +121,9 @@ private:
         bool mounted = false;  // components only
         bool killed = false;   // components only
         bool reach_p = false, reach_s = false;
+        std::size_t sock = std::numeric_limits<std::size_t>::max();
+                                   // components only: mount-socket node
+                                   // (#46a attach bond, 9.13); max = none
     };
 
     [[nodiscard]] std::size_t wire_index(std::string_view id) const;

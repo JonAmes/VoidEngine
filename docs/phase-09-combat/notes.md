@@ -188,3 +188,40 @@
 - 6-guard mutation ladder ALL-CAUGHT non-vacuous (doors-ignored, drain
   door emptied, BFS never seeds, ceiling doubled, patch erase off, rate
   fail-safe off); full ci_local GREEN 415.15s.
+
+## 9.13 (—) wire sever cascade — section->wire cook index + #46a mount hop
+- Cook side: hull def `[[section]].repair_facets = [...]` names repair
+  targets; cooklet validates facet refs through the facet table and appends
+  `(facet_id, {ascending wire ids routed through the section box})` to
+  `hull.section_wires` (parallel to section_volumes, same walk as
+  hull_section_volume_rows). Test ship: panel_main owns w_engL+w_engR,
+  berth_1 owns w_fire_ctrl; every wire crosses midship. Section index feeds
+  ONLY gameplay (sever targeting) — physics untouched, golden re-pinned
+  via VE_GOLDEN_UPDATE (facet-row bytes only).
+- Sever (loadout_load.sever_wires_in_section): one hit cuts EVERY routed
+  wire of the section (net.sever_wire, already-severed rows report false
+  and cut NOTHING again — second hit on a dead section = empty cut set).
+  Dark cascade is 100% WiringReach recompute: sever removes the wire's
+  endpoints from the net graph.
+- #46a MOUNT HOP (the wiring-design gap that blocked the draft): def wires
+  terminate at sockets, components live at hardpoints, and the sim never
+  joins them. Fix = `WiringReach::mount(ref, mount_socket)`: when the
+  #46a loadout pairing names a socket that is a wire-table node, the
+  component's terminals bond to that socket node — UNDIRECTED one-hop
+  (socket reaches every component mounted on it in registry order; a
+  source component feeds its mount socket). No new node kinds, cooked
+  wires stay verbatim, sockets naming no wire = legal no-op attach.
+  Sever w_engL/w_engR at engine_bay -> exactly engine_L/engine_R dark:
+  thrust 0, v_z bit-frozen through the dark ticks (coast adds +0.0),
+  rail resumes after. Non-dyadic kSim_dt ladder rides 6.12 Approx idiom.
+- Repair law (repair_wire_at_facet): sever sets hull repair_facets = the
+  facet rows whose wire list CONTAINS the severed id (no facet -> sever
+  skipped). Repair needs facet present (no_facet), wire actually severed
+  (unknown_wire), a matching cargo spare (unknown_spare), and costs
+  EXACTLY one spare (spare_wire count). All refusals consume nothing.
+  Repair restores reach through the same recompute.
+- Draft had NO test file at compaction; re-derived every pin from the
+  on-disk def (4 sections, 6 wires, w_engR facet row existed but its test
+  was never written — the in-flight dirty work was the facet plumbing).
+- 3-guard mutation ladder ALL-CAUGHT (mount-hop removed from flood,
+  repair live-wire gate off, sever counts already-severed rows).

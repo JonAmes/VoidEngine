@@ -73,11 +73,22 @@ std::size_t WiringReach::endpoint_node(const wire_endpoint& e) const {
 
 // ---- topology events: each valid one triggers EXACTLY one recompute ----
 
-bool WiringReach::mount(std::string_view ref) {
+bool WiringReach::mount(std::string_view ref, std::string_view mount_socket) {
     const auto ci = comp_index(ref);
     if (ci == knpos || m_nodes[m_comp_node[ci]].mounted)
         return false;
-    m_nodes[m_comp_node[ci]].mounted = true;
+    auto& n = m_nodes[m_comp_node[ci]];
+    n.mounted = true;
+    // #46a attach bond: resolve the mount socket to its node. A socket no
+    // wire names has no node -> sock stays knpos (legal no-op; the
+    // component still participates via its own endpoint wires).
+    n.sock = knpos;
+    if (!mount_socket.empty())
+        for (std::size_t i = 0; i < m_nodes.size(); ++i)
+            if (m_nodes[i].is_socket && m_nodes[i].ref == mount_socket) {
+                n.sock = i;
+                break;
+            }
     recompute();
     return true;
 }
@@ -87,6 +98,7 @@ bool WiringReach::unmount(std::string_view ref) {
     if (ci == knpos || !m_nodes[m_comp_node[ci]].mounted)
         return false;
     m_nodes[m_comp_node[ci]].mounted = false;
+    m_nodes[m_comp_node[ci]].sock = knpos;  // the part leaves its bus
     recompute();  // recompute also lifts any dark source (unmounted = absent)
     return true;
 }
@@ -183,6 +195,25 @@ void WiringReach::flood(bool power_flow) {
                 if (!seen)
                     seed(other);
             }
+        }
+        // #46a mount hop: the component's terminals ARE its mount socket —
+        // undirected one-hop bond. Socket -> every component mounted on it
+        // (scanned in REGISTRY order, deterministic); component -> its
+        // mount socket (a source feeds the hardpoint bus it bolts to).
+        auto hop = [&](std::size_t to) {
+            if (!node_live(to))
+                return;
+            auto& nd = m_nodes[to];
+            const bool seen = power_flow ? nd.reach_p : nd.reach_s;
+            if (!seen)
+                seed(to);
+        };
+        if (m_nodes[n].is_socket) {
+            for (std::size_t ci = 0; ci < m_comps.size(); ++ci)
+                if (m_nodes[m_comp_node[ci]].sock == n)
+                    hop(m_comp_node[ci]);
+        } else if (m_nodes[n].sock != knpos) {
+            hop(m_nodes[n].sock);
         }
     }
 }
