@@ -116,4 +116,12 @@ Ballpark estimates for the vertical slice (in-world play, desktop 1080p/60fps), 
 | Disk | 5 GB, HDD acceptable (SSD nicer for streaming) | NVMe |
 | API | Vulkan 1.2 driver | same |
 
-VR is a separate recommended tier rather than part of the minimum (90 Hz stereo roughly triples framebuffer cost): plan on an RTX 2060-class GPU (12 GB variant preferred, or DLSS on) + 16 GB RAM when the OpenXR path lands.
+**Including VR as a floor** (90 Hz stereo via OpenXR roughly triples framebuffer cost — the jump is almost entirely GPU + RAM; the sim itself doesn't care which eye renders it):
+
+| Part | VR minimum | VR comfortable |
+|---|---|---|
+| GPU | RTX 2060 12 GB / RTX 2070 (a 6 GB 2060 survives only at ~0.8 render scale or with DLSS on) | RTX 3060 Ti / RX 6700 XT class, 8 GB+ |
+| CPU | 4 cores @ ~3.5 GHz | 6-core |
+| RAM | 16 GB | 32 GB |
+| Disk | 5–10 GB, SSD strongly preferred (consistent frametimes are a comfort requirement, not a nicety) | NVMe |
+| API | Vulkan 1.2 + a working OpenXR runtime (SteamVR or Monado) | same |
