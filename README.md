@@ -103,3 +103,17 @@ Profiling: the Tracy client (pinned v0.15.0) is linked into every engine target 
 - The validation layer must be *reachable* to run `ve_demo`: engine policy requires it, so every instance refuses to start without it (exit 2). A layer registered by an older SDK outside the loader's default search paths needs `VK_LAYER_PATH` pointed at its manifest
 - Known compiler deviations, each documented in `docs/CHEATS.md`: MSVC gets the equivalent `/W4 /…/ /WX` wall (never lowered); no UBSan on MSVC and ASan only in debug builds, so sanitizers report as unavailable rather than vanishing; the POSIX crash handler (`core/src/crash.cpp`) and its two tests are excluded on MSVC
 - Optional: OpenXR runtime (SteamVR or Monado) for VR mode
+
+## Minimum system requirements (to play the game)
+
+Ballpark estimates for the vertical slice (in-world play, desktop 1080p/60fps), not yet measured against finished content — the renderer is deliberately simple (forward PBR-lite, one directional light, one shadow map, no post stack) and the deterministic fixed-timestep sim is single-core by design:
+
+| Part | Bare minimum | Comfortable |
+|---|---|---|
+| GPU | GTX 1050 / RX 560 class, 2–3 GB VRAM | GTX 1050 Ti / RX 570 class, 4 GB |
+| CPU | 4 cores @ ~3 GHz (clock speed matters more than core count) | any 6-core Ryzen / Core i5 (~2018+) |
+| RAM | 8 GB | 16 GB |
+| Disk | 5 GB, HDD acceptable (SSD nicer for streaming) | NVMe |
+| API | Vulkan 1.2 driver | same |
+
+VR is a separate recommended tier rather than part of the minimum (90 Hz stereo roughly triples framebuffer cost): plan on an RTX 2060-class GPU (12 GB variant preferred, or DLSS on) + 16 GB RAM when the OpenXR path lands.
