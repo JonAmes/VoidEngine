@@ -257,3 +257,21 @@
   pins, no Approx anywhere.
 - Design note: `integrity_entry` is unique_ptr-owned because Reservoir
   holds a raw TagSet* to its own tags (same fix as air_entry).
+
+## 9.15 (ef80cca) dock repair round-trip — bit-exact stats restore, zero new machinery
+- Done-when (d) proof. Docking is GAME-side (core has no "dock" concept,
+  AGENTS rule 1): a dock just calls the shipped 9.11 repair verbs. The
+  test is the scenario: pre-combat stats_state_hash baseline -> combat
+  pile-up kills ALL wired systems (offline modifiers zero attrs) ->
+  dock repair heals + revives -> hash lands back EQUAL to baseline.
+- Non-vacuity pinned twice: `hash_combat != hash_pre` (combat really
+  moved the bit state) and refusal pins checked BETWEEN repairs (a dead
+  revive-guard can't hide: refused repairs must leave the system dark).
+- Revive law (9.11, now scenario-proven): ANY positive hp re-opens the
+  band un-throwing the offline tag and `revive_component`s the node —
+  partial repair (10/50) already restores attrs; over-repair clamps at
+  the ceiling via set_value; 0/NaN/unknown-ref refuse with zero change.
+- Mutation trap hit again: deleting the `wiring->revive_component` line
+  made `wiring` unused -> -Werror=unused-parameter -> build fails ->
+  chained run tested the STALE binary (vacuous "CAUGHT"-looking pass was
+  actually BUILD-FAIL). Mutate compilable: `if (wiring) { (void) wiring; }`.
