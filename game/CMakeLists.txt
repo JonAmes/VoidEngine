@@ -8,6 +8,7 @@ add_library(ve_game STATIC src/version.cpp src/scrubber_panel.cpp src/units.cpp 
     src/loadout_editor_panel.cpp
     src/world_load.cpp
     src/station_growth.cpp
-    src/mission_director.cpp)
+    src/mission_director.cpp
+    src/ai_pilot.cpp)
 target_include_directories(ve_game PUBLIC include)
 target_link_libraries(ve_game PUBLIC ve_core ve_gfx ve_platform)
