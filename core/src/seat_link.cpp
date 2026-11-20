@@ -1,6 +1,12 @@
 // Phase 6 task 6.7 — see seat_link.h for the contract.
 #include "ve/core/sim/seat_link.h"
 
+#include <bit>
+#include <cmath>
+
+#include "ve/core/fnv.h"
+#include "ve/core/rng.h"
+
 namespace ve::core::sim {
 
 bool SeatLink::add_affordance(const seat_affordance& a) {
@@ -146,6 +152,56 @@ std::expected<void, link_error> SeatLink::drop(std::uint64_t /*claimant*/,
         m_bus->emit(rail_kind::seat_drop, *cur,
                     static_cast<std::uint64_t>(*i) + 1);
     return {};
+}
+
+
+// --- 9.19 (#18d): hit on a manned station rolls onto the occupant. ---------
+// Keyed draw (splitmix64 chain, gun/contact convention): the seat id is
+// hashed with the SHARED Fnv1a64 (same primitive as the replay/stats hashes,
+// "compatible with replay" = bitwise); tick and the per-hit input's RAW fp64
+// bits ride the key so two hits at different ticks, or hits of different
+// strength at the same tick, land on different stream positions.
+station_hit_outcome SeatLink::station_hit(std::string_view seat, std::uint64_t world_seed,
+                                          tick_t tick, double per_hit_input,
+                                          double ko_severity, double injury_severity,
+                                          const effect_desc& ko_effect,
+                                          const effect_desc& injury_effect,
+                                          std::uint64_t effect_source_id,
+                                          ModifierStack& occupant_stack) {
+    const auto i = find_seat(seat);
+    if (!i)
+        return station_hit_outcome::none;  // not a station component here
+    const auto who = m_occ.occupant_at(seat);
+    if (!who)
+        return station_hit_outcome::none;  // empty seat: the 9.11 health path owns it
+    if (!std::isfinite(per_hit_input) || !(per_hit_input > 0.0))
+        return station_hit_outcome::none;  // fail-safe: garbage input, no roll, no drop
+
+    Fnv1a64 seat_hash;
+    for (const char c : seat)
+        seat_hash.mix_byte(static_cast<std::uint8_t>(c));
+    std::uint64_t h = splitmix64(world_seed ^ (seat_hash.value() * 0x9E3779B97F4A7C15ULL));
+    h = splitmix64(h ^ (static_cast<std::uint64_t>(tick) * 0xBF58476D1CE4E5B9ULL
+                        + 0x94D049BB133111EBULL));
+    h = splitmix64(h ^ (std::bit_cast<std::uint64_t>(per_hit_input) * 0x9E3779B97F4A7C15ULL));
+    const double s = unit01(h) * per_hit_input;  // authored severity scaling
+
+    if (s >= ko_severity) {
+        // Status effect lands on the OCCUPANT's stack first (recovery reads
+        // it there); then the seat drops as a unit — occupancy + grant +
+        // rail event through the shipped drop path. Drop is unconditional:
+        // a stats-side apply conflict must not keep a KO'd body in the seat.
+        if (!ko_effect.bundle.empty())
+            apply_effect(occupant_stack, effect_source_id, ko_effect);
+        drop(*who, seat, occupant_stack);
+        return station_hit_outcome::ko;
+    }
+    if (s >= injury_severity) {
+        if (!injury_effect.bundle.empty())
+            apply_effect(occupant_stack, effect_source_id, injury_effect);
+        return station_hit_outcome::injury;
+    }
+    return station_hit_outcome::none;
 }
 
 }  // namespace ve::core::sim

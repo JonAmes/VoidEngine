@@ -1,5 +1,6 @@
 // Phase 9 task 9.10 — firing cycle laws (contract in gun.h).
 #include "ve/core/sim/gun.h"
+#include "ve/core/sim/occupancy.h"
 
 #include <cmath>
 #include <utility>
@@ -35,13 +36,23 @@ void gun_tick(gun_slot& gun) {
 }
 
 std::optional<fire_result> gun_try_fire(gun_slot& gun, math::dvec3 aim,
-                                        tick_t now, std::uint64_t world_seed) {
+                                        tick_t now, std::uint64_t world_seed,
+                                        const Occupancy* occ) {
     if (!gun.pipe)  // unconfigured gun has no laws to consult
         return std::nullopt;
     for (const double c : {aim.x, aim.y, aim.z})
         if (!std::isfinite(c))
             return std::nullopt;
     if (!math::approximately_equal(math::length2(aim), 1.0, 1e-6))  // unit-aim law (9.7)
+        return std::nullopt;
+
+    // --- crew gate (9.19, #18a): a crew-gated turret is silent unless its
+    // seat is manned AND not dark (dark seat or KO'd/dropped occupant both
+    // read false). Fail-safe: gated gun + no occupancy view = refuse.
+    // Placed before ANY gate that could consume state: refusal consumes
+    // nothing, so manning never shifts the spread stream (shot count key).
+    if (!gun.gunner_seat.empty() &&
+        !(occ && occ->function_available(gun.gunner_seat)))
         return std::nullopt;
 
     // --- cooldown gate: live rof, fail-SAFE when absent (an act, not a flow)

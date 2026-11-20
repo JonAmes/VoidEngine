@@ -38,6 +38,7 @@
 #include "ve/core/sim/effects.h"
 #include "ve/core/sim/modifiers.h"
 #include "ve/core/sim/occupancy.h"
+#include "ve/core/sim/time.h"
 
 namespace ve::core::sim {
 
@@ -51,6 +52,8 @@ struct seat_affordance {
 };
 
 // Refusal causes for link operations (its own checks run BEFORE Occupancy's).
+enum class station_hit_outcome : std::uint8_t { none, injury, ko };
+
 enum class link_error : std::uint8_t {
     seat_not_found,   // not a seat at all (unknown or not seat-tagged)
     stack_conflict,   // a reserved source id already in use on the target stack
@@ -78,6 +81,29 @@ public:
     // #18d KO / forced ejection: same reversal, rail event is seat_drop.
     std::expected<void, link_error> drop(std::uint64_t occupant, std::string_view seat,
                                          ModifierStack& occupant_stack);
+
+    // 9.19 (#18d): a weapon hit that lands on a MANSED station component
+    // rolls ONTO the occupant. Deterministic severity draw keyed on
+    // (world seed, tick, FNV(seat id), per-hit input) — the #18d/#20d/#31b
+    // stream pattern; `per_hit_input` (the caller's hit strength, e.g. the
+    // 9.11 overflow) rides the key AND scales severity: s = u * input.
+    //   s >= ko_severity      KO: ko_effect lands on the OCCUPANT's stack,
+    //                         then the seat DROPS (grant reverses as a unit,
+    //                         seat unmanned -> crew-gated functions silent).
+    //   s >= injury_severity  injury: bundle lands, occupant stays seated.
+    //   else                  none (grazed).
+    // Empty seat, unknown seat, or non-finite/<=0 input: NO roll (fail-safe;
+    // the hit just damaged the component through the 9.11 path).
+    // `effect_source_id` is caller-owned (remove_source = recovery at a
+    // medbay). A source conflict fails the bundle apply but STILL drops the
+    // seat: the KO's occupancy effect is not conditional on the stats side.
+    station_hit_outcome station_hit(std::string_view seat, std::uint64_t world_seed,
+                                    tick_t tick, double per_hit_input,
+                                    double ko_severity, double injury_severity,
+                                    const effect_desc& ko_effect,
+                                    const effect_desc& injury_effect,
+                                    std::uint64_t effect_source_id,
+                                    ModifierStack& occupant_stack);
 
     // The source ids a seat uses (exposed for audit/tests).
     static constexpr std::uint64_t grant_source(std::size_t seat_i) {

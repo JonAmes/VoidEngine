@@ -57,8 +57,14 @@ struct gun_attrs {
     std::string overheat_tag;   // thrown by the at_or_above band
 };
 
+class Occupancy;  // 5.11 occupancy view (gate query only; never stored)
+
 struct gun_slot {
     std::int32_t component = -1;      // gun component id: rng stream key
+    std::string gunner_seat;          // 9.19 (#18a): empty = fixed mount, pilot-
+                                      // operated via the targeting computer (#12);
+                                      // non-empty = crew-gated turret: the seat
+                                      // instance id that must be manned+non-dark
     TagSet tags;                      // overheat tag lives here
     Reservoir heat{0.0, {}, &tags};   // unbounded; leak bound at configure
     tick_t last_shot = -1;            // -1 = never fired (first shot is free)
@@ -88,7 +94,11 @@ struct fire_result {
 
 // One firing attempt at command tick `now` along unit `aim` (unit-aim law
 // as 9.7-9.9: non-finite or non-unit aim is REFUSED, state untouched).
+// `occ`: occupancy view for crew-gated guns (9.19). A gated gun with no
+// view REFUSES (fail-safe). Refusal consumes nothing — the shot stream is
+// untouched, so the manning gate never shifts spread draws.
 std::optional<fire_result> gun_try_fire(gun_slot& gun, math::dvec3 aim,
-                                        tick_t now, std::uint64_t world_seed);
+                                        tick_t now, std::uint64_t world_seed,
+                                        const Occupancy* occ = nullptr);
 
 }  // namespace ve::core::sim
