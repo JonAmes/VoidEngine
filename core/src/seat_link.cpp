@@ -193,7 +193,10 @@ station_hit_outcome SeatLink::station_hit(std::string_view seat, std::uint64_t w
         // a stats-side apply conflict must not keep a KO'd body in the seat.
         if (!ko_effect.bundle.empty())
             apply_effect(occupant_stack, effect_source_id, ko_effect);
-        drop(*who, seat, occupant_stack);
+        // std::expected is [[nodiscard]]; the drop MUST happen even if it
+        // reports a link_error (see comment above) — discard is intentional,
+        // so silence the wall explicitly instead of altering behaviour.
+        static_cast<void>(drop(*who, seat, occupant_stack));
         return station_hit_outcome::ko;
     }
     if (s >= injury_severity) {
