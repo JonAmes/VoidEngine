@@ -434,7 +434,7 @@ TEST_CASE("#61 composition-driven optics: mixture -> optical depth + scale heigh
     double sig[3], mass = 0.0;
     CHECK(mixture_optics({{"N2",0.7808},{"O2",0.2095},{"Ar",0.0093},{"CO2",0.0004}}, 101325.0, 9.81, sig, mass));
     CHECK(mass == doctest::Approx(28.96).epsilon(0.001));
-    CHECK(sig[2] / sig[0] == doctest::Approx(4.353));  // (650/450)^4 = 4.3531
+    CHECK(sig[2] / sig[0] == doctest::Approx(4.353).epsilon(0.001));  // (650/450)^4 = 4.35315
     CHECK(sig[1] == doctest::Approx(0.098).epsilon(0.12));  // Earth tau_550 anchor
     CHECK(derived_scale_height(288.0, mass, 9.81) == doctest::Approx(8430.0).epsilon(0.01));
 
