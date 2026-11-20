@@ -114,6 +114,7 @@ add_executable(engine_tests
     game/test_station_growth_clamp.cpp
     game/test_mission_director.cpp
     game/test_ai_pilot.cpp
+    game/test_nav_graph.cpp
     game/test_manifest_browser_panel.cpp
     game/test_loadout_editor_panel.cpp
     core/test_stats_combat_scenario.cpp
