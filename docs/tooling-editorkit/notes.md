@@ -103,3 +103,19 @@
   swaps the forms doc and re-attaches the host gate lambda; same-id
   selection no-ops. The scripted run clicks the real "mrow:world/system.toml"
   rect from the previous frame and asserts selected_id + handoff.
+
+## EK.7 findings (user-world trial, 2026-11-20)
+- Trial world: /home/jonames/worlds/trinity (Solara + Ember/Verdance/Frost, Halo moon).
+- Bug 1: `author_world::load` did `remove_all(src_dir)` then rewrote only forms-held
+  sources — `ve_edit --src` starts holding only the system def, so member body files
+  were destroyed on load. Fix: never touch unheld files (matches watch-loop doctrine:
+  live user edits land in their own files).
+- Bug 2: `recook_and_swap` built rails from WRLD units decoded only for forms-held
+  paths; on-demand member defs were invisible to `assemble_rails` -> false
+  "rail parent cycle among system members". Fix: scan all cooked .ck under
+  m_out/units, keep core::cooked::kUnitWrld, decode every world def.
+- Trap: scripted `--frames` self-test edits the world `name` field (stamps EmptyX)
+  and with `--src` that write lands in the user's real tree — smoke a COPY of any
+  precious tree, or restore `name` after.
+- Trap: engine_tests prints on-purpose SIGSEGV/SIGILL stack dumps at startup
+  (tests/core/test_crash.cpp; handler logs and resumes). Not crashes — do not chase.
