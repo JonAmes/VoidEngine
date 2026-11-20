@@ -83,7 +83,7 @@ TEST_CASE("glb_cook_poc") {
     const std::string out = tmp_root("poc");
     auto res = ve::cook::cook_incremental(std::string(VE_SOURCE_DIR) + "/assets/samples", out);
     REQUIRE_MESSAGE(res.ok, res.error);
-    REQUIRE(res.counts.cooked == 1);
+    REQUIRE(res.counts.cooked == 2);  // test_ship.glb + component_gizmos.glb (#52a)
 
     ve::cook::Unit u;
     std::string err;
@@ -152,10 +152,10 @@ TEST_CASE("glb_cook_poc") {
     }
     CHECK(found_folded_emissive);
 
-    // sockets: exactly the 8 authored hp_* empties (5.6 five + 5.8 three
-    // utility hardpoints for seat/reactor/battery), names + extras preserved.
+    // sockets: exactly the 11 authored hp_* empties (5.6 five + 5.8 three
+    // utility hardpoints + 9.6 three gun hardpoints), names + extras preserved.
     const auto socket_count = r2.u32();
-    CHECK(socket_count == 8);
+    CHECK(socket_count == 11);
     std::vector<std::string> names;
     for (std::uint32_t s = 0; s < socket_count; ++s) {
         names.push_back(r2.str());
@@ -169,8 +169,11 @@ TEST_CASE("glb_cook_poc") {
     }
     std::sort(names.begin(), names.end());
     CHECK(names == std::vector<std::string>{"hp_battery", "hp_dorsal_turret",
-                                           "hp_engine_L", "hp_engine_R", "hp_reactor",
-                                           "hp_seat_pilot", "hp_wingtip_L", "hp_wingtip_R"});
+                                           "hp_engine_L", "hp_engine_R",
+                                           "hp_gun_cannon", "hp_gun_laser",
+                                           "hp_pod_rocket",
+                                           "hp_reactor", "hp_seat_pilot",
+                                           "hp_wingtip_L", "hp_wingtip_R"});
 
     // hull-level extras ride the root node.
     const auto root_extras = r2.str(); // str() consumes its own length prefix
@@ -190,7 +193,7 @@ TEST_CASE("glb_cook_poc") {
     Reader s{su.payload};
     CHECK(s.str() == "test_ship.glb");  // content-ID link to the MESH unit
     CHECK(s.u32() == 2u);               // payload_ver v2
-    CHECK(s.u32() == 12u);              // 8 hardpoints + 4 interior empties
+    CHECK(s.u32() == 17u);              // 11 hardpoints + 6 interior empties
     struct Want { const char* name; int kind, cat; double x, y, z; };
     static const Want want[] = {  // node-index order
         {"hp_engine_L", 0, 0, 2.0, 0.0, -6.0},   {"hp_engine_R", 0, 0, -2.0, 0.0, -6.0},
@@ -203,6 +206,11 @@ TEST_CASE("glb_cook_poc") {
         {"seat_pilot", 2, 3, 0.5, 0.55, -4.0},   // (name == def component id,
         {"panel_main", 3, 3, 0.5, 0.0, -3.5},    //  #46a pairing key)
         {"berth_1", 5, 3, 2.0, 0.0, 4.0},
+        {"door_2", 1, 3, 0.0, 0.0, -2.0},         // extra wire-route door seams
+        {"door_3", 1, 3, 0.0, 0.0, -4.0},         //  (#51 G12d)
+        {"hp_gun_laser", 0, 2, 0.0, 0.0, -6.0},   // 9.6 weapon hardpoints
+        {"hp_gun_cannon", 0, 2, 0.0, 2.2, -4.0},  //  (#19/#51, gun cat)
+        {"hp_pod_rocket", 0, 2, 4.0, 0.0, -2.0},
     };
     for (const auto& w : want) {
         CHECK(s.str() == w.name);
@@ -261,6 +269,10 @@ TEST_CASE("cook_socket_type_gate") {
     std::vector<ve::cook::Bytes> bads;
     bads.push_back(patched(q + "main" + q, q + "warp" + q));          // unknown category
     bads.push_back(patched("socket_type", "socket_tylx"));            // missing key
+    // 9.6: the gun category itself is gated now — rename the first gun
+    // extras (hp_dorsal_turret) to garbage; every gun socket must pass
+    // kSocketCatExact or the whole cook fails (#21).
+    bads.push_back(patched(q + "gun" + q, q + "wgn" + q));            // unknown category (gun)
     for (const auto& bad : bads) {
         const std::string src = tmp_root("badsock_src");
         const std::string out = tmp_root("badsock_out");

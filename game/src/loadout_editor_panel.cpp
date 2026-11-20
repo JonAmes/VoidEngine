@@ -1,8 +1,11 @@
 #include "ve/game/loadout_editor_panel.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <sstream>
+#include <string_view>
 
 #include "ve/core/sim/inertia.h"
 #include "ve/game/attr_keys.h"
@@ -49,6 +52,7 @@ void loadout_editor_panel::set_hulls(std::vector<loadout_snapshot> hulls) {
     for (auto& h : hulls) m_hulls.push_back(std::move(h));
     m_cur = 0;
     m_pick_socket.reset();
+    m_route_edit.reset();
     m_reject.reset();
 }
 
@@ -145,6 +149,57 @@ bool loadout_editor_panel::apply(std::vector<sim::mount_request> candidate,
     return true;
 }
 
+route_wire* loadout_editor_panel::find_wire(loadout_snapshot& s, std::string_view id) {
+    for (auto& w : s.wires)
+        if (w.id == id) return &w;
+    return nullptr;
+}
+
+bool loadout_editor_panel::apply_route(std::size_t wire_idx,
+                                       std::vector<route_cell> candidate) {
+    auto& s = m_hulls[m_cur];
+    if (wire_idx >= s.wires.size()) return false;
+    route_wire view = s.wires[wire_idx];
+    view.route = std::move(candidate);
+    // THE shared law (route_law — the same fn the cook G12 gate wraps): an
+    // edit refused here is exactly an edit that would fail cook, reason
+    // byte-identical (grammar strings from parse_route_text, spatial from
+    // route_law_error). Refused draft leaves state untouched.
+    if (std::string err = route_law_error(s.sections, s.door_seams, view);
+        !err.empty()) {
+        m_reject = std::move(err);
+        return false;
+    }
+    s.wires[wire_idx] = std::move(view);
+    m_reject.reset();
+    return true;
+}
+
+const std::string* loadout_editor_panel::editing_wire() const {
+    return m_route_edit ? &*m_route_edit : nullptr;
+}
+
+const route_wire* loadout_editor_panel::wire_route(std::string_view id) const {
+    if (m_hulls.empty()) return nullptr;
+    for (const auto& w : m_hulls[m_cur].wires)
+        if (w.id == id) return &w;
+    return nullptr;
+}
+
+namespace {
+// Canonical TOML route line body: [[x, y, z], [x, y, z]].
+std::string toml_route(const std::vector<route_cell>& route) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < route.size(); ++i) {
+        if (i) out += ", ";
+        out += "[" + std::to_string(route[i][0]) + ", " +
+               std::to_string(route[i][1]) + ", " +
+               std::to_string(route[i][2]) + "]";
+    }
+    return out + "]";
+}
+} // namespace
+
 void loadout_editor_panel::render(gfx::ui_context& ui, std::int32_t x,
                                   std::int32_t y, std::int32_t w,
                                   std::int32_t h) {
@@ -159,6 +214,7 @@ void loadout_editor_panel::render(gfx::ui_context& ui, std::int32_t x,
             if (ui.button(label.c_str(), key.c_str())) {
                 m_cur = i;
                 m_pick_socket.reset();
+                m_route_edit.reset();
                 m_reject.reset();
             }
             m_rects[key] = ui.last_rect();
@@ -204,6 +260,34 @@ void loadout_editor_panel::render(gfx::ui_context& ui, std::int32_t x,
                 }
             }
         }
+        // ---- wire routes (9.5): one button per wire enters route edit mode
+        // (#51); drafts re-validate through the SHARED route_law (G12).
+        if (!s.wires.empty()) {
+            ui.label("wires:");
+            for (auto& w : s.wires) {
+                const std::string key = "rt:" + w.id;
+                const std::string lbl =
+                    w.id + (m_route_edit && *m_route_edit == w.id
+                                ? " [editing, " + std::to_string(w.route.size()) +
+                                      " cells]"
+                                : " [" + std::to_string(w.route.size()) + " cells]");
+                if (ui.button(lbl.c_str(), key.c_str())) {
+                    m_pick_socket.reset();  // route editor owns column 3
+                    m_reject.reset();
+                    m_route_edit = w.id;
+                    // Seed the draft buffer from the CURRENT committed route
+                    // (canonical flat text; brackets optional).
+                    const std::string seed = route_text_of(w.route);
+                    const std::size_t n =
+                        seed.size() < sizeof m_route_buf - 1 ? seed.size()
+                                                             : sizeof m_route_buf - 1;
+                    std::memcpy(m_route_buf, seed.data(), n);
+                    m_route_buf[n] = '\0';
+                }
+                m_rects[key] = ui.last_rect();
+            }
+        }
+
         // stats-spine readout (game-side attr keys; core stays agnostic)
         char buf[128];
         std::snprintf(buf, sizeof buf, "mass %.0f kg   supply %.0f W   draw %.0f W",
@@ -214,7 +298,47 @@ void loadout_editor_panel::render(gfx::ui_context& ui, std::int32_t x,
 
     // ---- part picker (clicking a mismatched part is refused ON ENTRY) -----
     if (ui.begin_window("pick part", x + 2 * col, y, col, h)) {
-        if (!m_pick_socket) {
+        route_wire* editing =
+            m_route_edit ? find_wire(s, *m_route_edit) : nullptr;
+        if (editing) {
+            // ---- route edit mode (9.5, #51) ------------------------------
+            const std::string head = "wire: " + editing->id;
+            ui.label(head.c_str());
+            if (m_reject) {
+                const std::string why = "REFUSED: " + *m_reject;
+                ui.label(why.c_str());
+            }
+            ui.label("route cells (x, y, z):");
+            // text_field edits the persistent buffer across frames; returns
+            // true on the ENTER commit frame. A refused draft KEEPS the text
+            // and refocuses (the fix-and-re-Enter pattern #48 pinned for
+            // forms): garbage never enters state, the draft survives.
+            if (ui.text_field("route", m_route_buf, sizeof m_route_buf)) {
+                std::vector<route_cell> draft;
+                std::string msg;
+                if (!parse_route_text(m_route_buf, draft, msg)) {
+                    m_reject = std::move(msg);  // grammar refuse (route_law)
+                    ui.refocus_text("route");
+                } else if (apply_route(
+                               static_cast<std::size_t>(editing - s.wires.data()),
+                               std::move(draft))) {
+                    const std::string seed = route_text_of(editing->route);
+                    const std::size_t n =
+                        seed.size() < sizeof m_route_buf - 1 ? seed.size()
+                                                             : sizeof m_route_buf - 1;
+                    std::memcpy(m_route_buf, seed.data(), n);
+                    m_route_buf[n] = '\0';
+                } else {
+                    ui.refocus_text("route");  // spatial law refuse, draft kept
+                }
+            }
+            m_rects["route"] = ui.last_rect();  // the text field (tests click it)
+            if (ui.button("[clear]", "rclr")) m_route_buf[0] = '\0';
+            m_rects["rclr"] = ui.last_rect();
+            const std::string done_key = "rd:" + editing->id;
+            if (ui.button("[done]", done_key.c_str())) m_route_edit.reset();
+            m_rects[done_key] = ui.last_rect();
+        } else if (!m_pick_socket) {
             ui.label("(pick a socket)");
         } else {
             const std::string pick_head = "socket: " + *m_pick_socket;
@@ -249,7 +373,9 @@ void loadout_editor_panel::render(gfx::ui_context& ui, std::int32_t x,
 // its "[component.*]" / "[[[component.*]]]" sub-table continuation, up to the
 // next unrelated top-level header or EOF. Removing an unmounted component
 // removes its whole region; new mounts append after the last region. All
-// other lines (root keys, [[wire]], comments) pass through byte-identical.
+// other lines (root keys, comments, and the [[wire]] route lines of
+// UNCHANGED wires) pass through byte-identical; only the route line of a
+// wire edited in route mode (9.5, #51) is rewritten, to canonical form.
 std::string loadout_editor_panel::emit_source() const {
     if (m_hulls.empty()) return {};
     const auto& s = m_hulls[m_cur];
@@ -265,6 +391,57 @@ std::string loadout_editor_panel::emit_source() const {
     auto is_comp_cont = [](const std::string& l) {
         return l.rfind("[component.", 0) == 0 || l.rfind("[[component.", 0) == 0;
     };
+    // #51 route mode (9.5): rewrite the route line of each [[wire]] region
+    // whose WORKING route differs from the authored one. Unchanged wires
+    // keep their authored bytes exactly (author style preserved); changed
+    // wires get the canonical "route = [[x, y, z], ...]" form. Wires absent
+    // from the working view and every other line pass through unchanged.
+    {
+        auto trim_view = [](const std::string& l) {
+            std::size_t a = 0, b = l.size();
+            while (a < b && std::isspace(static_cast<unsigned char>(l[a]))) ++a;
+            while (b > a && std::isspace(static_cast<unsigned char>(l[b - 1]))) --b;
+            return std::string_view(l).substr(a, b - a);
+        };
+        for (std::size_t h = 0; h < lines.size(); ++h) {
+            if (lines[h] != "[[wire]]") continue;
+            std::size_t end = h + 1;
+            while (end < lines.size() && !is_header(lines[end])) ++end;
+            std::string id;
+            std::size_t rl = std::string::npos;
+            for (std::size_t k = h + 1; k < end; ++k) {
+                const std::string_view u = trim_view(lines[k]);
+                if (id.empty() && u.rfind("id =", 0) == 0) {
+                    const auto q1 = u.find('"'), q2 = u.rfind('"');
+                    if (q1 != std::string_view::npos && q2 > q1)
+                        id = std::string(u.substr(q1 + 1, q2 - q1 - 1));
+                } else if (rl == std::string::npos &&
+                           u.rfind("route", 0) == 0 &&
+                           u.find('=') != std::string_view::npos) {
+                    rl = k;
+                }
+            }
+            const route_wire* w = nullptr;
+            for (const auto& cw : s.wires)
+                if (cw.id == id) { w = &cw; break; }
+            if (!w) continue;
+            if (rl != std::string::npos) {
+                const std::size_t eq = lines[rl].find('=');
+                std::vector<route_cell> authored;
+                std::string msg;
+                const bool parsed =
+                    parse_route_text(trim_view(lines[rl].substr(eq + 1)), authored, msg);
+                const bool same =
+                    parsed && authored.size() == w->route.size() &&
+                    std::equal(authored.begin(), authored.end(), w->route.begin());
+                if (!same) lines[rl] = "route = " + toml_route(w->route);
+            } else if (!w->route.empty()) {
+                lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(h) + 1,
+                             "route = " + toml_route(w->route));
+                ++h;  // inserted line sits inside this region; keep scanning
+            }
+        }
+    }
     // Locate component element regions and their ids.
     struct region { std::size_t begin, end; std::string id; };
     std::vector<region> regions;

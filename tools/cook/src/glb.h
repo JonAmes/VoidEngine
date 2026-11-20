@@ -21,4 +21,10 @@ namespace ve::cook {
 bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& mesh, Unit& sock,
                    std::vector<std::string>& tex_deps, std::string* err);
 
+// 9.2 (#52b): the .glb's model node NAMES (parse only, no baking) — the
+// hull cook's art-key table: a component resolves to art whose node set
+// carries its id or its type id (keyed model, #52c).
+bool glb_node_names(const Bytes& glb, std::vector<std::string>& names_out,
+                    std::string* err);
+
 } // namespace ve::cook

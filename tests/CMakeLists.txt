@@ -39,6 +39,17 @@ add_executable(engine_tests
     core/test_terrain_stamps.cpp
     core/test_terrain_streaming.cpp
     core/test_swept_contact.cpp
+    core/test_weapon_laser.cpp
+    core/test_projectile.cpp
+    core/test_gun_cycle.cpp
+    core/test_damage_pipeline.cpp
+    core/test_breach_venting.cpp
+    core/test_wire_sever_cascade.cpp
+    core/test_hull_breach.cpp
+    core/test_combat_repair_roundtrip.cpp
+    core/test_contact_map.cpp
+    core/test_targeting.cpp
+  core/test_turret_seat.cpp
     core/test_ecs.cpp
     core/test_sim_aero.cpp
     core/test_aero_heat.cpp
@@ -101,6 +112,11 @@ add_executable(engine_tests
     game/test_inspector_panel_schematic.cpp
     game/test_station_growth.cpp
     game/test_station_growth_clamp.cpp
+    game/test_mission_director.cpp
+    game/test_ai_pilot.cpp
+    game/test_nav_graph.cpp
+    game/test_separation.cpp
+    game/test_duel_replay.cpp
     game/test_manifest_browser_panel.cpp
     game/test_loadout_editor_panel.cpp
     core/test_stats_combat_scenario.cpp

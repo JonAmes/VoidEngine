@@ -17,6 +17,7 @@
 #include <doctest/doctest.h>
 
 #include <ve/cook/cook.h>
+#include <ve/cook/hullvalidate.h>
 #include <ve/core/sim/loadout_load.h>
 #include <ve/game/def_schema.h>
 #include <ve/game/loadout_editor_panel.h>
@@ -137,11 +138,14 @@ TEST_CASE("loadout_editor_panel") {
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root / "defs");
     std::filesystem::create_directories(root / "samples");
-    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples/test_ship.glb",
-                          root / "samples" / "test_ship.glb");
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples", root / "samples",
+                          std::filesystem::copy_options::recursive);  // #52a gizmo too
     const std::string def_a = read_text(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml");
     REQUIRE(def_a.find("hull_mass = 98000") != std::string::npos);
     std::ofstream(root / "defs" / "test_ship.def.toml", std::ios::binary) << def_a;
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/comptypes",
+                          root / "defs" / "comptypes",
+                          std::filesystem::copy_options::recursive);  // #52a type defs
     // Hull option B (#24d whole-ship swap): same hull + kit, half the hull mass.
     std::string def_b = def_a;
     def_b.replace(def_b.find("hull_mass = 98000"), 17, "hull_mass = 49000");
@@ -165,7 +169,7 @@ TEST_CASE("loadout_editor_panel") {
     auto lhb = sim::load_hull_loadout(def0b, socku, 0xAULL);
     const std::string lhb_err = lhb ? std::string{} : lhb.error();
     REQUIRE_MESSAGE(lhb.has_value(), lhb_err);
-    CHECK(lha->loadout.mounts().size() == 11);
+    CHECK(lhb->loadout.mounts().size() == 16);
 
     // Host-built catalog: sensor.array DIFFERS from the authored sensor_scan
     // (2000 W vs 1500 W, "150 km" suffix) so edit effects stay distinguishable.
@@ -195,7 +199,7 @@ TEST_CASE("loadout_editor_panel") {
     CHECK(panel.total_mass() == 100670.0);
     CHECK(panel.power_supply() == 170000.0);   // reactor + battery
     CHECK(panel.power_draw() == 57300.0);
-    CHECK(panel.mount_count() == 11);
+    CHECK(panel.mount_count() == 16);
 
     gfx::font0 font;
     prep_font(font);
@@ -237,7 +241,7 @@ TEST_CASE("loadout_editor_panel") {
 
     // ---- unmount sensor_scan ([x] on its socket row) ----------------------
     click(ui, "un:hp_wingtip_L", h_all);
-    CHECK(panel.mount_count() == 10);
+    CHECK(panel.mount_count() == 15);
     CHECK(panel.total_mass() == 100610.0);  // 60 kg gone
     CHECK(panel.power_draw() == 55800.0);   // 1500 W gone
 
@@ -253,14 +257,14 @@ TEST_CASE("loadout_editor_panel") {
     click(ui, "cat:thruster.rcs", h_all);
     REQUIRE(panel.last_reject() != nullptr);
     CHECK(*panel.last_reject() == "category mismatch (thruster.rcs @ hp_wingtip_L)");
-    CHECK(panel.mount_count() == 10);  // candidate never entered state
+    CHECK(panel.mount_count() == 15);  // candidate never entered state
     render(ui, h_all);
     CHECK_GT(glyph_verts(ui.frame()), base);  // REFUSED label drawn
 
     // ---- mount the right part (also demonstrates "easy to fix") -----------
     click(ui, "cat:sensor.array", h_all);
     CHECK(panel.last_reject() == nullptr);
-    CHECK(panel.mount_count() == 11);
+    CHECK(panel.mount_count() == 16);
     CHECK(panel.total_mass() == 100670.0);
     CHECK(panel.power_draw() == 57800.0);  // new sensor draws 2000 W, not 1500
 
@@ -268,7 +272,7 @@ TEST_CASE("loadout_editor_panel") {
     const std::string emitted = panel.emit_source();
     CHECK(emitted.find("sensor_array_hp_wingtip_l") != std::string::npos);
     CHECK(emitted.find("id = \"sensor_scan\"") == std::string::npos);  // block removed
-    CHECK(count_of(emitted, "[[component]]") == 11);
+    CHECK(count_of(emitted, "[[component]]") == 16);
     CHECK(emitted.find("w_engL") != std::string::npos);                // wires intact
     CHECK(emitted.find("# Phase 5 sample hull def") != std::string::npos);  // comments intact
     CHECK(emitted.find("15 deg") != std::string::npos);                // #42 suffixes intact
@@ -283,20 +287,22 @@ TEST_CASE("loadout_editor_panel") {
     auto relaunched = sim::load_hull_loadout(def0a, socku, 0xAULL);
     REQUIRE_MESSAGE(relaunched, "");
     const auto& mm = relaunched->loadout.mounts();
-    REQUIRE(mm.size() == 11);
+    REQUIRE(mm.size() == 16);
     // Panel working order == reloaded order == def component order.
     const std::vector<std::string> want = {
         "engine_L", "engine_R", "rcs_wt", "turret_dorsal", "seat_pilot",
-        "door_1", "panel_main", "berth_1", "reactor_1", "battery_1",
+        "door_1", "door_2", "door_3",  // extra wire-route seams (#51)
+        "panel_main", "berth_1", "reactor_1", "battery_1",
+        "gun_laser", "gun_cannon", "rocket_pod",  // 9.6 weapon mounts
         "sensor_array_hp_wingtip_l"};
-    for (std::size_t i = 0; i < 11; ++i) {
+    for (std::size_t i = 0; i < 16; ++i) {
         CHECK(mm[i].instance_id == want[i]);
     }
-    CHECK(mm[10].type_id == "sensor.array");
-    CHECK(mm[10].socket_id == "hp_wingtip_L");
+    CHECK(mm[15].type_id == "sensor.array");  // 16 rows: +door_2/3, +3 guns
+    CHECK(mm[15].socket_id == "hp_wingtip_L");
     // #42 suffix converted on the way through the cooklet: "150 km" -> 150000.
     double range = -1.0, draw = -1.0, mass = -1.0;
-    for (const auto& a : mm[10].attrs) {
+    for (const auto& a : mm[15].attrs) {
         if (a.key == "sensor.range") range = a.value;
         if (a.key == "power.draw") draw = a.value;
         if (a.key == "mass") mass = a.value;
@@ -308,7 +314,7 @@ TEST_CASE("loadout_editor_panel") {
     // ---- hull swap (#24d): whole loadout replaced by the option's own -----
     click(ui, "use:" + id_b, h_all);
     CHECK(*panel.current_def_id() == id_b);
-    CHECK(panel.mount_count() == 11);
+    CHECK(panel.mount_count() == 16);  // def_b = def_a + door_2/door_3 (#51)
     CHECK(panel.total_mass() == 51670.0);  // 49000 hull + same 2670 kg kit
     CHECK(panel.power_draw() == 57300.0);  // B still has the ORIGINAL sensor
     // A's edits are untouched under the swap (independent working copies):
@@ -432,4 +438,149 @@ TEST_CASE("loadout_editor_gates") {
     CHECK(emitted.find("id = \"p_main_hp_m\"") != std::string::npos);
     CHECK(emitted.find("id = \"p_util_hp_u\"") != std::string::npos);
     CHECK(emitted.find("class_tag") == 0);  // root keys untouched, still first
+}
+
+TEST_CASE("loadout_editor_wire_routes") {
+    // Phase 9 task 9.5 (#51): route edit mode. The host feeds the panel the
+    // SAME view builder the cook G12 gate wraps (route_views_from_def over
+    // decoded DEF0+SOCK), and an accepted edit must pass the REAL watch-mode
+    // cook — one law, byte-identical refusal strings, pinned end-to-end.
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("ve_ldt_route_" + std::to_string(ve_test::pid()));
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root / "defs");
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples", root / "samples",
+                          std::filesystem::copy_options::recursive);
+    const std::string def_a =
+        read_text(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml");
+    std::ofstream(root / "defs" / "test_ship.def.toml", std::ios::binary) << def_a;
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/comptypes",
+                          root / "defs" / "comptypes",
+                          std::filesystem::copy_options::recursive);
+    const auto out = root / "out";
+    {
+        const auto r = ve::cook::cook_incremental(root.string(), out.string());
+        REQUIRE_MESSAGE(r.ok, r.error);
+    }
+    const std::string id_a = "defs/test_ship.def.toml";
+    std::string err;
+    core::cooked::Unit def0a, socku;
+    REQUIRE_MESSAGE(core::cooked::read_unit_file((out / "units" / (id_a + ".ck")).string(), def0a, &err), err);
+    REQUIRE_MESSAGE(core::cooked::read_unit_file(
+                        (out / "units" / "samples/test_ship.glb.sock.ck").string(), socku, &err), err);
+    auto lha = sim::load_hull_loadout(def0a, socku, 0xAULL);
+    const std::string lha_err = lha ? std::string{} : lha.error();
+    REQUIRE_MESSAGE(lha.has_value(), lha_err);
+
+    // Host-side route views: exactly the builder the cook gate uses.
+    ve::cook::DefView defv;
+    ve::cook::SockView sockv;
+    REQUIRE_MESSAGE(ve::cook::decode_def_payload(def0a.payload, defv, &err), err);
+    REQUIRE_MESSAGE(ve::cook::decode_sock_payload(socku.payload, sockv, &err), err);
+    const auto rv = ve::cook::route_views_from_def(defv, {sockv});
+    REQUIRE(rv.sections.size() == 4);
+    REQUIRE(rv.door_seams.size() == 3);       // door_1/2/3 seams (#51 9.3 sample)
+    REQUIRE(rv.wires.size() == 6);
+    for (const auto& w : rv.wires) REQUIRE(w.has_value());  // every endpoint -> cell
+
+    auto snap = snapshot_from(id_a, "test ship", *lha, def_a, {});
+    snap.sections = rv.sections;
+    snap.door_seams = rv.door_seams;
+    for (const auto& w : rv.wires) snap.wires.push_back(*w);
+    game::loadout_editor_panel panel;
+    panel.set_hulls({std::move(snap)});
+
+    gfx::font0 font;
+    prep_font(font);
+    gfx::ui_context ui;
+    const std::int32_t h_all = 760;
+    auto render = [&]() {
+        const gfx::ui_io none{};
+        ui.begin_frame(none, font, 1280, 720);
+        panel.render(ui, 8, 8, 720, h_all);
+        ui.end_frame();
+    };
+    render();
+    CHECK(panel.rect_for("rt:w_engL").w > 0);  // wire rows only draw with views
+    REQUIRE(panel.wire_route("w_engL") != nullptr);
+    CHECK(panel.wire_route("w_engL")->route.size() == 7);
+
+    auto click_at = [&](const std::string& key) {
+        const auto r = panel.rect_for(key);
+        REQUIRE(r.w > 0);
+        const float cx = static_cast<float>(r.x + r.w / 2), cy = static_cast<float>(r.y + r.h / 2);
+        const gfx::ui_io down = click_down(cx, cy), up = click_up(cx, cy);
+        ui.begin_frame(down, font, 1280, 720); panel.render(ui, 8, 8, 720, h_all); ui.end_frame();
+        ui.begin_frame(up, font, 1280, 720); panel.render(ui, 8, 8, 720, h_all); ui.end_frame();
+        render();  // settle: rects for newly drawn widgets captured
+    };
+    auto type_text = [&](const std::string& text) {  // full draft + ENTER one frame
+        gfx::ui_io io{};
+        io.chars.assign(text.begin(), text.end());
+        io.enter = true;
+        ui.begin_frame(io, font, 1280, 720); panel.render(ui, 8, 8, 720, h_all); ui.end_frame();
+        render();
+    };
+
+    // ---- enter edit mode --------------------------------------------------
+    click_at("rt:w_engL");
+    REQUIRE(panel.editing_wire() != nullptr);
+    CHECK(*panel.editing_wire() == "w_engL");
+    CHECK(panel.rect_for("route").w > 0);
+
+    // ---- grammar refuse: SHARED route_law string (9.5a), zero state -------
+    click_at("route");
+    click_at("rclr");
+    click_at("route");
+    type_text("x,0,1");
+    REQUIRE(panel.last_reject() != nullptr);
+    CHECK(*panel.last_reject() == "cell coord 'x' is not an integer");
+    CHECK(panel.wire_route("w_engL")->route.size() == 7);
+
+    // ---- spatial refuse: byte-identical to the cook G12b pin --------------
+    click_at("rclr");
+    click_at("route");
+    type_text("-1,0,1,0,0,1,0,0,0,0,0,-1,0,0,-3,1,0,-3");
+    REQUIRE(panel.last_reject() != nullptr);
+    CHECK(*panel.last_reject() ==
+          "wire 'w_engL' route cells 3 (0,0,-1) and 4 (0,0,-3) are not 6-adjacent (#51 G12b)");
+    CHECK(panel.wire_route("w_engL")->route.size() == 7);
+    CHECK(panel.editing_wire() != nullptr);  // refused draft keeps edit mode (#48)
+
+    // ---- legal edit: mid-section side-step, accepted by the shared law ----
+    click_at("rclr");
+    click_at("route");
+    type_text("-1,0,1,0,0,1,0,0,0,-1,0,0,0,0,0,0,0,-1,0,0,-2,0,0,-3,1,0,-3");
+    CHECK(panel.last_reject() == nullptr);
+    CHECK(panel.wire_route("w_engL")->route.size() == 9);
+    click_at("rd:w_engL");  // [done] leaves edit mode
+    CHECK(panel.editing_wire() == nullptr);
+
+    // ---- write-back: edited wire canonical, untouched wires authored bytes -
+    const std::string emitted = panel.emit_source();
+    CHECK(emitted.find("[[-1, 0, 1], [0, 0, 1], [0, 0, 0], [-1, 0, 0], [0, 0, 0], "
+                       "[0, 0, -1], [0, 0, -2], [0, 0, -3], [1, 0, -3]]") !=
+          std::string::npos);  // canonical form of the EDITED route
+    CHECK(emitted.find("[[-1,0,1],[0,0,1],[0,0,0],[0,0,-1],[0,0,-2],[0,0,-3],[-1,0,-3]]") !=
+          std::string::npos);  // w_engR authored line byte-preserved
+    CHECK(count_of(emitted, "[[wire]]") == 6);
+
+    // ---- end-to-end: an editor-accepted edit MUST pass the real cook ------
+    std::ofstream(root / "defs" / "test_ship.def.toml", std::ios::binary) << emitted;
+    const auto recook = ve::cook::cook_incremental(root.string(), out.string());
+    REQUIRE_MESSAGE(recook.ok, recook.error);
+    core::cooked::Unit def0c;
+    REQUIRE_MESSAGE(core::cooked::read_unit_file((out / "units" / (id_a + ".ck")).string(), def0c, &err), err);
+    ve::cook::DefView defc;
+    REQUIRE_MESSAGE(ve::cook::decode_def_payload(def0c.payload, defc, &err), err);
+    auto we = std::find_if(defc.wires.begin(), defc.wires.end(),
+                           [](const auto& w) { return w.id == "w_engL"; });
+    REQUIRE(we != defc.wires.end());
+    CHECK(we->route.size() == 9);
+    CHECK((we->route.front() == std::array<std::int32_t, 3>{-1, 0, 1}));
+    CHECK((we->route.back() == std::array<std::int32_t, 3>{1, 0, -3}));
+    auto wr = std::find_if(defc.wires.begin(), defc.wires.end(),
+                           [](const auto& w) { return w.id == "w_engR"; });
+    REQUIRE(wr != defc.wires.end());
+    CHECK(wr->route.size() == 7);  // untouched wire survived recook
 }

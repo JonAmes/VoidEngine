@@ -548,4 +548,22 @@ bool cook_glb_unit(const Bytes& glb, const std::string& id, Unit& mesh_out, Unit
     return true;
 }
 
+bool glb_node_names(const Bytes& glb, std::vector<std::string>& names_out,
+                    std::string* err) {
+    json::Value doc;
+    Bytes bin;
+    std::string chunk_err;
+    if (!read_chunks(glb, doc, bin, chunk_err)) {
+        if (err) *err = chunk_err;
+        return false;
+    }
+    names_out.clear();
+    if (const auto* nodes = doc.find("nodes"))
+        if (nodes->is_arr())
+            for (const auto& n : nodes->a())
+                if (const auto* nm = n.find("name"); nm && nm->is_str())
+                    names_out.push_back(nm->s());
+    return true;
+}
+
 } // namespace ve::cook

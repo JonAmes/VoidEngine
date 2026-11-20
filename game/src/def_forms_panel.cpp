@@ -13,6 +13,7 @@
 #include <cmath>
 
 #include "ve/game/attr_keys.h"
+#include "ve/game/route_law.h"
 #include "ve/gfx/ui.h"
 
 namespace ve::game {
@@ -171,6 +172,10 @@ bool def_forms_panel::composite_ok(const def_field& f, std::string_view text,
         if (n == 0 || n % 6 != 0) { msg = "cells need whole boxes (6 bounds each)"; return false; }
         return true;
     }
+    case field_kind::int_cells: {  // #51 route: shared grammar (route_law, 9.5a) —
+        // whole [x,y,z] triples, NOT the 6 bounds of a box (9.3 bug fixed here).
+        return route_text_ok(text, msg);
+    }
     default:
         return true;
     }
@@ -280,7 +285,8 @@ void def_forms_panel::render(gfx::ui_context& ui, const char* title,
         }
         case field_kind::tag_list:
         case field_kind::attr_map:
-        case field_kind::int_boxes: {
+        case field_kind::int_boxes:
+        case field_kind::int_cells: {  // #51
             // Free-text with panel-side composite grammar (draw_text_field
             // only enforces non-empty).
             auto& st = edit_state(path);

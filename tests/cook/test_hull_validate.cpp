@@ -46,6 +46,14 @@ DefView::Comp mk_comp(const std::string& id, const std::string& type, const std:
     c.socket = socket;
     c.category = 3;
     c.face = static_cast<std::uint8_t>(face);
+    // #52b (DEF0 v3 / gate G11): art resolves to the fixture's mesh source
+    // (same asset the SOCK anchors came from) + a mount transform; tests
+    // for EARLIER gates are unaffected (G11 runs last), pass-tests satisfy
+    // it here, and G11-specific tests strip the fields back out.
+    c.art_ref = "m.glb";
+    c.has_mount = 1;
+    c.mount_t = {1.0, 0.0, -2.0};
+    c.mount_q = {0.0, 0.0, 0.0, 1.0};
     return c;
 }
 
@@ -64,6 +72,7 @@ HullInputs mk_hull() {
                  mk_anchor("seat_1", 2, 0.5, 0.55, -2.0),         // subcell lattice
                  mk_anchor("hp_dockport", 0, -2.0, 0.0, -2.0)};   // #47b utility hardpoint, cell A
     h.socks = {s};
+    h.deps = {"m.glb"};  // #52b: G11 checks the art_ref rides a manifest dep
     h.def.comps = {
         mk_comp("engine", "engine.fusion", "hp_engine"),
         mk_comp("door_1", "door.hatch", "door_1", 5),             // +z -> cell B
@@ -74,7 +83,9 @@ HullInputs mk_hull() {
     // G10 (#47b) contract: clamp strength + mass attrs, undock verb.
     h.def.comps[4].attrs = {{"dock.clamp_strength", 500000.0}, {"mass", 800.0}};
     h.def.comps[4].facets.push_back({"port.undock", "", 0});
-    h.def.wires.push_back({"w1", 0, 1, 0, "engine", "hp_engine"});  // comp -> hardpoint
+    // comp -> hardpoint; both endpoints sit in cell (1,0,-1) so the #51
+    // route is the single-cell trivial path (G12a attach, no steps).
+    h.def.wires.push_back({"w1", 0, 1, 0, "engine", "hp_engine", {{1, 0, -1}}});
     h.def.comps[0].facets.push_back({"repair.target", "w1", 1});
     return h;
 }
@@ -329,5 +340,67 @@ TEST_CASE("cook_hull_validate_gates") {
         err = run_fail(h);
         CHECK(err.find("missing required 'face'") != std::string::npos);
         CHECK(err.find("names no anchor") == std::string::npos);
+    }
+    // G11 (#52b, 9.2): strict art-ref gate — every mounted component needs
+    // resolved art, that asset as a manifest dep edge, and a mount TRS.
+    // The full-pass fixture satisfies it (mk_comp art + mk_hull deps); each
+    // violation is pinned exactly once.
+    {
+        HullInputs no_art = mk_hull();
+        no_art.def.comps[2].art_ref.clear();
+        std::string e = run_fail(no_art);
+        CHECK_MESSAGE(e.find("airlock_1' resolves no art") != std::string::npos, e);
+
+        HullInputs not_dep = mk_hull();
+        not_dep.def.comps[0].art_ref = "art/other.glb";
+        std::string e2 = run_fail(not_dep);
+        CHECK_MESSAGE(e2.find("art/other.glb' is not a manifest dep") != std::string::npos, e2);
+
+        HullInputs no_mount = mk_hull();
+        no_mount.def.comps[4].has_mount = 0;
+        std::string e3 = run_fail(no_mount);
+        CHECK_MESSAGE(e3.find("dockport_1' has no mount transform") != std::string::npos, e3);
+    }
+    // G12 (#51, 9.3): wire-route spatial gates. Full-pass fixture rides the
+    // trivial single-cell route; each violation is pinned exactly once, and
+    // the door-seam-positive case proves door_1's seam is what carries the
+    // A->B crossing (removing it is what the negative case shows).
+    {
+        HullInputs mis = mk_hull();
+        mis.def.wires[0].route = {{0, 0, -1}, {1, 0, -1}};  // starts off-anchor
+        std::string e = run_fail(mis);
+        CHECK_MESSAGE(e.find("route starts at (0,0,-1), not at its 'from' endpoint cell (1,0,-1) (#51 G12a)") != std::string::npos, e);
+
+        HullInputs offend = mk_hull();
+        offend.def.wires[0].route = {{1, 0, -1}, {1, 0, 0}};  // ends off-anchor
+        std::string ee = run_fail(offend);
+        CHECK_MESSAGE(ee.find("route ends at (1,0,0), not at its 'to' endpoint cell (1,0,-1) (#51 G12a)") != std::string::npos, ee);
+
+        HullInputs jump = mk_hull();
+        jump.def.wires[0].route = {{1, 0, -1}, {1, 1, -2}, {1, 0, -1}};  // diagonal leap
+        std::string e2 = run_fail(jump);
+        CHECK_MESSAGE(e2.find("cells 0 (1,0,-1) and 1 (1,1,-2) are not 6-adjacent (#51 G12b)") != std::string::npos, e2);
+
+        HullInputs off = mk_hull();
+        off.def.wires[0].route = {{1, 0, -1}, {2, 0, -1}, {1, 0, -1}};  // (2,0,-1) outside A
+        std::string e3 = run_fail(off);
+        CHECK_MESSAGE(e3.find("route cell (2,0,-1) is in 0 sections") != std::string::npos, e3);
+
+        HullInputs wall = mk_hull();
+        wall.def.wires[0].route = {{1, 0, -1}, {1, 0, 0}, {1, 0, -1}};  // A->B not at door_1's seam
+        std::string e4 = run_fail(wall);
+        CHECK_MESSAGE(e4.find("crosses section 'A' -> 'B' between cells (1,0,-1) -> (1,0,0) with no door seam (#51 G12d)") != std::string::npos, e4);
+
+        HullInputs thru = mk_hull();
+        thru.def.wires[0].route = {{1, 0, -1}, {0, 0, -1}, {0, 0, 0}, {0, 0, -1}, {1, 0, -1}};
+        run_pass(thru);  // crossing at door_1's (0,0,-1)<->(0,0,0) seam is legal
+
+        // A hand-built DEF0 payload CAN carry a zero-cell route row (the TOML
+        // grammar requires >=1 cell, the payload does not): the G12 empty
+        // guard is what stops front()/back() reading off the end.
+        HullInputs nil = mk_hull();
+        nil.def.wires[0].route.clear();
+        std::string e5 = run_fail(nil);
+        CHECK_MESSAGE(e5.find("has an empty route (#51)") != std::string::npos, e5);
     }
 }

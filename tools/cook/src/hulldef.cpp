@@ -8,10 +8,14 @@
 //                      integer >= 1 (#44: every hull declares its lattice).
 //   [[section]]        name + cells = flat [lo.x lo.y lo.z hi.x hi.y hi.z]
 //                      boxes, CELL coords (#19a).
-//   [[component]]      id/type/category/socket; optional tags, [component.attrs]
-//                      (registry keys, #42 coercion), [[component.facet]]
-//                      (action + range + optional manual) (#28a).
+//   [[component]]      id/type/category/socket; optional tags, refs (#55b art
+//                      override), [component.attrs] (registry keys, #42
+//                      coercion), [[component.facet]] (action + range +
+//                      optional manual) (#28a). Entries whose `type` matches a
+//                      component TYPE def inherit its category + [attrs]
+//                      preset, overridden key-by-key (#52a/#55).
 //   [[wire]]           id/type power|signal|power+signal, optional capacity,
+//                      required route = ordered [[x,y,z],...] cell path (#51),
 //                      from/to = "socket.<id>" | "component.<id>" (#26a).
 //   [[seam]]           partner def ref + shared socket + optional offset
 //                      (#46d; partner joins the manifest dep graph).
@@ -26,6 +30,7 @@
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -39,7 +44,7 @@
 namespace ve::cook {
 namespace {
 
-constexpr std::uint32_t kPayloadVersion = 2;  // DEF0 v2: facet target + seams (cooked.h layout)
+constexpr std::uint32_t kPayloadVersion = 4;  // DEF0 v4: per-wire route + section->wires index (cooked.h layout, #51); v3 added per-component art_ref + mount TRS (#52b)
 
 // LE byte writer — same byte doctrine as the SOCK/MESH payloads (cooked.h).
 struct Writer {
@@ -53,6 +58,11 @@ struct Writer {
         unsigned char t[8];
         std::memcpy(t, &v, 8);
         for (int i = 0; i < 8; ++i) b.push_back(t[i]);
+    }
+    void f32(float v) {
+        unsigned char t[4];
+        std::memcpy(t, &v, 4);
+        for (int i = 0; i < 4; ++i) b.push_back(t[i]);
     }
     void str(const std::string& s) {
         u32(static_cast<std::uint32_t>(s.size()));
@@ -172,6 +182,9 @@ struct CompRow {
     // fail at 5.9b validation) on those types; meaningless elsewhere.
     std::uint8_t face = 0;
     std::vector<std::string> tags;
+    // #55b: entry-level art refs; when non-empty they FULLY REPLACE the type
+    // def's refs (art override; key-by-key override applies to attrs only).
+    std::vector<std::string> refs;
     std::vector<Attr> attrs;   // std::map key order (deterministic)
     std::vector<Facet> facets;
 };
@@ -182,6 +195,48 @@ bool face_u8(std::string_view s, std::uint8_t& out) {
     for (std::size_t i = 0; i < ve::game::kFace_axis_names.size(); ++i)
         if (s == ve::game::kFace_axis_names[i]) { out = static_cast<std::uint8_t>(i + 1); return true; }
     return false;
+}
+
+// [attrs] map flattened + #42-gated — shared by hull [[component.attrs]]
+// entries AND component TYPE def presets (9.1: "the #42 entry gate operates
+// at both def kinds", #52a). `prefix` is the def-relative path without a
+// trailing dot ("component[0].attrs" / "attrs"); hull-end messages stay
+// byte-identical to the 5.8 entry gate.
+bool parse_attrs_map(const TomlValue& attrs, const std::string& prefix,
+                     std::vector<Attr>& out, std::string& err) {
+    if (!attrs.is_table()) return fail(err, prefix + " must be a table");
+    // TOML dotted keys nest ([component.attrs] + `power.draw = 1` creates
+    // a `power` sub-table). The attr registry uses flat dotted names, so
+    // flatten nested tables to dot-joined keys before validating. std::map
+    // over the joined names keeps emission order deterministic (key order).
+    std::vector<std::pair<std::string, const TomlValue*>> flat;
+    std::function<void(const TomlTable&, const std::string&)> walk =
+        [&](const TomlTable& tbl, const std::string& prefix2) {
+            for (const auto& [k, v] : tbl) {
+                const std::string key = prefix2.empty() ? k : prefix2 + "." + k;
+                if (v.is_table()) walk(v.table, key);
+                else flat.emplace_back(key, &v);
+            }
+        };
+    walk(attrs.table, "");
+    for (const auto& [key, val] : flat) {
+        if (!ve::game::is_valid_attr_key(key))
+            return fail(err, prefix + " key '" + key + "' fails grammar");
+        const bool known = std::any_of(ve::game::kPhase5_attr_keys.begin(),
+                                       ve::game::kPhase5_attr_keys.end(),
+                                       [&](std::string_view k) { return k == key; });
+        if (!known)
+            return fail(err, prefix + " key '" + key + "' not in the ratified attr-key registry");
+        const std::string path = prefix + "." + key;
+        double v = 0.0;
+        if (val->is_number()) {
+            if (!req_num(*val, path, v, err)) return false;
+        } else if (!req_unit(*val, path, v, err)) {  // string form: unit-suffixed only (#42)
+            return false;
+        }
+        out.push_back({key, v});
+    }
+    return true;
 }
 
 bool parse_component(const TomlValue& row, const std::string& where, CompRow& c, std::string& err) {
@@ -202,41 +257,11 @@ bool parse_component(const TomlValue& row, const std::string& where, CompRow& c,
     }
     if (const TomlValue* tags = at(t, "tags"))
         if (!req_string_array(*tags, where + ".tags", c.tags, err)) return false;
+    if (const TomlValue* refs = at(t, "refs"))  // #55b art override
+        if (!req_string_array(*refs, where + ".refs", c.refs, err)) return false;
 
-    if (const TomlValue* attrs = at(t, "attrs")) {
-        if (!attrs->is_table()) return fail(err, where + ".attrs must be a table");
-        // TOML dotted keys nest ([component.attrs] + `power.draw = 1` creates
-        // a `power` sub-table). The attr registry uses flat dotted names, so
-        // flatten nested tables to dot-joined keys before validating. std::map
-        // over the joined names keeps emission order deterministic (key order).
-        std::vector<std::pair<std::string, const TomlValue*>> flat;
-        std::function<void(const TomlTable&, const std::string&)> walk =
-            [&](const TomlTable& tbl, const std::string& prefix) {
-                for (const auto& [k, v] : tbl) {
-                    const std::string key = prefix.empty() ? k : prefix + "." + k;
-                    if (v.is_table()) walk(v.table, key);
-                    else flat.emplace_back(key, &v);
-                }
-            };
-        walk(attrs->table, "");
-        for (const auto& [key, val] : flat) {
-            if (!ve::game::is_valid_attr_key(key))
-                return fail(err, where + ".attrs key '" + key + "' fails grammar");
-            const bool known = std::any_of(ve::game::kPhase5_attr_keys.begin(),
-                                           ve::game::kPhase5_attr_keys.end(),
-                                           [&](std::string_view k) { return k == key; });
-            if (!known)
-                return fail(err, where + ".attrs key '" + key + "' not in the ratified attr-key registry");
-            const std::string path = where + ".attrs." + key;
-            double v = 0.0;
-            if (val->is_number()) {
-                if (!req_num(*val, path, v, err)) return false;
-            } else if (!req_unit(*val, path, v, err)) {  // string form: unit-suffixed only (#42)
-                return false;
-            }
-            c.attrs.push_back({key, v});
-        }
-    }
+    if (const TomlValue* attrs = at(t, "attrs"))
+        if (!parse_attrs_map(*attrs, where + ".attrs", c.attrs, err)) return false;
     if (const TomlValue* facets = at(t, "facet")) {
         if (facets->kind != TomlValue::kArray)
             return fail(err, where + ".facet must be an array ([[component.facet]])");
@@ -284,7 +309,35 @@ struct WireRow {
     double capacity = 0.0;
     std::uint8_t from_kind = 0, to_kind = 0;  // 0 socket, 1 component
     std::string from_ref, to_ref;
+    std::vector<std::array<std::int32_t, 3>> route;  // ordered #44 cell path (#51)
 };
+
+// #51 wire route grammar: `route = [[x,y,z], ...]` — an ordered chain of
+// CELL lattice points (integer cell coords, same kind gate as section
+// boxes). Spatial law (endpoint attach, adjacency, lattice membership,
+// door-seam-only boundary crossing) is validated at gate G12.
+bool parse_route(const TomlTable& t, const std::string& where,
+                 std::vector<std::array<std::int32_t, 3>>& route, std::string& err) {
+    const TomlValue* r = at(t, "route");
+    if (!r)
+        return fail(err, where + "route is required (#51): an ordered path of cell coords");
+    if (r->kind != TomlValue::kArray || r->array.empty())
+        return fail(err, where + "route must be a non-empty array of [x,y,z] cells (#51)");
+    for (std::size_t i = 0; i < r->array.size(); ++i) {
+        const TomlValue& c = r->array[i];
+        if (c.kind != TomlValue::kArray || c.array.size() != 3)
+            return fail(err, where + "route[" + std::to_string(i) +
+                                 "] must be [x,y,z] of 3 integers (cell coords)");
+        std::array<std::int32_t, 3> cell{};
+        for (int ax = 0; ax < 3; ++ax) {
+            if (c.array[ax].kind != TomlValue::kInteger)
+                return fail(err, where + "route cell coords must be integers (cell coords)");
+            cell[ax] = static_cast<std::int32_t>(c.array[ax].integer);
+        }
+        route.push_back(cell);
+    }
+    return true;
+}
 
 // "socket.<id>" / "component.<id>" endpoint grammar (#26a).
 bool parse_endpoint(const TomlTable& t, std::string_view key, const std::string& where,
@@ -325,13 +378,124 @@ bool parse_wire(const TomlValue& row, const std::string& where, WireRow& w, std:
     }
     if (!parse_endpoint(t, "from", where + ".", w.from_kind, w.from_ref, err)) return false;
     if (!parse_endpoint(t, "to", where + ".", w.to_kind, w.to_ref, err)) return false;
+    if (!parse_route(t, where + ".", w.route, err)) return false;
     return true;
 }
 
 }  // namespace
 
+// ---- #51c: cook-generated wire tube mesh (wire visuals) -----------------
+// A thin-tube MESH payload (layout pinned in ve/core/cooked.h) per hull:
+// ONE submesh per wire, name = wire id — the mount key the render side uses
+// to draw each tube in its reachability colour ("dark not dead", #51c).
+// No MAT0 material (0xFFFFFFFF = none), no textures, no new passes or deps.
+// Geometry: a 6-sided prism swept along the route polyline; polyline points
+// are CELL CENTRES in hull-local metres — cell (x,y,z) maps to
+// ((x+0.5)*cell_m, (y+0.5)*height_m, (z+0.5)*cell_m), keeping the tube off
+// the wall planes (G12d lets legal crossings pierce a face at its centre).
+// Routes are 6-adjacent chains only AFTER gate G12, which runs later, so
+// the builder must not trust adjacency: segment frames come from the
+// delta's DOMINANT axis with exact integer axes and a literal ring cos/sin
+// table — no libm anywhere, so payload bytes are bit-identical on every
+// machine (determinism doctrine). A doomed def may cook a garbage tube
+// shape; the gate still cooks it out. Tri winding: ring k is CCW around the
+// outgoing tangent t with frame (u, b=t×u, u×b=t); quad tris (a,b,c)+(a,c,d)
+// face outward — the cooklet owns culling (MESH layout comment).
+constexpr float kTubeRadius = 0.05f;  // cosmetic thin conduit (#51c)
+constexpr int kTubeSides = 6;
+constexpr float kRingC[kTubeSides] = {1.f, .5f, -.5f, -1.f, -.5f, .5f};
+constexpr float kRingS[kTubeSides] = {0.f, .8660254f, .8660254f,
+                                      0.f, -.8660254f, -.8660254f};
+
+void emit_wire_tubes(const std::vector<WireRow>& wires, double cell_m,
+                     double height_m, Bytes& out) {
+    Writer wr;
+    wr.u32(static_cast<std::uint32_t>(wires.size()));
+    for (const auto& wire : wires) {
+        wr.str(wire.id);
+        wr.u32(0xFFFFFFFFu);  // material_index: none (#51c)
+        const auto n = static_cast<std::uint32_t>(wire.route.size());
+        wr.u32(n * kTubeSides);
+        // MESH layout is PLANAR channel blocks (pos|nrm|uv|tan), not
+        // interleaved — collect vertices in ring-major order, emit channels.
+        std::vector<float> pos, nrm, uvs, tan;
+        pos.reserve(n * kTubeSides * 3);
+        nrm.reserve(n * kTubeSides * 3);
+        uvs.reserve(n * kTubeSides * 2);
+        tan.reserve(n * kTubeSides * 4);
+        float dist = 0.f;  // uv.u = cumulative path length (metres)
+        std::array<int, 3> prev{1, 0, 0};  // last ring repeats last frame
+        for (std::uint32_t i = 0; i < n; ++i) {
+            const auto& cell = wire.route[i];
+            std::array<int, 3> d{0, 0, 0};
+            if (i + 1 < n) {
+                const auto& nx = wire.route[i + 1];
+                d = {nx[0] - cell[0], nx[1] - cell[1], nx[2] - cell[2]};
+                prev = d;
+            } else {
+                d = prev;
+            }
+            // dominant-axis frame: t on the step axis, u fixed per axis,
+            // b = t×u. All exact ints; sign of the step rides into t.
+            int axis = 0;
+            if (std::abs(d[1]) > std::abs(d[axis])) axis = 1;
+            if (std::abs(d[2]) > std::abs(d[axis])) axis = 2;
+            std::array<float, 3> t{0.f, 0.f, 0.f}, u{0.f, 0.f, 0.f};
+            t[axis] = d[axis] < 0 ? -1.f : 1.f;
+            if (axis == 0) u[1] = 1.f; else u[0] = 1.f;
+            const std::array<float, 3> b{t[1] * u[2] - t[2] * u[1],
+                                         t[2] * u[0] - t[0] * u[2],
+                                         t[0] * u[1] - t[1] * u[0]};
+            // world distance advanced entering this vertex (first stays 0)
+            if (i > 0)
+                dist += static_cast<float>(std::abs(d[axis])) *
+                        static_cast<float>(axis == 1 ? height_m : cell_m);
+            const float cx = static_cast<float>((cell[0] + 0.5) * cell_m);
+            const float cy = static_cast<float>((cell[1] + 0.5) * height_m);
+            const float cz = static_cast<float>((cell[2] + 0.5) * cell_m);
+            for (int k = 0; k < kTubeSides; ++k) {
+                const float rc = kRingC[k], rs = kRingS[k];
+                const std::array<float, 3> nr{rc * u[0] + rs * b[0],
+                                              rc * u[1] + rs * b[1],
+                                              rc * u[2] + rs * b[2]};
+                pos.insert(pos.end(),
+                           {cx + kTubeRadius * nr[0], cy + kTubeRadius * nr[1],
+                            cz + kTubeRadius * nr[2]});
+                nrm.insert(nrm.end(), nr.begin(), nr.end());
+                uvs.push_back(dist);
+                uvs.push_back(static_cast<float>(k) / kTubeSides);
+                tan.insert(tan.end(), {t[0], t[1], t[2], 1.f});
+            }
+        }
+        for (float v : pos) wr.f32(v);
+        for (float v : nrm) wr.f32(v);
+        for (float v : uvs) wr.f32(v);
+        for (float v : tan) wr.f32(v);
+        wr.u32(n > 0 ? (n - 1) * kTubeSides * 2 : 0u);  // 2 tris per side quad
+        for (std::uint32_t i = 0; i + 1 < n; ++i)
+            for (int k = 0; k < kTubeSides; ++k) {
+                const std::uint32_t a = i * kTubeSides + k,
+                                    b2 = i * kTubeSides + (k + 1) % kTubeSides,
+                                    c2 = (i + 1) * kTubeSides + (k + 1) % kTubeSides,
+                                    d2 = (i + 1) * kTubeSides + k;
+                wr.u32(a); wr.u32(b2); wr.u32(c2);
+                wr.u32(a); wr.u32(c2); wr.u32(d2);
+            }
+    }
+    wr.u32(0u);  // material_count: no MAT0 (#51c)
+    wr.u32(0u);  // socket_count: tubes carry no anchors
+    wr.u32(0u);  // root_extras_len
+    out = std::move(wr.b);
+}
+
 bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
-                       std::vector<std::string>& refs_out, std::string* err) {
+                       std::vector<std::string>& refs_out, std::string* err,
+                       const std::map<std::string, CompTypeDef>* type_defs,
+                       std::vector<std::string>* used_types_out,
+                       std::vector<std::string>* entry_refs_out,
+                       const std::map<std::string, std::string>* art_by_comp,
+                       const std::map<std::string, MountTRS>* anchors,
+                       Bytes* tubes_out) {
     std::string local;
     std::string& e = err ? *err : local;
     TomlValue root;
@@ -421,6 +585,39 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
             const std::string where = "component[" + std::to_string(i) + "]";
             CompRow c;
             if (!parse_component(cs->array[i], where, c, e)) return false;
+            // #52a/#55 component TYPE def resolution: the type def is the
+            // single truth for category, and its [attrs] preset joins the
+            // entry's map — an explicit hull key ALWAYS wins (#52a). The
+            // merged map emits in std::map key order like every attrs list.
+            const CompTypeDef* td = nullptr;
+            if (type_defs) {
+                auto it = type_defs->find(c.type);
+                if (it != type_defs->end()) td = &it->second;
+            }
+            if (td) {
+                if (c.category != td->category)
+                    return fail(e, where + ".category '" +
+                                     std::string{ve::game::kCategory_names[c.category]} +
+                                     "' does not match component type '" + c.type +
+                                     "' category '" +
+                                     std::string{ve::game::kCategory_names[td->category]} +
+                                     "' (#55)");
+                std::map<std::string, double> merged;
+                for (const auto& [k, v] : td->attrs) merged.emplace(k, v);
+                for (const auto& a : c.attrs) merged[a.key] = a.value;
+                c.attrs.clear();
+                for (const auto& [k, v] : merged) c.attrs.push_back({k, v});
+            }
+            if (used_types_out && td) used_types_out->push_back(c.type);
+            // #55b edge doctrine: only the entry's OWN refs become hull dep
+            // edges (authored against the hull's directory). The type def's
+            // refs are authored against the type def's directory and already
+            // ride the type def unit's own manifest edges — the hull reaches
+            // inherited art transitively through its hull -> type-def edge;
+            // re-resolving a type-def-relative path against the hull dir
+            // would point at the wrong content.
+            if (entry_refs_out && !c.refs.empty())
+                entry_refs_out->insert(entry_refs_out->end(), c.refs.begin(), c.refs.end());
             for (const auto& o : comps)
                 if (o.id == c.id) return fail(e, "duplicate component id '" + c.id + "'");
             bool conflict_seen = false;
@@ -517,6 +714,25 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
             w.u8(f.has_target);
             if (f.has_target) w.str(f.target);
         }
+        // #52b (DEF0 v3): resolved art asset ('' = unresolved -> G11 fails
+        // the cook) + the world TRS of the socket/empty this entry mounts
+        // to (the model's keyed node carries the offset from it).
+        std::string art;
+        if (art_by_comp) {
+            if (auto a = art_by_comp->find(c.id); a != art_by_comp->end())
+                art = a->second;
+        }
+        w.str(art);
+        const MountTRS* m = nullptr;
+        if (anchors && !c.socket.empty()) {
+            if (auto an = anchors->find(c.socket); an != anchors->end())
+                m = &an->second;
+        }
+        w.u8(m ? 1 : 0);
+        if (m) {
+            for (double v : m->t) w.f64(v);
+            for (double v : m->q) w.f64(v);
+        }
     }
     w.u32(static_cast<std::uint32_t>(catalog.size()));
     for (const auto& [type, cat] : catalog) { w.str(type); w.u8(cat); }
@@ -530,6 +746,35 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
         w.str(wire.from_ref);
         w.u8(wire.to_kind);
         w.str(wire.to_ref);
+        w.u32(static_cast<std::uint32_t>(wire.route.size()));
+        for (const auto& cell : wire.route)
+            for (std::int32_t v : cell) w.i32(v);
+    }
+    // #51: section->wires index, DERIVED at cook — the query site for
+    // damage severing (9.6: a hit on a section cuts exactly the wires routed
+    // through it). Row i corresponds to section row i above (authored order,
+    // deterministic); entries are indices into the wire table above,
+    // ascending, a wire listed once per section any of its route cells lies
+    // in. Gate G12 later requires every route cell to sit in exactly one
+    // section, so a valid def yields a well-defined index; cells outside all
+    // boxes simply contribute nothing here (the gate catches that case).
+    w.u32(static_cast<std::uint32_t>(sections.size()));
+    for (const auto& [sname, boxes] : sections) {
+        std::vector<std::uint32_t> hits;
+        for (std::size_t i = 0; i < wires.size(); ++i) {
+            bool through = false;
+            for (const auto& cell : wires[i].route) {
+                for (const auto& b : boxes) {
+                    if (cell[0] >= b[0] && cell[0] <= b[3] &&
+                        cell[1] >= b[1] && cell[1] <= b[4] &&
+                        cell[2] >= b[2] && cell[2] <= b[5]) { through = true; break; }
+                }
+                if (through) break;
+            }
+            if (through) hits.push_back(static_cast<std::uint32_t>(i));
+        }
+        w.u32(static_cast<std::uint32_t>(hits.size()));
+        for (std::uint32_t h : hits) w.u32(h);
     }
     w.u32(static_cast<std::uint32_t>(seams.size()));
     for (const auto& s : seams) {
@@ -541,7 +786,76 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
     w.u32(static_cast<std::uint32_t>(refs_out.size()));
     for (const auto& r : refs_out) w.str(r);
 
+    // #51c: companion thin-tube MESH payload for the wire visuals, built
+    // from the same ordered wire table (never re-parsed). Driver writes it
+    // as the <def id>.wires unit — see cook.cpp (sock-sibling doctrine).
+    if (tubes_out) emit_wire_tubes(wires, cell_m, height_m, *tubes_out);
+
     payload_out = std::move(w.b);
+    return true;
+}
+
+bool cook_hulldef_comp_requests(const std::string& toml_text,
+                                std::vector<CompArtRequest>& out, std::string* err) {
+    out.clear();
+    std::string local;
+    std::string& e = err ? *err : local;
+    TomlValue root;
+    if (!parse_toml(toml_text, root, &e)) return false;
+    const TomlTable& rt = root.table;
+    if (!at(rt, "class_tag")) return true;  // not a hull def: no requests
+    const TomlValue* cs = at(rt, "component");
+    if (!cs || cs->kind != TomlValue::kArray) return true;
+    for (std::size_t i = 0; i < cs->array.size(); ++i) {
+        CompRow c;
+        if (!parse_component(cs->array[i], "component[" + std::to_string(i) + "]", c, e))
+            return false;
+        out.push_back({std::move(c.id), std::move(c.type), std::move(c.refs)});
+    }
+    return true;
+}
+
+bool toml_source_has_component_type(const std::string& toml_text) {
+    TomlValue root;
+    std::string err;
+    if (!parse_toml(toml_text, root, &err)) return false;
+    return root.is_table() && root.table.count("component_type") != 0;
+}
+
+bool cook_comptype_source(const std::string& toml_text, CompTypeDef& out, std::string* err) {
+    std::string local;
+    std::string& e = err ? *err : local;
+    TomlValue root;
+    if (!parse_toml(toml_text, root, &e)) return false;  // historical parse message
+    if (!root.is_table()) return fail(e, "component type def root must be a table");
+    const TomlTable& rt = root.table;
+    out = CompTypeDef{};
+
+    // #55(a): the three def markers are mutually exclusive — checked before
+    // the closed-field-set pass so the conflict gets its own loud message.
+    if (rt.count("class_tag"))
+        return fail(e, "component type def declares both class_tag and component_type (#55)");
+    if (rt.count("world_class"))
+        return fail(e, "component type def declares both world_class and component_type (#55)");
+
+    if (!req_str(rt, "component_type", "", out.type, e)) return false;
+    std::string cat;
+    if (!req_str(rt, "category", "", cat, e)) return false;
+    if (!category_u8(cat, out.category))
+        return fail(e, "category '" + cat + "' not one of main/rcs/gun/utility");
+    // refs may be empty until the 9.2 strict art gate lands (#55a).
+    if (const TomlValue* r = at(rt, "refs"))
+        if (!req_string_array(*r, "refs", out.refs, e)) return false;
+    std::vector<Attr> preset;
+    if (const TomlValue* a = at(rt, "attrs"))
+        if (!parse_attrs_map(*a, "attrs", preset, e)) return false;  // #42 at this end too
+    for (const auto& p : preset) out.attrs.emplace_back(p.key, p.value);
+
+    // #55 grammar is CLOSED: an unknown top-level field would silently no-op
+    // (a typo'd preset key never applies) — fail loudly instead.
+    for (const auto& [k, v] : rt)
+        if (k != "component_type" && k != "category" && k != "refs" && k != "attrs")
+            return fail(e, "unknown field '" + k + "' in component type def (#55)");
     return true;
 }
 

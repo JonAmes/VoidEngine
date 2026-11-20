@@ -1,0 +1,6 @@
+# Sample component TYPE def (#52a/#55): art refs + optional [attrs]
+# preset shared by every hull entry of this type. No attrs here -- the
+# sample keeps per-entry stats; gizmo nodes are keyed by the type id.
+component_type = "berth.crew"
+category = "utility"
+refs = ["../../samples/component_gizmos.glb"]

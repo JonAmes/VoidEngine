@@ -390,6 +390,18 @@ bool def_forms_doc::load(const def_schema& schema, std::string source, std::stri
             ls.leaf_ids.push_back(idx_[leaf_path]);
             break;
         }
+        case field_kind::int_cells: {
+            if (!is_array) return fail(static_cast<int>(i), "route needs [[x,y,z],..]");
+            std::string joined;
+            for (const auto& t : flatten(val)) {
+                if (!joined.empty()) joined += ',';
+                joined += t;
+            }
+            ls.form = 'Y';
+            add_leaf(leaf_path, std::move(joined), 0);
+            ls.leaf_ids.push_back(idx_[leaf_path]);
+            break;
+        }
         case field_kind::attr_map:
             return fail(static_cast<int>(i), "attr maps use a [name.attrs] table");
         }
@@ -449,6 +461,23 @@ bool def_forms_doc::reemit_line(int line_idx) {
             }
             if (sp == std::string_view::npos) break;
             v = v.substr(sp + 1);
+        }
+        lit += " ]";
+        break;
+    }
+    case 'Y': {
+        // int_cells (#51 wire.route): comma-joined scalars re-grouped 3 per cell.
+        std::vector<std::string> nums;
+        for (const auto& t : split_top(lv(0))) nums.push_back(t);
+        lit = "[ ";
+        for (std::size_t b = 0; b * 3 < nums.size(); ++b) {
+            if (b) lit += ", ";
+            lit += "[";
+            for (std::size_t k = 0; k < 3 && b * 3 + k < nums.size(); ++k) {
+                if (k) lit += ", ";
+                lit += nums[b * 3 + k];
+            }
+            lit += "]";
         }
         lit += " ]";
         break;
@@ -581,6 +610,8 @@ std::string default_literal(const def_field& f) {
         return "[]";
     case field_kind::int_boxes:
         return "[[0, 0, 0, 0, 0, 0]]";
+    case field_kind::int_cells:
+        return "[[0, 0, 0]]";  // #51: one trivial route cell (G12 pins the rest)
     }
     return "\"\"";
 }

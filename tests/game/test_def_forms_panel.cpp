@@ -162,6 +162,12 @@ struct cook_gate {
                               root / "samples" / "test_ship.glb");
         std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml",
                               root / "defs" / "test_ship.def.toml");
+        // #52a: the hull def's component art lives on its TYPE defs + gizmo
+        std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/comptypes",
+                              root / "defs" / "comptypes",
+                              std::filesystem::copy_options::recursive);
+        std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples/component_gizmos.glb",
+                              root / "samples" / "component_gizmos.glb");
     }
     std::string operator()(const std::string& src) {
         {
@@ -197,8 +203,9 @@ TEST_CASE("def_forms_panel") {
     // ---- doc model over the ratified fixture --------------------------
     CHECK(doc.value("hull_mass") == "98000");
     CHECK(doc.value("grid.tolerance") == "0.1 m");
-    CHECK(doc.value("component.7.facet.1.target") == "w_engL");   // panel_main repair
-    CHECK(doc.value("component.7.id") == "panel_main");
+    // door_2/door_3 seams landed at indices 7/8 (#51): panel_main shifted 7->9.
+    CHECK(doc.value("component.9.facet.1.target") == "w_engL");   // panel_main repair
+    CHECK(doc.value("component.9.id") == "panel_main");
     CHECK(doc.value("wire.0.id") == "w_engL");
     CHECK(doc.value("hull_com.1") == "0.25 m");
     CHECK(doc.value("section.0.name") == "bridge");
@@ -259,7 +266,7 @@ TEST_CASE("def_forms_panel") {
         // untouched lines byte-identical incl. comments:
         CHECK(count_occurrences(src, "# Sections tile the hull without overlap (#19a).") == 1);
         CHECK(count_occurrences(src, "cell = \"2 m\"") == 1);
-        CHECK(count_occurrences(src, "[[component]]") == 11);
+        CHECK(count_occurrences(src, "[[component]]") == 16);
     }
 
     // ---- array element commit (hull_com.0) -----------------------------
@@ -298,7 +305,7 @@ TEST_CASE("def_forms_panel") {
     // ---- picker: candidates derived from the def's own wire ids --------
     {
         gfx::ui_context ui;
-        const char* path = "component.7.facet.1.target";
+        const char* path = "component.9.facet.1.target";
         render(ui, path, 6);
         click_center(ui, path);  // opens the picker ([pick] is the primary rect)
         render(ui, path, 12);    // candidates now drawn
@@ -313,7 +320,7 @@ TEST_CASE("def_forms_panel") {
         panel.render(ui, "def forms", 8, 8, 720, 700, panel.leaf_index(path), 12);
         ui.end_frame();
     }
-    CHECK(panel.doc().value("component.7.facet.1.target") == "w_engR");
+    CHECK(panel.doc().value("component.9.facet.1.target") == "w_engR");
     CHECK(panel.doc().source().find("target = \"w_engR\"") != std::string::npos);
 
     // ---- attr map: value edited through the composite field ------------
@@ -559,4 +566,64 @@ TEST_CASE("def_forms_recook_hotswap") {
         }
         CHECK(changed == 1);
     }
+}
+
+// ---- 9.5a (#51a): shared route grammar in the forms panel -----------------
+// Regression: 9.3 let int_cells fall into the int_boxes "6 bounds each"
+// panel check, which refused the sample def's 7-cell (21-int) routes on
+// commit. route_law owns the grammar now: whole [x,y,z] triples.
+TEST_CASE("def_forms_route_edit") {
+    auto doc = load_doc();
+    CHECK(doc.value("wire.0.route") ==
+          "-1,0,1,0,0,1,0,0,0,0,0,-1,0,0,-2,0,0,-3,1,0,-3");  // flat-joined text
+    game::def_forms_panel panel(std::move(doc));
+
+    gfx::font0 font;
+    prep_font(font);
+
+    // ui_io must OUTLIVE begin_frame..end_frame — never pass temporaries.
+    auto rf = [&](gfx::ui_context& ui, const gfx::ui_io& io, const char* path, int span) {
+        const int idx = panel.leaf_index(path);
+        REQUIRE_GE(idx, 0);
+        ui.begin_frame(io, font, 1280, 720);
+        panel.render(ui, "def forms", 8, 8, 720, 700, idx, span);
+        ui.end_frame();
+    };
+    auto edit = [&](const char* path, const char* text) {
+        gfx::ui_context ui;
+        rf(ui, {}, path, 8);
+        const auto r = panel.field_rect(path);
+        REQUIRE(r.has_value());
+        const float cx = static_cast<float>(r->x + r->w / 2), cy = static_cast<float>(r->y + r->h / 2);
+        rf(ui, click_down(cx, cy), path, 8);
+        rf(ui, click_up(cx, cy), path, 8);
+        for (std::size_t i = 0; i < panel.doc().value(path).size(); ++i)
+            rf(ui, erase(), path, 8);
+        rf(ui, type(lit(text), true), path, 8);
+        rf(ui, {}, path, 8);  // commit frame processed
+    };
+
+    // ---- odd-cell route (21 ints, %6 != 0) COMMITS — the 9.3 bug -------
+    edit("wire.0.route", "-1,0,1,0,0,1,0,0,0,0,0,-1,0,0,-2,0,0,-3,2,0,-3");
+    CHECK(panel.dirty());
+    const std::string after_good = panel.doc().source();
+    CHECK_MESSAGE(after_good.find("route = [ [-1, 0, 1], [0, 0, 1], [0, 0, 0], [0, 0, -1], "
+                                  "[0, 0, -2], [0, 0, -3], [2, 0, -3] ]") != std::string::npos,
+                  after_good);
+    CHECK(panel.doc().value("wire.0.route") ==
+          "-1,0,1,0,0,1,0,0,0,0,0,-1,0,0,-2,0,0,-3,2,0,-3");
+
+    // ---- ragged triple refused on entry, zero bytes ---------------------
+    edit("wire.1.route", "-1,0,1,0");
+    CHECK(panel.doc().value("wire.1.route") ==
+          "-1,0,1,0,0,1,0,0,0,0,0,-1,0,0,-2,0,0,-3,-1,0,-3");  // unchanged
+    CHECK(panel.doc().source() == after_good);  // wire.1 line byte-identical
+
+    // ---- non-integer coord refused on entry, zero bytes; draft stays
+    // editable after refusal (#48): a valid re-entry commits ----------------
+    edit("wire.1.route", "x,0,1");
+    CHECK(panel.doc().source() == after_good);
+    edit("wire.1.route", "-1,0,1,0,0,1,0,0,0,1,0,0,2,0,0,3,0,0");  // valid re-entry
+    CHECK(panel.doc().source() != after_good);
+    CHECK(panel.doc().value("wire.1.route") == "-1,0,1,0,0,1,0,0,0,1,0,0,2,0,0,3,0,0");
 }

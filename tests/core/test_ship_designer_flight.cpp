@@ -268,6 +268,11 @@ TEST_CASE("ship_designer_flight") {
                           src + "/samples/test_ship.glb");
     std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml",
                           src + "/defs/test_ship.def.toml");
+    // #52a: the hull def's component art lives on its TYPE defs + gizmo
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/comptypes",
+                          src + "/defs/comptypes", std::filesystem::copy_options::recursive);
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples/component_gizmos.glb",
+                          src + "/samples/component_gizmos.glb");
     auto cres = ve::cook::cook_incremental(src, out);
     REQUIRE_MESSAGE(cres.ok, cres.error);
 
@@ -282,7 +287,7 @@ TEST_CASE("ship_designer_flight") {
     CHECK(fixture.hull().hull_mass == 98000.0);
     CHECK(fixture.hull().hull_inertia_diag ==
           dvec3(420000.0, 980000.0, 1120000.0));  // DEF0 passthrough exact
-    CHECK(fixture.sockets().size() == 12);  // 8 hp + 4 interior anchors (#46a)
+    CHECK(fixture.sockets().size() == 17);  // 11 hp (3 gun, 9.6) + 6 interior
     CHECK(fixture.hull().mesh_content_id == 0xA5EEDULL);
     CHECK(loaded->mesh_unit_id == "samples/test_ship.glb");
     REQUIRE(find_socket(fixture, "hp_engine_L") != nullptr);

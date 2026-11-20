@@ -59,10 +59,10 @@ Bytes sock_payload() {
     return b;
 }
 
-// DEF0 v2 with ONE authored wire: w1 power (cap 100) eng_1 -> socket hp_engine.
+// DEF0 v3 with ONE authored wire: w1 power (cap 100) eng_1 -> socket hp_engine.
 Bytes def_payload() {
     Bytes b;
-    pu32(b, 2);
+    pu32(b, 4);
     pstr(b, "class.light_freighter");
     pu8(b, 1); pf64(b, 1000.0);
     pu8(b, 1); pf64(b, 0.0); pf64(b, 0.5); pf64(b, -0.5);
@@ -78,6 +78,7 @@ Bytes def_payload() {
     pu32(b, 1); pstr(b, "thrust.max_N"); pf64(b, 5000.0);
     pu32(b, 1);
     pstr(b, "operate.station"); pf64(b, 2.0); pu8(b, 0); pu8(b, 0);
+    pstr(b, "art/thruster.glb"); pu8(b, 0);  // #52b art_ref + no mount TRS
     pstr(b, "door_1"); pstr(b, "door.hatch"); pu8(b, 3);
     pstr(b, "door_1"); pu8(b, 5);
     pu32(b, 2);
@@ -85,12 +86,16 @@ Bytes def_payload() {
     pu32(b, 0);
     pu32(b, 1);
     pstr(b, "door.toggle"); pf64(b, 2.0); pu8(b, 1); pu8(b, 0);
+    pstr(b, "art/hatch.glb"); pu8(b, 0);  // #52b art_ref + no mount TRS
     pu32(b, 2);
     pstr(b, "thruster.main"); pu8(b, 0);
     pstr(b, "door.hatch"); pu8(b, 3);
     pu32(b, 1);  // wires: w1 power, eng_1 -> hp_engine
     pstr(b, "w1"); pu8(b, 0); pu8(b, 1); pf64(b, 100.0);
     pu8(b, 1); pstr(b, "eng_1"); pu8(b, 0); pstr(b, "hp_engine");
+    pu32(b, 1);  // #51 route: single cell (1,0,-1)
+    pi32(b, 1); pi32(b, 0); pi32(b, -1);
+    pu32(b, 1); pu32(b, 1); pu32(b, 0);  // #51b index: 1 section -> {wire 0}
     pu32(b, 0);
     pu32(b, 1); pstr(b, "../samples/test_ship.glb");
     return b;

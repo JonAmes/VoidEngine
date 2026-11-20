@@ -1,0 +1,15 @@
+# Weapon TYPE def (9.6): art refs + attr preset (#42 bare SI numbers —
+# damage J, range m, rof 1/s, spread rad, heat J per shot, heat J/s).
+# Mounts like everything else: category "gun" -> #21 gun-category sockets.
+component_type = "gun.laser"
+category = "gun"
+refs = ["../../samples/component_gizmos.glb"]
+
+[attrs]
+weapon.damage = 250000
+weapon.range = 4000
+weapon.rof = 0.5
+weapon.spread = 0.0005
+weapon.heat_per_shot = 120000
+weapon.heat_dissipate = 20000
+weapon.heat_capacity = 360000

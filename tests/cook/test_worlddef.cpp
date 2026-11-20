@@ -51,6 +51,11 @@ struct Tree {
         // real hull fixture as the station's hull/module def
         std::filesystem::copy_file(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml", src / "defs/test_ship.def.toml");
         std::filesystem::copy_file(std::string(VE_SOURCE_DIR) + "/assets/samples/test_ship.glb", src / "samples/test_ship.glb");
+        // #52a: the hull fixture's component art now lives on its TYPE defs
+        std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/comptypes",
+                              src / "defs/comptypes", std::filesystem::copy_options::recursive);
+        std::filesystem::copy_file(std::string(VE_SOURCE_DIR) + "/assets/samples/component_gizmos.glb",
+                                   src / "samples/component_gizmos.glb");
         std::ifstream sf(src / "defs/test_ship.def.toml");
         ship_text = std::string((std::istreambuf_iterator<char>(sf)),
                                 std::istreambuf_iterator<char>());

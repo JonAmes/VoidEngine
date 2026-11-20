@@ -78,11 +78,32 @@ const char* kFaceName[7] = {"none", "+x", "-x", "+y", "-y", "+z", "-z"};
 bool is_door_type(std::string_view t) { return t.rfind("door.", 0) == 0; }
 bool is_airlock_type(std::string_view t) { return t.rfind("airlock.", 0) == 0; }
 
+// #51: resolve a wire endpoint to its anchor CELL. kind 0 = socket name,
+// kind 1 = component id (endpoint rides that component's own socket
+// anchor — G2-proven to exist by the time G12 runs). false = unresolved:
+// earlier gates own that error, so G12 skips the wire.
+bool endpoint_cell(std::uint8_t kind, const std::string& ref, const DefView& d,
+                   const std::map<std::string, const SockAnchor*>& anchor_of,
+                   Cell& out_cell) {
+    std::string socket = ref;
+    if (kind == 1) {  // component endpoint: its own socket anchor
+        socket.clear();
+        for (const auto& c : d.comps)
+            if (c.id == ref) { socket = c.socket; break; }
+        if (socket.empty()) return false;  // G7 already failed
+    }
+    auto it = anchor_of.find(socket);
+    if (it == anchor_of.end()) return false;  // G7/G2 already failed
+    out_cell = cell_of(*it->second, d);
+    return true;
+}
+
+
 } // namespace
 
 bool decode_def_payload(const Bytes& payload, DefView& out, std::string* err) {
     Reader r{payload};
-    if (r.u32() != 2u) { if (err) *err = "DEF0 payload version must be 2"; return false; }
+    if (r.u32() != 4u) { if (err) *err = "DEF0 payload version must be 4"; return false; }
     out.class_tag = r.str();
     if (r.u8()) r.f64();               // hull_mass (validated at 5.10 loadout use)
     if (r.u8()) { r.f64(); r.f64(); r.f64(); }
@@ -133,6 +154,12 @@ bool decode_def_payload(const Bytes& payload, DefView& out, std::string* err) {
             if (fac.has_target) fac.target = r.str();
             comp.facets.push_back(std::move(fac));
         }
+        comp.art_ref = r.str();                     // #52b (v3)
+        comp.has_mount = r.u8();
+        if (comp.has_mount && !r.bad) {
+            for (int k = 0; k < 3; ++k) comp.mount_t[k] = r.f64();
+            for (int k = 0; k < 4; ++k) comp.mount_q[k] = r.f64();
+        }
         out.comps.push_back(std::move(comp));
     }
     const std::uint32_t ncat = r.u32();  // catalog: re-encodes comps; skip
@@ -147,7 +174,20 @@ bool decode_def_payload(const Bytes& payload, DefView& out, std::string* err) {
         wire.from_ref = r.str();
         wire.to_kind = r.u8();
         wire.to_ref = r.str();
+        const std::uint32_t ncell = r.u32();  // #51 ordered cell route
+        for (std::uint32_t i = 0; i < ncell && !r.bad; ++i) {
+            std::array<std::int32_t, 3> cell{r.i32(), r.i32(), r.i32()};
+            wire.route.push_back(cell);
+        }
         out.wires.push_back(std::move(wire));
+    }
+    {  // #51b section->wires index: derived data, validated by construction,
+       // not gated — read-and-skip to keep the Reader positioned.
+        const std::uint32_t nrow = r.u32();
+        for (std::uint32_t s = 0; s < nrow && !r.bad; ++s) {
+            const std::uint32_t n = r.u32();
+            for (std::uint32_t k = 0; k < n && !r.bad; ++k) r.u32();
+        }
     }
     const std::uint32_t nseam = r.u32();
     for (std::uint32_t s = 0; s < nseam && !r.bad; ++s) {
@@ -194,6 +234,45 @@ Bytes encode_sock_payload(const SockView& in) {
         for (double v : a.q) put_f64(p, v);
     }
     return p;
+}
+
+// RouteViews assembly (9.5) — endpoint cells via SOCK anchors (#46b),
+// door seams from door.* components' anchors + face (#46c1 encoding),
+// sections verbatim. Used by the cook G12 gate below AND host-side for
+// the loadout editor route mode, so the editor sees exactly the law's
+// inputs cook uses.
+RouteViews route_views_from_def(const DefView& def, const std::vector<SockView>& socks) {
+    std::map<std::string, const SockAnchor*> anchor_of;
+    for (const auto& sv : socks)
+        for (const auto& a : sv.anchors)
+            anchor_of[a.name] = &a;  // glb cook already failed on dup names
+    RouteViews rv;
+    for (const auto& sec : def.sections) {
+        game::route_section rs;
+        rs.name = sec.name;
+        for (const auto& bx : sec.boxes) rs.boxes.push_back(game::route_box{bx});
+        rv.sections.push_back(std::move(rs));
+    }
+    for (const auto& c : def.comps) {
+        if (!is_door_type(c.type)) continue;
+        auto sit = anchor_of.find(c.socket);
+        if (sit == anchor_of.end()) continue;  // G2 already failed
+        game::route_cell a = cell_of(*sit->second, def), b = a;
+        for (int ax = 0; ax < 3; ++ax) b[ax] += kFaceDir[c.face][ax];
+        rv.door_seams.push_back({a, b});
+    }
+    for (const auto& w : def.wires) {
+        game::route_wire vw;
+        vw.id = w.id;
+        if (!endpoint_cell(w.from_kind, w.from_ref, def, anchor_of, vw.from_cell) ||
+            !endpoint_cell(w.to_kind, w.to_ref, def, anchor_of, vw.to_cell)) {
+            rv.wires.emplace_back();  // unresolved: G12 skips, editors omit
+            continue;
+        }
+        vw.route.assign(w.route.begin(), w.route.end());
+        rv.wires.emplace_back(std::move(vw));
+    }
+    return rv;
 }
 
 bool cook_hull_validate(const HullInputs& hull,
@@ -420,6 +499,44 @@ bool cook_hull_validate(const HullInputs& hull,
             if (f.action == "port.undock") { undock = true; break; }
         if (!undock)
             return fail("dock port '" + c.id + "' needs a port.undock facet (#47b)");
+    }
+    // ---- G11 (9.2 #52b): strict art-ref gate --------------------------
+    // Every mounted component must resolve to cooked art whose model is
+    // keyed by the component's id or type (no dangling-invisible entries),
+    // that asset must ride the def's manifest deps as a per-component edge,
+    // and the entry must carry the mount transform (anchor TRS) — the
+    // cook-time resolution fills these DEF0 v3 fields; ''/0 means nothing
+    // resolved. Gate runs LAST: earlier gates pin their own first errors.
+    for (const auto& c : d.comps) {
+        if (c.art_ref.empty())
+            return fail("component '" + c.id + "' resolves no art (#52b): no "
+                        "cooked model keyed by its id or type");
+        bool edge = false;
+        for (const auto& dep : hull.deps)
+            if (dep == c.art_ref) { edge = true; break; }
+        if (!edge)
+            return fail("component '" + c.id + "' art '" + c.art_ref +
+                        "' is not a manifest dep of '" + hull.def_id + "' (#52b)");
+        if (!c.has_mount)
+            return fail("component '" + c.id + "' has no mount transform (#52b)");
+    }
+    // ---- G12 (9.3 #51; law shared in 9.5): wire-route spatial gates ----
+    // The SPATIAL LAW is ONE implementation in ve::game::route_law (#51
+    // G12a endpoints, G12b adjacency, G12c lattice membership, G12d door
+    // seams — checked in that order per wire, pinned by tests), consumed
+    // here AND by the loadout editor route mode: an edit legal in the
+    // editor is exactly a route that passes cook, with byte-identical
+    // refuse strings in both places (same "one gate fn" doctrine as 5.9b
+    // loadout assemble). This gate assembles the views from cooked data
+    // and refuses on the law's message. G12 runs after G7 so endpoint
+    // anchors exist; component endpoints resolve via their own socket
+    // anchor (G2-proven).
+    const RouteViews rv = route_views_from_def(d, hull.socks);
+    for (const auto& wv : rv.wires) {
+        if (!wv) continue;  // unresolved endpoint: earlier gates own this
+        if (std::string e = game::route_law_error(rv.sections, rv.door_seams, *wv);
+            !e.empty())
+            return fail(e);
     }
     return true;
 }

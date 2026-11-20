@@ -1,0 +1,13 @@
+# Weapon TYPE def (9.6). See gun_laser.def.toml header for units.
+component_type = "gun.autocannon"
+category = "gun"
+refs = ["../../samples/component_gizmos.glb"]
+
+[attrs]
+weapon.damage = 45000
+weapon.range = 6000
+weapon.rof = 4
+weapon.spread = 0.004
+weapon.heat_per_shot = 60000
+weapon.heat_dissipate = 40000
+weapon.heat_capacity = 240000

@@ -24,7 +24,7 @@ TEST_CASE("game_attr_keys") {
     for (std::size_t i = 0; i < kPhase5_attr_keys.size(); ++i)
         for (std::size_t j = i + 1; j < kPhase5_attr_keys.size(); ++j)
             CHECK(kPhase5_attr_keys[i] != kPhase5_attr_keys[j]);
-    CHECK(kPhase5_attr_keys.size() == 18);
+    CHECK(kPhase5_attr_keys.size() == 25);
 
     // every named constant is IN the set (the array is the registry).
     for (auto k : {kAttr_thrust_force, kAttr_thrust_isp, kAttr_power_supply,
@@ -33,7 +33,12 @@ TEST_CASE("game_attr_keys") {
                    kAttr_ftl_flow, kAttr_sensor_range, kAttr_sensor_res,
                    kAttr_cargo_capacity, kAttr_interact_range,
                    kAttr_drag_coeff, kAttr_heat_tolerance,          // #47b
-                   kAttr_dock_clamp_strength})
+                   kAttr_dock_clamp_strength,
+                   kAttr_weapon_damage, kAttr_weapon_range,         // 9.6
+                   kAttr_weapon_rof, kAttr_weapon_spread,
+                   kAttr_weapon_heat_per_shot,
+                   kAttr_weapon_heat_dissipate,
+                   kAttr_weapon_heat_capacity})  // 9.10
         CHECK(std::find(kPhase5_attr_keys.begin(), kPhase5_attr_keys.end(), k) !=
               kPhase5_attr_keys.end());
 

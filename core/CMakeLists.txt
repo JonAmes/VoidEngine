@@ -40,6 +40,13 @@ add_library(ve_core STATIC
     src/terrain.cpp
     src/terrain_stream.cpp
     src/swept.cpp
+    src/weapon.cpp
+    src/projectile.cpp
+    src/gun.cpp
+    src/damage.cpp
+    src/breach.cpp
+    src/contact_map.cpp
+    src/targeting.cpp
     src/aero.cpp
     src/aero_heat.cpp
     src/contacts.cpp

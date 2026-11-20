@@ -14,10 +14,12 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "ve/core/cooked.h"  // Bytes, Unit
+#include "ve/game/route_law.h"  // 9.5: shared #51 route law (ve_cooklet links ve_game)
 
 namespace ve::cook {
 
@@ -51,6 +53,12 @@ struct DefView {
         std::uint8_t face = 0;  // 0 none, 1 +x, 2 -x, 3 +y, 4 -y, 5 +z, 6 -z (#46c1)
         std::vector<std::pair<std::string, double>> attrs;  // #47b: G10 reads dock attrs
         std::vector<Facet> facets;
+        // DEF0 v3 (9.2 #52b): resolved art asset id ('' -> G11 fails) and
+        // the mount transform of the socket/empty anchor.
+        std::string art_ref;
+        std::uint8_t has_mount = 0;
+        std::array<double, 3> mount_t{{0, 0, 0}};
+        std::array<double, 4> mount_q{{0, 0, 0, 1}};
     };
     std::vector<Comp> comps;
     struct Wire {
@@ -58,11 +66,25 @@ struct DefView {
         std::uint8_t type = 0;
         std::uint8_t from_kind = 0, to_kind = 0;  // 0 socket, 1 component
         std::string from_ref, to_ref;
+        std::vector<std::array<std::int32_t, 3>> route;  // ordered cell path (#51)
     };
     std::vector<Wire> wires;
     struct Seam { std::string partner_ref, socket; };
     std::vector<Seam> seams;
 };
+
+// ---- route views for route-editing front-ends (9.5 #51) -----------------
+// Cooked hull data -> ve::game::route_law views, assembled ONE way (also
+// used by the cook G12 gate itself) so the loadout editor edits exactly
+// what cook validates. `wires` is parallel to def.wires; nullopt =
+// endpoint anchor unresolved (cook: earlier gates own the error and skip
+// the wire; editors: omit it).
+struct RouteViews {
+    std::vector<game::route_section> sections;
+    std::vector<game::route_door_seam> door_seams;
+    std::vector<std::optional<game::route_wire>> wires;
+};
+RouteViews route_views_from_def(const DefView& def, const std::vector<SockView>& socks);
 
 bool decode_def_payload(const Bytes& payload, DefView& out, std::string* err);
 bool decode_sock_payload(const Bytes& payload, SockView& out, std::string* err);
@@ -78,6 +100,7 @@ struct HullInputs {
     DefView def;
     std::vector<SockView> socks;  // one per mesh dep
     std::vector<std::string> seam_partner_ids;
+    std::vector<std::string> deps;  // manifest dep content IDs (G11 art edge)
 };
 
 // All gates; on success snapped_out (parallel to hull.socks) carries the

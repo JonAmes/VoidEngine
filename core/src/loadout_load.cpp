@@ -85,10 +85,10 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
     if (sock.type != kUnitSock)
         return std::unexpected(std::string(as_err("anchor unit is not type SOCK")));
 
-    // ---- DEF0 payload v2 (layout pinned in ve/core/cooked.h) ----
+    // ---- DEF0 payload v3 (layout pinned in ve/core/cooked.h) ----
     Reader r{def0.payload};
-    if (r.u32() != 2)
-        return std::unexpected("DEF0 payload: version must be 2");
+    if (r.u32() != 4)
+        return std::unexpected("DEF0 payload: version must be 4");
     hull_info hull{};
     hull.mesh_content_id = mesh_content_id;
     hull.class_tag = r.str();
@@ -110,12 +110,16 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
     grid.tolerance = r.f64();
     hull.grid = grid;
     const std::uint32_t nsec = r.u32();
-    for (std::uint32_t s = 0; s < nsec && !r.bad; ++s) {  // decoded+skipped:
-        r.str();                                          // sections are a
-        const std::uint32_t nb = r.u32();                 // cook-validated
-        for (std::uint32_t i = 0; i < nb * 6 && !r.bad; ++i) r.i32();
-    }
+    std::vector<std::string> section_names;
+    section_names.reserve(nsec);
+    for (std::uint32_t s = 0; s < nsec && !r.bad; ++s) {
+        section_names.push_back(r.str());  // names carried: 9.13 rows are
+        const std::uint32_t nb = r.u32();  // keyed by them (boxes themselves
+        for (std::uint32_t i = 0; i < nb * 6 && !r.bad; ++i) r.i32();  // stay
+    }                                        // a cook-side spatial law)
     std::vector<mount_request> mounts;
+    std::vector<component_facets> facet_rows;  // #28a rows carried for the 9.13
+                                           // repair-at-facet gate
     const std::uint32_t ncomp = r.u32();
     for (std::uint32_t i = 0; i < ncomp && !r.bad; ++i) {
         mount_request m;
@@ -132,13 +136,26 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
         for (std::uint32_t a = 0; a < nattr && !r.bad; ++a)
             m.attrs.push_back({r.str(), r.f64()});
         const std::uint32_t nfac = r.u32();
-        for (std::uint32_t f = 0; f < nfac && !r.bad; ++f) {  // facets skipped:
-            r.str();                                         // Phase 6
-            r.f64();
-            r.u8();
-            if (r.u8()) r.str();
+        component_facets cf;
+        cf.instance_id = m.instance_id;  // carried since 9.13: facet rows are
+        for (std::uint32_t f = 0; f < nfac && !r.bad; ++f) {  // the #28a
+            facet_desc fd;                                   // interaction
+            fd.action = r.str();                             // gate data
+            fd.range_m = r.f64();
+            fd.manual = r.u8() != 0;
+            if (r.u8())
+                fd.target = r.str();
+            cf.facets.push_back(std::move(fd));
+        }
+        (void)r.str();  // #52b art_ref: the hangar renderer (Phase 11)
+                        // reads it; the loadout itself does not
+        const std::uint8_t mounted = r.u8();  // #52b mount TRS: skipped,
+        if (mounted) {                        // anchor TRS lives in SOCK
+            for (int k = 0; k < 3; ++k) r.f64();
+            for (int k = 0; k < 4; ++k) r.f64();
         }
         mounts.push_back(std::move(m));
+        facet_rows.push_back(std::move(cf));
     }
     std::vector<component_type> catalog;
     const std::uint32_t ncat = r.u32();
@@ -165,7 +182,32 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
         w.to.ref = r.str();
         if (w.from.kind > 1 || w.to.kind > 1)
             r.bad = true;  // endpoint kind out of DEF0 range
+        const std::uint32_t ncell = r.u32();  // #51 route: spatial law lives
+        for (std::uint32_t k = 0; k < ncell && !r.bad; ++k)  // at cook (G12);
+            { r.i32(); r.i32(); r.i32(); }  // simulation consumes it in 9.6
         wires.push_back(std::move(w));
+    }
+    std::vector<section_wires_row> sec_rows;
+    {  // #51b section->wires index: CARRIED since 9.13 (sever query). Rows
+       // pair 1:1 with sections in authored order; indices must land inside
+       // the wire table (cook guarantees it; corrupt units must not smuggle
+       // an out-of-range cut through the loader).
+        const std::uint32_t nrow = r.u32();
+        if (nrow != nsec)
+            r.bad = true;
+        for (std::uint32_t s = 0; s < nrow && !r.bad; ++s) {
+            section_wires_row row;
+            row.section = section_names[s];
+            const std::uint32_t n = r.u32();
+            for (std::uint32_t k = 0; k < n && !r.bad; ++k) {
+                const std::uint32_t idx = r.u32();
+                if (idx >= nwire)
+                    r.bad = true;
+                else
+                    row.wire_indices.push_back(idx);
+            }
+            sec_rows.push_back(std::move(row));
+        }
     }
     const std::uint32_t nseam = r.u32();
     for (std::uint32_t i = 0; i < nseam && !r.bad; ++i) {  // seams skipped.
@@ -182,6 +224,8 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
     // ---- SOCK payload v2: every named anchor becomes a socket ----
     Reader s{sock.payload};
     loaded_hull out{};
+    out.facets = std::move(facet_rows);
+    out.section_wires = std::move(sec_rows);
     out.wires = std::move(wires);
     out.mesh_unit_id = s.str();
     if (s.u32() != 2)
@@ -208,6 +252,67 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
         return std::unexpected(std::string("loadout: ") + assemble_kind_name(lo.error()));
     out.loadout = std::move(*lo);
     return out;
+}
+
+// ---- #51b damage tie-in (9.13) -------------------------------------------
+// Zero new net logic: the cut and the splice ARE WiringReach::sever_wire /
+// repair_wire (6.12); these functions only translate "a hit on section X"
+// and "a repair at facet Y" — cooked data questions — into those calls.
+// Concept-FREE: section names, facet actions and targets are opaque.
+
+const std::vector<std::uint32_t>* wires_in_section(
+    const loaded_hull& hull, std::string_view section) {
+    for (const auto& row : hull.section_wires)
+        if (row.section == section)
+            return &row.wire_indices;
+    return nullptr;
+}
+
+std::vector<std::string> sever_wires_in_section(
+    WiringReach& net, const loaded_hull& hull, std::string_view section) {
+    const auto* idx = wires_in_section(hull, section);
+    if (!idx)
+        return {};
+    std::vector<std::string> cut;
+    cut.reserve(idx->size());
+    // Row order = ascending wire-table index (cook invariant): the cut set
+    // and every cascade recompute are deterministic in wire-table order.
+    for (const std::uint32_t wi : *idx)
+        if (wi < hull.wires.size() && net.sever_wire(hull.wires[wi].id))
+            cut.push_back(hull.wires[wi].id);
+    return cut;
+}
+
+std::expected<void, wire_repair_error> repair_wire_at_facet(
+    WiringReach& net, CargoManifest& cargo, const loaded_hull& hull,
+    std::string_view facet_action, std::string_view host_component,
+    std::string_view wire_id, std::string_view spare_instance_id) {
+    // Gate: the host must declare a facet of this action naming THIS wire.
+    bool faceted = false;
+    for (const auto& cf : hull.facets) {
+        if (cf.instance_id != host_component)
+            continue;
+        for (const auto& f : cf.facets)
+            if (f.action == facet_action && f.target == wire_id)
+                faceted = true;
+    }
+    if (!faceted)
+        return std::unexpected(wire_repair_error::no_facet);
+    // Spare must exist before anything mutates (the splice costs a part,
+    // a refused repair costs nothing).
+    bool spare = false;
+    for (const auto& s : cargo.spares())
+        if (s.instance_id == spare_instance_id)
+            spare = true;
+    if (!spare)
+        return std::unexpected(wire_repair_error::unknown_spare);
+    if (!net.repair_wire(wire_id))
+        return std::unexpected(wire_repair_error::unknown_wire);
+    if (!cargo.remove_spare(spare_instance_id)) {  // pre-checked: cannot
+        net.sever_wire(wire_id);                   // fail; roll back anyway
+        return std::unexpected(wire_repair_error::unknown_spare);
+    }
+    return {};
 }
 
 }  // namespace ve::core::sim

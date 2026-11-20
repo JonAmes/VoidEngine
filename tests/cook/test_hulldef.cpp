@@ -8,10 +8,13 @@
 // ids, bad section boxes; defs WITHOUT class_tag stay raw passthrough.
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -45,6 +48,12 @@ struct Reader {
         at += 8;
         return v;
     }
+    float f32() {
+        float v = 0;
+        std::memcpy(&v, &b[at], 4);
+        at += 4;
+        return v;
+    }
     std::string str() {
         const auto n = u32();
         std::string s(reinterpret_cast<const char*>(&b[at]), n);
@@ -64,15 +73,16 @@ std::string tmp_root(const char* name) {
 }  // namespace
 
 TEST_CASE("cook_hull_def") {
-    // Stage the two real fixtures under one src tree so the def's
-    // ../samples/test_ship.glb ref resolves into the cook set.
+    // Stage the real fixture trees under one src tree so the hull def's
+    // ../samples refs and its component TYPE defs' refs resolve into the
+    // cook set (recursive: samples/ + defs/ incl. defs/comptypes #52a).
     const std::string src = tmp_root("src");
-    std::filesystem::create_directories(std::filesystem::path(src) / "samples");
-    std::filesystem::create_directories(std::filesystem::path(src) / "defs");
-    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples/test_ship.glb",
-                          std::filesystem::path(src) / "samples" / "test_ship.glb");
-    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs/test_ship.def.toml",
-                          std::filesystem::path(src) / "defs" / "test_ship.def.toml");
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/samples",
+                          std::filesystem::path(src) / "samples",
+                          std::filesystem::copy_options::recursive);
+    std::filesystem::copy(std::string(VE_SOURCE_DIR) + "/assets/defs",
+                          std::filesystem::path(src) / "defs",
+                          std::filesystem::copy_options::recursive);
 
     const std::string out = tmp_root("out");
     auto res = ve::cook::cook_incremental(src, out);
@@ -84,15 +94,26 @@ TEST_CASE("cook_hull_def") {
     std::string err;
     REQUIRE(ve::cook::read_manifest(out + "/manifest.bin", mf, &err));
     REQUIRE(mf.count("defs/test_ship.def.toml") == 1u);
-    CHECK(mf.at("defs/test_ship.def.toml").deps == std::vector<std::string>{"samples/test_ship.glb"});
+    // #52a/#52b: hull deps = consumed type defs (sorted), per-component
+    // art edges, then the authored top-level refs.
+    CHECK(mf.at("defs/test_ship.def.toml").deps == std::vector<std::string>{
+        "defs/comptypes/berth_crew.def.toml", "defs/comptypes/door_hatch.def.toml",
+        "defs/comptypes/gun_autocannon.def.toml", "defs/comptypes/gun_laser.def.toml",
+        "defs/comptypes/gun_rocket.def.toml",
+        "defs/comptypes/panel_dash.def.toml", "defs/comptypes/power_battery.def.toml",
+        "defs/comptypes/power_reactor.def.toml", "defs/comptypes/seat_pilot.def.toml",
+        "defs/comptypes/sensor_array.def.toml", "defs/comptypes/thruster_main.def.toml",
+        "defs/comptypes/thruster_rcs.def.toml", "defs/comptypes/turret_dorsal.def.toml",
+        "samples/component_gizmos.glb", "samples/test_ship.glb"});
 
-    // ---- decode DEF0 v2 exactly (layout pinned in cooked.h) ----
+    // ---- decode DEF0 v4 exactly (layout pinned in cooked.h) ----
     ve::cook::Unit du;
     REQUIRE(ve::cook::read_unit_file(out + "/units/defs/test_ship.def.toml.ck", du, &err));
     CHECK(du.id == "defs/test_ship.def.toml");
     CHECK(du.type == ve::core::cooked::kUnitDef0);
     Reader s{du.payload};
-    CHECK(s.u32() == 2u);  // payload version (v2: facet targets + seams)
+    CHECK(s.u32() == 4u);  // payload version (v4: #51 route + #51b index;
+                           // v3 added #52b art_ref + mount)
     CHECK(s.str() == "class.light_freighter");
     CHECK(s.u8() == 1); CHECK(s.f64() == 98000.0);           // hull_mass kg (#14)
     CHECK(s.u8() == 1);
@@ -118,9 +139,10 @@ TEST_CASE("cook_hull_def") {
     CHECK(s.str() == "engineering");
     CHECK(s.u32() == 1u);
     for (const int v : {-1, 0, 1, 1, 1, 3}) CHECK(s.i32() == v);
-    // components: authored order, 11 rows (7 hp-mounted + 4 interior anchors
-    // whose socket names pair 1:1 with the GLB's named empties, #46a)
-    CHECK(s.u32() == 11u);
+    // components: authored order, 16 rows (10 hp-mounted incl. 9.6 guns +
+    // 6 interior anchors whose socket names pair 1:1 with the GLB's named
+    // empties, #46a; door_2/door_3 are the extra wire-route door seams, #51)
+    CHECK(s.u32() == 16u);
     auto expect_comp = [&](const std::string& id, const std::string& type, int cat,
                            const std::string& sock, int tags, int face = 0) {
         CHECK(s.str() == id);
@@ -142,6 +164,11 @@ TEST_CASE("cook_hull_def") {
             CHECK(s.u8() == 0u);  // no target
         }
     };
+    auto skip_art_mount = [&]() {  // #52b DEF0 v3 tail
+        CHECK(s.str() == "samples/component_gizmos.glb");  // type-def art (#52a)
+        CHECK(s.u8() == 1u);                        // every entry is socketed
+        for (int i = 0; i < 7; ++i) (void)s.f64();  // anchor t[3] + q[4]
+    };
     expect_comp("engine_L", "thruster.main", 0, "hp_engine_L", 1);
     {  // attrs in key order (std::map) — #42 coercion already applied;
        // thrust.gimbal_rad authored "15 deg" -> radians cooked (#46e)
@@ -156,59 +183,117 @@ TEST_CASE("cook_hull_def") {
         }
     }
     skip_facet(0);
+    skip_art_mount();
     expect_comp("engine_R", "thruster.main", 0, "hp_engine_R", 1);
-    skip_attr(5); skip_facet(0);
+    skip_attr(5); skip_facet(0); skip_art_mount();
     expect_comp("rcs_wt", "thruster.rcs", 1, "hp_wingtip_R", 0);
-    skip_attr(4); skip_facet(0);
+    skip_attr(4); skip_facet(0); skip_art_mount();
     expect_comp("sensor_scan", "sensor.array", 3, "hp_wingtip_L", 0);
-    skip_attr(4); skip_facet(0);  // sensor.range "120 km" -> 120000.0 m (#42)
+    skip_attr(4); skip_facet(0); skip_art_mount();  // sensor.range "120 km" -> 120000.0 m (#42)
     expect_comp("turret_dorsal", "turret.dorsal", 2, "hp_dorsal_turret", 0);
-    skip_attr(2); skip_facet(1);
+    skip_attr(2); skip_facet(1); skip_art_mount();
     expect_comp("seat_pilot", "seat.pilot", 3, "hp_seat_pilot", 1);
-    skip_attr(0); skip_facet(1);  // use.seat 1.2 m (#28a)
+    skip_attr(0); skip_facet(1); skip_art_mount();  // use.seat 1.2 m (#28a)
     expect_comp("door_1", "door.hatch", 3, "door_1", 0, 5);  // face +z (#46c1)
-    skip_attr(0); skip_facet(1);  // interior anchor, socket==name (#46a)
+    skip_attr(0); skip_facet(1); skip_art_mount();  // interior anchor, socket==name (#46a)
+    expect_comp("door_2", "door.hatch", 3, "door_2", 0, 6);  // -z midship->bridge (#51)
+    skip_attr(0); skip_facet(1); skip_art_mount();
+    expect_comp("door_3", "door.hatch", 3, "door_3", 0, 6);  // -z bridge->engine_bay (#51)
+    skip_attr(0); skip_facet(1); skip_art_mount();
     expect_comp("panel_main", "panel.dash", 3, "panel_main", 0);
     skip_attr(0);
-    CHECK(s.u32() == 2u);  // facets: use.panel plain...
+    CHECK(s.u32() == 3u);  // facets: use.panel plain...
     CHECK(s.str() == "use.panel"); CHECK(s.f64() == 1.2); CHECK(s.u8() == 0); CHECK(s.u8() == 0);
-    {  // ...and repair.target naming a real wire id (#28a; existence gate = 5.9b)
+    {  // ...and repair.target naming real wire ids (#28a; existence gate =
+       // 5.9b); 9.13 added the w_engR splice point...
         CHECK(s.str() == "repair.target"); CHECK(s.f64() == 1.2); CHECK(s.u8() == 0);
         CHECK(s.u8() == 1u); CHECK(s.str() == "w_engL");
     }
+    {  // ...so the engine_bay cut set is fully field-repairable here.
+        CHECK(s.str() == "repair.target"); CHECK(s.f64() == 1.2); CHECK(s.u8() == 0);
+        CHECK(s.u8() == 1u); CHECK(s.str() == "w_engR");
+    }
+    skip_art_mount();
     expect_comp("berth_1", "berth.crew", 3, "berth_1", 0);
-    skip_attr(0); skip_facet(1);
+    skip_attr(0); skip_facet(1); skip_art_mount();
     expect_comp("reactor_1", "power.reactor", 3, "hp_reactor", 0);
-    skip_attr(2); skip_facet(0);
+    skip_attr(2); skip_facet(0); skip_art_mount();
     expect_comp("battery_1", "power.battery", 3, "hp_battery", 0);
-    skip_attr(2); skip_facet(0);
+    skip_attr(2); skip_facet(0); skip_art_mount();
+    // 9.6 weapon mounts (#19/#51): category gun (2), gun-category sockets,
+    // TYPE-def art inherited (#52a), and the TYPE-def [attrs] PRESET merged
+    // into DEF0 -- the gun_laser attrs are pinned value-by-value below, so a
+    // broken merge or a wrong unit fails here.
+    expect_comp("gun_laser", "gun.laser", 2, "hp_gun_laser", 0);
+    {
+        const std::vector<std::pair<std::string, double>> want = {
+            {"weapon.damage", 250000.0},
+            {"weapon.heat_capacity", 360000.0},
+            {"weapon.heat_dissipate", 20000.0},
+            {"weapon.heat_per_shot", 120000.0},
+            {"weapon.range", 4000.0},
+            {"weapon.rof", 0.5},
+            {"weapon.spread", 0.0005}};
+        CHECK(s.u32() == 7u);
+        for (const auto& [k, v] : want) {
+            CHECK(s.str() == k);
+            CHECK(s.f64() == doctest::Approx(v).epsilon(1e-12));
+        }
+    }
+    skip_facet(0); skip_art_mount();
+    expect_comp("gun_cannon", "gun.autocannon", 2, "hp_gun_cannon", 0);
+    skip_attr(7); skip_facet(0); skip_art_mount();
+    expect_comp("rocket_pod", "gun.rocket", 2, "hp_pod_rocket", 0);
+    skip_attr(7); skip_facet(0); skip_art_mount();
     // catalog: type -> category, first-seen order
-    CHECK(s.u32() == 10u);
+    CHECK(s.u32() == 13u);
     {
         const std::vector<std::pair<std::string, int>> want = {
             {"thruster.main", 0}, {"thruster.rcs", 1}, {"sensor.array", 3},
             {"turret.dorsal", 2}, {"seat.pilot", 3}, {"door.hatch", 3},
             {"panel.dash", 3}, {"berth.crew", 3}, {"power.reactor", 3},
-            {"power.battery", 3}};
+            {"power.battery", 3}, {"gun.laser", 2}, {"gun.autocannon", 2},
+            {"gun.rocket", 2}};
         for (const auto& [t, c] : want) { CHECK(s.str() == t); CHECK(static_cast<int>(s.u8()) == c); }
     }
     // wires (#26a)
     CHECK(s.u32() == 6u);
     auto expect_wire = [&](const std::string& id, int type, bool cap, double cap_v,
-                           int fk, const std::string& f, int tk, const std::string& t) {
+                           int fk, const std::string& f, int tk, const std::string& t,
+                           const std::vector<std::array<int, 3>>& route) {
         CHECK(s.str() == id);
         CHECK(static_cast<int>(s.u8()) == type);
         CHECK(static_cast<int>(s.u8()) == (cap ? 1 : 0));
         if (cap) CHECK(s.f64() == cap_v);
         CHECK(static_cast<int>(s.u8()) == fk); CHECK(s.str() == f);
         CHECK(static_cast<int>(s.u8()) == tk); CHECK(s.str() == t);
+        CHECK(s.u32() == route.size());  // #51 ordered cell route
+        for (const auto& c : route)
+            for (int v : c) CHECK(s.i32() == v);
     };
-    expect_wire("w_engL", 0, false, 0.0, 1, "reactor_1", 0, "hp_engine_L");
-    expect_wire("w_engR", 0, false, 0.0, 1, "reactor_1", 0, "hp_engine_R");
-    expect_wire("w_rcs", 0, false, 0.0, 1, "battery_1", 0, "hp_wingtip_R");
-    expect_wire("w_sensor", 0, false, 0.0, 1, "battery_1", 0, "hp_wingtip_L");
-    expect_wire("w_turret", 0, true, 6000.0, 1, "reactor_1", 0, "hp_dorsal_turret");
-    expect_wire("w_fire_ctrl", 2, false, 0.0, 1, "seat_pilot", 1, "turret_dorsal");
+    expect_wire("w_engL", 0, false, 0.0, 1, "reactor_1", 0, "hp_engine_L",
+                {{-1,0,1},{0,0,1},{0,0,0},{0,0,-1},{0,0,-2},{0,0,-3},{1,0,-3}});
+    expect_wire("w_engR", 0, false, 0.0, 1, "reactor_1", 0, "hp_engine_R",
+                {{-1,0,1},{0,0,1},{0,0,0},{0,0,-1},{0,0,-2},{0,0,-3},{-1,0,-3}});
+    expect_wire("w_rcs", 0, false, 0.0, 1, "battery_1", 0, "hp_wingtip_R",
+                {{1,0,1},{0,0,1},{0,0,0},{-1,0,0},{-2,0,0},{-3,0,0}});
+    expect_wire("w_sensor", 0, false, 0.0, 1, "battery_1", 0, "hp_wingtip_L",
+                {{1,0,1},{0,0,1},{0,0,0},{1,0,0},{2,0,0},{3,0,0}});
+    expect_wire("w_turret", 0, true, 6000.0, 1, "reactor_1", 0, "hp_dorsal_turret",
+                {{-1,0,1},{0,0,1},{0,0,0},{0,1,0}});
+    expect_wire("w_fire_ctrl", 2, false, 0.0, 1, "seat_pilot", 1, "turret_dorsal",
+                {{0,0,-2},{0,0,-1},{0,0,0},{0,1,0}});
+    // #51b section->wires index (authored section order: bridge, midship,
+    // engine_bay, engineering) — which routes pass through each section.
+    CHECK(s.u32() == 4u);
+    auto expect_sec = [&](std::vector<unsigned> idx) {
+        CHECK(s.u32() == idx.size());
+        for (unsigned i : idx) CHECK(s.u32() == i);
+    };
+    expect_sec({0, 1, 5});
+    expect_sec({0, 1, 2, 3, 4, 5});
+    expect_sec({0, 1});
+    expect_sec({0, 1, 2, 3, 4});
     // seams (#46d): parsed between wires and refs; sample has none (5.9b adds
     // a two-def seam gate). 5.8 payload had no seam field at all, so this
     // count is v2's new slot.
@@ -270,6 +355,20 @@ TEST_CASE("cook_hull_def_gates") {
         CHECK_MESSAGE(cook(dock_def, payload, refs), err);
     }
 
+    // 9.6: the six weapon keys joined the ratified registry; a near-miss
+    // spelling passes the generic key GRAMMAR but must still die at the
+    // membership gate -- this is what makes the kPhase5_attr_keys addition
+    // load-bearing (mutation: bypass `known` -> this fails).
+    {
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs;
+        const std::string typo = minimal +
+            "[[component]]\nid = \"g\"\ntype = \"gun.laser\"\ncategory = \"gun\"\nsocket = \"hp\"\n"
+            "[component.attrs]\nweapon.dmage = 1\n";
+        CHECK_FALSE(cook(typo, payload, refs));
+        CHECK(err.find("not in the ratified attr-key registry") != std::string::npos);
+    }
+
     // schema gates: each must fail with the reason in err.
     auto must_fail = [&](const std::string& text, const std::string& why) {
         ve::cook::Bytes payload;
@@ -321,6 +420,15 @@ TEST_CASE("cook_hull_def_gates") {
               "socket.<id>");  // #26a endpoint grammar
     must_fail("class_tag = \"class.mini\"\n"
               "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+              "[[wire]]\nid = \"w\"\ntype = \"power\"\nfrom = \"socket.a\"\nto = \"socket.b\"\n",
+              "route is required");  // #51: a wire without a route cannot exist
+    must_fail("class_tag = \"class.mini\"\n"
+              "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+              "[[wire]]\nid = \"w\"\ntype = \"power\"\nfrom = \"socket.a\"\nto = \"socket.b\"\n"
+              "route = [[0, 0, 0], [1.5, 0, 1]]\n",
+              "integers");  // #51 route cells are integer cell coords
+    must_fail("class_tag = \"class.mini\"\n"
+              "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
               "[[component]]\nid = \"x\"\ntype = \"t\"\ncategory = \"main\"\nsocket = \"a\"\n"
               "[[component]]\nid = \"x\"\ntype = \"t2\"\ncategory = \"rcs\"\nsocket = \"b\"\n",
               "duplicate component id");
@@ -370,11 +478,438 @@ TEST_CASE("cook_hull_def_gates") {
         CHECK(s.u32() == 0u);   // a: no tags,
         CHECK(s.u32() == 0u);   // no attrs,
         CHECK(s.u32() == 0u);   // no facets
+        CHECK(s.str().empty());  // #52b: no art map -> art_ref ''
+        CHECK(s.u8() == 0u);     // has_mount 0
         CHECK(s.str() == "b"); (void)s.str(); (void)s.u8(); (void)s.str(); (void)s.u8();
         CHECK(s.u32() == 0u);   // tags
         CHECK(s.u32() == 1u);   // attrs landed on b
         CHECK(s.str() == "mass"); CHECK(s.f64() == 5.0);
         CHECK(s.u32() == 1u);   // facet landed on b
         CHECK(s.str() == "use.panel"); CHECK(s.f64() == 2.0); CHECK(s.u8() == 0); CHECK(s.u8() == 0);
+        CHECK(s.str().empty());  // #52b: no art map on either entry
+        CHECK(s.u8() == 0u);
     }
+}
+
+// test: cook_component_type_defs — 9.1 (#52a, decision #55): component TYPE
+// def grammar (component_type marker + required category + refs + [attrs]
+// preset, closed field set, marker exclusivity), hull-entry inheritance with
+// key-by-key override, category cross-check, entry art `refs` override, and
+// the driver end-to-end: type-def manifest edges, hull effective sha (preset
+// edit re-cooks an untouched hull), raw-passthrough type units, duplicate
+// component_type and marker-conflict cook-fails.
+namespace {
+bool has_bytes(const ve::cook::Bytes& b, const std::string& pat) {
+    return std::search(b.begin(), b.end(), pat.begin(), pat.end()) != b.end();
+}
+bool has_f64(const ve::cook::Bytes& b, double v) {
+    unsigned char pat[8];  // must be unsigned char: Bytes is u8, and a
+                           // signed char would never match the >=0x80 bytes
+    std::memcpy(pat, &v, 8);
+    return std::search(b.begin(), b.end(), pat, pat + 8) != b.end();
+}
+constexpr const char* kTypeDefSrc =
+    "component_type = \"thruster.mx\"\n"
+    "category = \"main\"\n"
+    // gizmo rides the preset art candidates (#52b): the keyed-model gate
+    // resolves entries whose id/type names a node of a candidate .glb.
+    "refs = [\"../../art/main_x.bin\", \"../../art/gizmo.glb\"]\n"
+    "[attrs]\nmass = 900\npower.draw = 25000\n";
+constexpr const char* kMiniHull =
+    "class_tag = \"class.mini\"\n"
+    "refs = [\"../art/gizmo.glb\"]\n"  // BEFORE [[component]]: TOML table law
+    "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+    // section covers the gizmo anchor's cell (#44: exactly one section).
+    "[[section]]\nname = \"bay\"\ncells = [[0, 0, 0, 0, 0, 0]]\n"
+    "[[component]]\nid = \"eng1\"\ntype = \"thruster.mx\"\ncategory = \"main\"\nsocket = "
+    "\"hp_engine_L\"\n";  // socket names the gizmo's anchor (#46a)
+
+// Minimal one-hardpoint gizmo glb: a mesh-less node named hp_* with a
+// ratified socket_type (#21) cooks to a SOCK unit with that anchor. The
+// second node is named by the mini hull's component id: #52b's keyed
+// model gate only resolves art whose node set carries entry ids/types
+// (plain node, no socket_type extras = model key only, never an anchor).
+ve::cook::Bytes make_gizmo_glb() {
+    std::string j = R"({"asset":{"version":"2.0"},"nodes":[)"
+                    R"({"name":"hp_engine_L","extras":{"socket_type":"main"},)"
+                    R"("translation":[0,0,0]},)"
+                    R"({"name":"eng1","translation":[0,0,0]}]})";
+    while (j.size() % 4) j += ' ';
+    ve::cook::Bytes g;
+    auto u32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) g.push_back(static_cast<unsigned char>((v >> (8 * i)) & 0xFF));
+    };
+    g.insert(g.end(), {'g', 'l', 'T', 'F'});
+    u32(2);
+    u32(static_cast<std::uint32_t>(12 + 8 + j.size()));
+    u32(static_cast<std::uint32_t>(j.size()));
+    g.insert(g.end(), {'J', 'S', 'O', 'N'});
+    g.insert(g.end(), j.begin(), j.end());
+    return g;
+}
+}  // namespace
+
+TEST_CASE("cook_component_type_defs") {
+    std::string err;
+
+    // ---- grammar: valid type def parses fully ----
+    {
+        ve::cook::CompTypeDef td;
+        REQUIRE_MESSAGE(ve::cook::cook_comptype_source(kTypeDefSrc, td, &err), err);
+        CHECK(td.type == "thruster.mx");
+        CHECK(static_cast<int>(td.category) == 0);  // main
+        CHECK(td.refs == std::vector<std::string>{"../../art/main_x.bin",
+                                                "../../art/gizmo.glb"});
+        REQUIRE(td.attrs.size() == 2u);
+        CHECK(td.attrs[0].first == "mass"); CHECK(td.attrs[0].second == 900.0);
+        CHECK(td.attrs[1].first == "power.draw"); CHECK(td.attrs[1].second == 25000.0);
+    }
+    // #55a: empty refs allowed until the 9.2 strict art gate.
+    {
+        ve::cook::CompTypeDef td;
+        const std::string src = "component_type = \"t.x\"\ncategory = \"utility\"\n";
+        REQUIRE_MESSAGE(ve::cook::cook_comptype_source(src, td, &err), err);
+        CHECK(td.refs.empty());
+        CHECK(td.attrs.empty());
+    }
+    // marker exclusivity (#55a): two of the three markers is cook-fail.
+    {
+        ve::cook::CompTypeDef td;
+        CHECK_FALSE(ve::cook::cook_comptype_source(
+            "class_tag = \"c\"\ncomponent_type = \"t.x\"\ncategory = \"main\"\n", td, &err));
+        CHECK(err.find("both class_tag and component_type") != std::string::npos);
+        CHECK_FALSE(ve::cook::cook_comptype_source(
+            "world_class = \"w\"\ncomponent_type = \"t.x\"\ncategory = \"main\"\n", td, &err));
+        CHECK(err.find("both world_class and component_type") != std::string::npos);
+    }
+    // required fields + closed grammar + #42 at this end.
+    {
+        ve::cook::CompTypeDef td;
+        CHECK_FALSE(ve::cook::cook_comptype_source("component_type = \"t.x\"\n", td, &err));
+        CHECK(err.find("category") != std::string::npos);
+        CHECK_FALSE(ve::cook::cook_comptype_source(
+            "component_type = \"t.x\"\ncategory = \"warp\"\n", td, &err));
+        CHECK(err.find("not one of main/rcs/gun/utility") != std::string::npos);
+        CHECK_FALSE(ve::cook::cook_comptype_source(
+            "component_type = \"t.x\"\ncategory = \"main\"\nfoo = 1\n", td, &err));
+        CHECK(err.find("unknown field 'foo'") != std::string::npos);
+        CHECK_FALSE(ve::cook::cook_comptype_source(
+            "component_type = \"t.x\"\ncategory = \"main\"\n[attrs]\nnot.a.key = 1\n", td, &err));
+    }
+
+    // ---- hull merge: preset applies, entry key wins, key-order emit ----
+    ve::cook::CompTypeDef td;
+    REQUIRE(ve::cook::cook_comptype_source(kTypeDefSrc, td, &err));
+    const std::map<std::string, ve::cook::CompTypeDef> types{{td.type, td}};
+    {
+        const std::string hull = std::string(kMiniHull) +
+            "[component.attrs]\nmass = 1000\n";  // overrides the preset mass
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs, used, erefs;
+        REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(hull, payload, refs, &err, &types,
+                                                    &used, &erefs), err);
+        CHECK(used == std::vector<std::string>{"thruster.mx"});
+        CHECK(erefs.empty());  // entry has no own art refs (inherited art
+                               // rides the type def's own manifest edges)
+        Reader s{payload};
+        (void)s.u32(); (void)s.str();
+        (void)s.u8(); (void)s.u8(); (void)s.u8();
+        (void)s.f64(); (void)s.u32(); (void)s.f64(); (void)s.f64();
+        CHECK(s.u32() == 1u);  // 1 section (bay, one cell box)
+        (void)s.str(); CHECK(s.u32() == 1u);
+        for (int i = 0; i < 6; ++i) (void)s.i32();
+        CHECK(s.u32() == 1u);
+        CHECK(s.str() == "eng1"); (void)s.str(); (void)s.u8(); (void)s.str(); (void)s.u8();
+        CHECK(s.u32() == 0u);   // tags
+        CHECK(s.u32() == 2u);   // merged attrs: preset + entry, entry wins
+        CHECK(s.str() == "mass"); CHECK(s.f64() == 1000.0);        // entry key wins
+        CHECK(s.str() == "power.draw"); CHECK(s.f64() == 25000.0);  // preset fills in
+        CHECK(s.u32() == 0u);      // facets
+        CHECK(s.str().empty());    // #52b art_ref: no art map at unit level
+        CHECK(s.u8() == 0u);       // has_mount: no anchor table at unit level
+    }
+    // #52b (DEF0 v3) unit level: the art map + anchor table fill the
+    // per-component art_ref and the mount TRS of the entry's socket.
+    {
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs;
+        const std::map<std::string, std::string> art{{"eng1", "art/gizmo.glb"}};
+        ve::cook::MountTRS mt;
+        mt.t = {1.0, 2.0, 3.0};
+        mt.q = {0.0, 0.0, 0.7071067811865475, 0.7071067811865475};
+        const std::map<std::string, ve::cook::MountTRS> anchors{{"hp_engine_L", mt}};
+        REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(kMiniHull, payload, refs, &err, &types,
+                                                    nullptr, nullptr, &art, &anchors), err);
+        CHECK(has_bytes(payload, "art/gizmo.glb"));
+        CHECK(has_f64(payload, 3.0));   // mount t
+        CHECK(has_f64(payload, 0.7071067811865475));  // mount q
+    }
+    // category cross-check (#55c): entry category must equal the type's.
+    {
+        const std::string hull =
+            "class_tag = \"class.mini\"\n"
+            "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+            "[[component]]\nid = \"eng1\"\ntype = \"thruster.mx\"\ncategory = \"rcs\"\nsocket = \"s1\"\n";
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs;
+        CHECK_FALSE(ve::cook::cook_hulldef_unit(hull, payload, refs, &err, &types));
+        CHECK(err.find("does not match component type 'thruster.mx' category 'main'") !=
+              std::string::npos);
+    }
+    // entry art override (#55b): the entry's own refs are the hull dep edges.
+    {
+        const std::string hull =
+            "class_tag = \"class.mini\"\n"
+            "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+            "[[component]]\nid = \"eng1\"\ntype = \"thruster.mx\"\ncategory = \"main\"\nsocket = \"s1\"\n"
+            "refs = [\"art/own_x.bin\"]\n";
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs, used, erefs;
+        REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(hull, payload, refs, &err, &types,
+                                                    &used, &erefs), err);
+        CHECK(erefs == std::vector<std::string>{"art/own_x.bin"});
+    }
+    // entry whose type has NO type def: entry-only attrs, no used/edges.
+    {
+        ve::cook::Bytes payload;
+        std::vector<std::string> refs, used, erefs;
+        const std::string hull =
+            "class_tag = \"class.mini\"\n"
+            "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+            "[[component]]\nid = \"solo\"\ntype = \"t.other\"\ncategory = \"utility\"\nsocket = \"s9\"\n"
+            "[component.attrs]\nmass = 7\n";
+        REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(hull, payload, refs, &err, &types,
+                                                    &used, &erefs), err);
+        CHECK(used.empty());
+        CHECK(erefs.empty());
+    }
+}
+
+TEST_CASE("cook_component_type_defs_driver") {
+    // End-to-end through cook_incremental: edges, effective-sha recook,
+    // raw-passthrough type units, duplicate + conflict cook-fails.
+    const std::string src = tmp_root("ct_src");
+    const std::string out = tmp_root("ct_out");
+    auto write = [&](const std::string& rel, const std::string& text) {
+        const auto p = std::filesystem::path(src) / rel;
+        std::filesystem::create_directories(p.parent_path());
+        std::ofstream f(p, std::ios::binary | std::ios::trunc);
+        f << text;
+    };
+    write("defs/parts/thruster_mx.def.toml", kTypeDefSrc);
+    write("defs/mini_hull.def.toml", kMiniHull);
+    write("art/main_x.bin", "ART-v1");
+    // 5.9b doctrine: the hull's socket must name an anchor in a cooked SOCK
+    // — reached via the hull's own .glb manifest dep (#46a).
+    const auto gizmo = make_gizmo_glb();
+    ve::core::cooked::write_file_bytes((std::filesystem::path(src) / "art/gizmo.glb").string(),
+                                       gizmo, nullptr);
+
+    ve::core::cooked::Manifest mf;
+    std::string err;
+    auto r1 = ve::cook::cook_incremental(src, out);
+    REQUIRE_MESSAGE(r1.ok, r1.error);
+    CHECK(r1.counts.cooked == 4u);
+    REQUIRE(ve::cook::read_manifest(out + "/manifest.bin", mf, &err));
+    // hull -> type def edge (#52b); the hull inherits art transitively.
+    CHECK(mf.at("defs/mini_hull.def.toml").deps ==
+          std::vector<std::string>{"art/gizmo.glb", "defs/parts/thruster_mx.def.toml"});
+    // type def -> its art refs (authored against the TYPE DEF's directory).
+    CHECK(mf.at("defs/parts/thruster_mx.def.toml").deps ==
+          std::vector<std::string>{"art/gizmo.glb", "art/main_x.bin"});
+    // the type def unit keeps raw source bytes (#55: no new payload kind).
+    ve::cook::Unit tu;
+    REQUIRE(ve::cook::read_unit_file(out + "/units/defs/parts/thruster_mx.def.toml.ck", tu, &err));
+    CHECK(std::string(tu.payload.begin(), tu.payload.end()) == kTypeDefSrc);
+    // merged preset is IN the hull payload (preset attrs + preset mass 900).
+    ve::cook::Unit hu;
+    REQUIRE(ve::cook::read_unit_file(out + "/units/defs/mini_hull.def.toml.ck", hu, &err));
+    CHECK(has_bytes(hu.payload, "power.draw"));
+    CHECK(has_f64(hu.payload, 25000.0));
+    CHECK(has_f64(hu.payload, 900.0));
+    // #52b (DEF0 v3; gate G11 passes by construction): eng1 resolves to
+    // the gizmo (its node set carries the component id), the content ID
+    // rides the hull's manifest deps, and the payload names the art.
+    CHECK(has_bytes(hu.payload, "art/gizmo.glb"));
+
+    // untouched sources: everything skips (hull's effective sha unchanged).
+    auto r2 = ve::cook::cook_incremental(src, out);
+    REQUIRE_MESSAGE(r2.ok, r2.error);
+    CHECK(r2.counts.skipped == 4u);
+    CHECK(r2.counts.cooked == 0u);
+
+    // edit ONLY the type def preset: hull re-cooks (effective sha covers the
+    // type def bytes) — a preset edit can never leave a stale hull payload.
+    write("defs/parts/thruster_mx.def.toml",
+          "component_type = \"thruster.mx\"\ncategory = \"main\"\n"
+          "refs = [\"../../art/main_x.bin\", \"../../art/gizmo.glb\"]\n[attrs]\nmass = 1234\npower.draw = 25000\n");
+    auto r3 = ve::cook::cook_incremental(src, out);
+    REQUIRE_MESSAGE(r3.ok, r3.error);
+    CHECK(r3.counts.cooked == 2u);  // the type def AND the hull
+    CHECK(r3.counts.skipped == 2u);
+    REQUIRE(ve::cook::read_unit_file(out + "/units/defs/mini_hull.def.toml.ck", hu, &err));
+    CHECK(has_f64(hu.payload, 1234.0));
+    CHECK_FALSE(has_f64(hu.payload, 900.0));
+
+    // duplicate component_type across sources: cook-fail (#55a).
+    write("defs/parts/thruster_mx_copy.def.toml", kTypeDefSrc);
+    auto r4 = ve::cook::cook_incremental(src, out);
+    CHECK_FALSE(r4.ok);
+    CHECK(r4.error.find("declared by both 'defs/parts/thruster_mx.def.toml' and") !=
+          std::string::npos);
+    std::filesystem::remove(std::filesystem::path(src) / "defs/parts/thruster_mx_copy.def.toml");
+
+    // one def carrying class_tag AND component_type: cook-fail (#55a), and
+    // routing sends it to the type-def gate (marker precedence is exclusive).
+    write("defs/conflict.def.toml",
+          "class_tag = \"class.x\"\ncomponent_type = \"t.conflict\"\ncategory = \"main\"\n");
+    auto r5 = ve::cook::cook_incremental(src, out);
+    CHECK_FALSE(r5.ok);
+    CHECK(r5.error.find("both class_tag and component_type") != std::string::npos);
+
+    std::filesystem::remove_all(src);
+    std::filesystem::remove_all(out);
+}
+
+TEST_CASE("cook_wire_section_index") {
+    // #51b: the section->wires index is DERIVED at cook, one row per
+    // authored section, wire indices ascending, each wire listed at most
+    // once per section — even when its route leaves and re-enters it.
+    // Grammar-only cook (no SOCK/validator), so route cells need no
+    // anchors: this pins the index derivation in isolation.
+    std::string err;
+    ve::cook::Bytes payload;
+    std::vector<std::string> refs;
+    const std::string def =
+        "class_tag = \"class.mini\"\n"
+        "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+        "[[section]]\nname = \"A\"\ncells = [[0, 0, 0, 1, 0, 0]]\n"
+        "[[section]]\nname = \"B\"\ncells = [[2, 0, 0, 2, 0, 0]]\n"
+        "[[wire]]\nid = \"w\"\ntype = \"power\"\nfrom = \"socket.a\"\nto = \"socket.b\"\n"
+        "route = [[0, 0, 0], [1, 0, 0], [2, 0, 0], [1, 0, 0], [0, 0, 0]]\n";
+    REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(def, payload, refs, &err), err);
+    Reader s{payload};
+    CHECK(s.u32() == 4u);
+    CHECK(s.str() == "class.mini");
+    CHECK(s.u8() == 0u);  // no hull_mass
+    CHECK(s.u8() == 0u);  // no com
+    CHECK(s.u8() == 0u);  // no inertia
+    CHECK(s.f64() == 1.0); CHECK(s.u32() == 2u);  // grid cell + subcell ratio
+    CHECK(s.f64() == 1.0); CHECK(s.f64() == 0.0);  // cell_height + tolerance
+    CHECK(s.u32() == 2u);  // sections (authored order)
+    CHECK(s.str() == "A"); CHECK(s.u32() == 1u);
+    for (int v : {0, 0, 0, 1, 0, 0}) CHECK(s.i32() == v);
+    CHECK(s.str() == "B"); CHECK(s.u32() == 1u);
+    for (int v : {2, 0, 0, 2, 0, 0}) CHECK(s.i32() == v);
+    CHECK(s.u32() == 0u);  // comps
+    CHECK(s.u32() == 0u);  // catalog
+    CHECK(s.u32() == 1u);  // wires
+    CHECK(s.str() == "w");
+    CHECK(s.u8() == 0u); CHECK(s.u8() == 0u);  // type, no capacity
+    CHECK(s.u8() == 0u); CHECK(s.str() == "a");  // socket.a
+    CHECK(s.u8() == 0u); CHECK(s.str() == "b");  // socket.b
+    CHECK(s.u32() == 5u);  // route cells
+    const std::vector<std::array<int, 3>> want{
+        {0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {1, 0, 0}, {0, 0, 0}};
+    for (const auto& c : want)
+        for (int v : c) CHECK(s.i32() == v);
+    CHECK(s.u32() == 2u);  // one index row per section row
+    CHECK(s.u32() == 1u); CHECK(s.u32() == 0u);  // A: w listed ONCE despite re-entry
+    CHECK(s.u32() == 1u); CHECK(s.u32() == 0u);  // B: w
+    CHECK(s.u32() == 0u);  // seams
+    CHECK(s.u32() == 0u);  // refs
+    CHECK(s.at == payload.size());  // full payload consumed, no trailing gap
+}
+
+TEST_CASE("cook_wire_tube_mesh") {
+    // #51c: cook builds a companion thin-tube MESH payload from the wire
+    // routes: one submesh per wire, name = wire id (the mount key the render
+    // side dims per reachability — "dark not dead"), no material. Grammar
+    // hull, cell = height = 1 m, radius 0.05 m — geometry pinned exactly.
+    // Determinism doctrine: fixed ring table + integer axes, no libm.
+    std::string err;
+    ve::cook::Bytes tubes, payload;
+    std::vector<std::string> refs;
+    const std::string def =
+        "class_tag = \"class.mini\"\n"
+        "[grid]\ncell = \"1 m\"\nsubcell_ratio = 2\ncell_height = \"1 m\"\ntolerance = \"0 m\"\n"
+        "[[section]]\nname = \"A\"\ncells = [[0, 0, 0, 2, 0, 0]]\n"
+        "[[wire]]\nid = \"w\"\ntype = \"power\"\nfrom = \"socket.a\"\nto = \"socket.b\"\n"
+        "route = [[0, 0, 0], [1, 0, 0], [2, 0, 0]]\n";
+    REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(def, payload, refs, &err, nullptr,
+                                                nullptr, nullptr, nullptr, nullptr,
+                                                &tubes),
+                    err);
+    Reader s{tubes};
+    CHECK(s.u32() == 1u);          // mesh_count: one submesh per wire
+    CHECK(s.str() == "w");         // name = wire id (the mount key)
+    CHECK(s.u32() == 0xFFFFFFFFu); // material: none
+    CHECK(s.u32() == 18u);         // vertex_count = 3 rings x 6 sides
+    std::vector<float> pos, nrm, uvs, tan;
+    for (int i = 0; i < 18 * 3; ++i) pos.push_back(s.f32());
+    for (int i = 0; i < 18 * 3; ++i) nrm.push_back(s.f32());
+    for (int i = 0; i < 18 * 2; ++i) uvs.push_back(s.f32());
+    for (int i = 0; i < 18 * 4; ++i) tan.push_back(s.f32());
+    // Segment 0 steps +x: frame t=+x, u=+y, b=+z. Ring k0 rides +u.
+    // v0 = cell centre (0.5,0.5,0.5) + 0.05*(0,1,0).
+    CHECK(pos[0] == doctest::Approx(0.5f)); CHECK(pos[1] == doctest::Approx(0.55f)); CHECK(pos[2] == doctest::Approx(0.5f));
+    CHECK(nrm[0] == 0.f); CHECK(nrm[1] == 1.f); CHECK(nrm[2] == 0.f);
+    // v1 (k=1): cos/sin table ring — nrm = 0.5u + .8660254b.
+    CHECK(pos[3] == doctest::Approx(0.5f)); CHECK(pos[4] == doctest::Approx(0.5f + 0.05f * 0.5f)); CHECK(pos[5] == doctest::Approx(0.5f + 0.05f * 0.8660254f));
+    CHECK(nrm[3] == 0.f); CHECK(nrm[4] == doctest::Approx(0.5f)); CHECK(nrm[5] == doctest::Approx(0.8660254f));
+    // v2 (k=2): nrm = -0.5u + .8660254b -> y drops below centre again.
+    CHECK(pos[6] == doctest::Approx(0.5f)); CHECK(pos[7] == doctest::Approx(0.5f - 0.05f * 0.5f));
+    // uv: v = k/6 around, u = metres travelled. Ring1 u=1, ring2 u=2.
+    CHECK(uvs[0] == 0.f); CHECK(uvs[1] == 0.f);
+    CHECK(uvs[2] == 0.f); CHECK(uvs[3] == doctest::Approx(1.f / 6.f));
+    CHECK(uvs[12] == doctest::Approx(1.f)); CHECK(uvs[13] == 0.f);  // v6 = ring1 k0
+    CHECK(uvs[24] == doctest::Approx(2.f));                          // v12 = ring2 k0
+    // tangent = segment direction + w flag 1.
+    CHECK(tan[0] == 1.f); CHECK(tan[1] == 0.f); CHECK(tan[2] == 0.f); CHECK(tan[3] == 1.f);
+    // ring2 (v12): last step was still +x (dominant-axis frame is exact).
+    CHECK(tan[48] == 1.f); CHECK(tan[50] == 0.f);
+    CHECK(s.u32() == 24u);  // tri_count = 2 segments x 6 quads x 2 tris
+    std::vector<std::uint32_t> idx;
+    for (int i = 0; i < 24 * 3; ++i) idx.push_back(s.u32());
+    // First quad (ring0 k0): two CCW-ish tris over ring step.
+    CHECK(idx[0] == 0u); CHECK(idx[1] == 1u); CHECK(idx[2] == 7u);
+    CHECK(idx[3] == 0u); CHECK(idx[4] == 7u); CHECK(idx[5] == 6u);
+    bool in_range = true;
+    for (std::uint32_t v : idx) in_range = in_range && v < 18u;
+    CHECK(in_range);
+    CHECK(s.u32() == 0u);  // material_count
+    CHECK(s.u32() == 0u);  // sock_count
+    CHECK(s.u32() == 0u);  // extras_count
+    CHECK(s.at == tubes.size());  // full payload consumed, no trailing gap
+
+    // Single-cell route: one closed ring, zero triangles — degenerate but
+    // valid bytes (a doomed def may cook an ugly tube; G12 cooks it out).
+    ve::cook::Bytes one, pay1;
+    std::vector<std::string> refs1;
+    const std::string def1 =
+        "class_tag = \"class.mini\"\n"
+        "[grid]\ncell = \"2 m\"\nsubcell_ratio = 2\ncell_height = \"2.2 m\"\ntolerance = \"0 m\"\n"
+        "[[section]]\nname = \"A\"\ncells = [[0, 0, 0, 0, 0, 0]]\n"
+        "[[wire]]\nid = \"stub\"\ntype = \"power\"\nfrom = \"socket.a\"\nto = \"socket.b\"\n"
+        "route = [[0, 0, 0]]\n";
+    REQUIRE_MESSAGE(ve::cook::cook_hulldef_unit(def1, pay1, refs1, &err, nullptr,
+                                                nullptr, nullptr, nullptr, nullptr,
+                                                &one),
+                    err);
+    Reader t{one};
+    CHECK(t.u32() == 1u);
+    CHECK(t.str() == "stub");
+    CHECK(t.u32() == 0xFFFFFFFFu);
+    CHECK(t.u32() == 6u);      // one ring
+    t.at += 6 * 3 * 4;         // pos
+    t.at += 6 * 3 * 4;         // nrm
+    t.at += 6 * 2 * 4;         // uv
+    t.at += 6 * 4 * 4;         // tan
+    CHECK(t.u32() == 0u);      // no segments -> no triangles
+    CHECK(t.u32() == 0u); CHECK(t.u32() == 0u); CHECK(t.u32() == 0u);
+    CHECK(t.at == one.size());
+
+    // tubes_out == nullptr: DEF0 cook path unaffected (companion is opt-in).
+    ve::cook::Bytes again;
+    REQUIRE(ve::cook::cook_hulldef_unit(def, again, refs, &err));
 }
