@@ -1,7 +1,7 @@
 // BOILERPLATE pins for the render-systems interlude decisions (#57 terrain
 // look extensions, #59 atmosphere rendering, #61 composition-driven optics,
 // #62 authored weather) plus a WFC probe for the UNRATIFIED prefab-base idea
-// (proposed #63). Self-contained by design: the algorithms live in this TU as
+// (proposed #64). Self-contained by design: the algorithms live in this TU as
 // throwaway reference ports so the math and determinism contract can be
 // proven (here and on MSVC/Windows, decision #38) before any of it gets
 // engine homes, checklists, and cooklets. When the real implementations land,
@@ -273,7 +273,7 @@ struct WeatherRegion {
 };
 
 // ---------------------------------------------------------------------------
-// WFC probe (proposed #63, UNRATIFIED): edge-matching collapse of prefab
+// WFC probe (proposed #64, UNRATIFIED): edge-matching collapse of prefab
 // tiles over an ordered grid. Determinism: seeded LCG, min-entropy with
 // lowest-index tie-break, scan-order selection, ordered propagation stack,
 // contradiction/checker failure -> deterministic re-roll (seed+attempt).
@@ -510,7 +510,7 @@ TEST_CASE("#62 authored weather: pure (seed, region, tick) replay invariant") {
     CHECK_FALSE(a.event_ticks.empty());
 }
 
-TEST_CASE("WFC prefab bases (proposed #63): deterministic collapse + checker") {
+TEST_CASE("WFC prefab bases (proposed #64): deterministic collapse + checker") {
     std::string l1, l2, other, bad;
     bool g1 = wfc_generate(0x5EED42, true, l1);
     bool g2 = wfc_generate(0x5EED42, true, l2);
