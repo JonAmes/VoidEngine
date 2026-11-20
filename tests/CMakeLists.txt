@@ -48,6 +48,7 @@ add_executable(engine_tests
     core/test_hull_breach.cpp
     core/test_combat_repair_roundtrip.cpp
     core/test_contact_map.cpp
+    core/test_targeting.cpp
     core/test_ecs.cpp
     core/test_sim_aero.cpp
     core/test_aero_heat.cpp
