@@ -53,6 +53,7 @@ add_executable(engine_tests
     core/test_ecs.cpp
     core/test_sim_aero.cpp
     core/test_aero_heat.cpp
+    core/test_planet_looks.cpp
     core/test_land_contacts.cpp
     core/test_pad_capture.cpp
     core/test_docking_clamp.cpp
