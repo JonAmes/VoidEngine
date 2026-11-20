@@ -526,4 +526,39 @@ TEST_CASE("author_glue_rows") {
     CHECK(aw.sources().at(kSys) == sys_ok2);
 }
 
+TEST_CASE("author_world load keeps defs the sources map does not hold") {
+    // ve_edit --src shape: every def is on disk in the tree; the forms map
+    // holds only the system def (panels open other defs on demand). The old
+    // semantics (wipe src_dir, rewrite only held sources) deleted the member
+    // defs and the gate re-cook died with "references missing".
+    AuthorTree t;
+    std::filesystem::create_directories(t.src);
+    for (const auto& [path, text] : t.sources) {
+        const auto p = t.src / path;
+        std::filesystem::create_directories(p.parent_path());
+        std::ofstream f(p, std::ios::binary);
+        f << text;
+        REQUIRE(f.good());
+    }
+    std::map<std::string, std::string> partial;
+    partial[kSys] = t.sources[kSys];
+
+    author_world aw;
+    std::string err;
+    REQUIRE_MESSAGE(aw.load(partial, t.src.string(), t.out.string(), &err), err);
+
+    // member defs cooked off disk: full rail chain assembled...
+    const auto vid = aw.body_id(kVes);
+    const auto lid = aw.body_id(kLun);
+    CHECK(vid >= 0);
+    CHECK(lid >= 0);
+    CHECK(aw.body_id(kKep) >= 0);
+    const auto* lb = aw.rails().body(lid);
+    REQUIRE(lb);
+    CHECK(lb->parent == vid);
+    // ...and every tree file is still byte-exact on disk.
+    for (const auto& [path, text] : t.sources)
+        CHECK(read_all((t.src / path).string()) == text);
+}
+
 }  // namespace ve::cook

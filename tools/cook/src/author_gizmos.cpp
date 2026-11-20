@@ -211,7 +211,12 @@ bool author_world::load(const std::map<std::string, std::string>& sources,
     m_sources = sources;
     m_src = src_dir;
     m_out = out_dir;
-    std::filesystem::remove_all(src_dir);
+    // Do NOT wipe src_dir: real authoring trees (ve_edit --src) hold defs
+    // the forms map does not (member bodies, station files). Rewriting only
+    // held sources onto the existing tree is exactly the #16 watch-loop
+    // semantics — live edits land in the user's files, unheld files are
+    // never touched. (The old remove_all here deleted every def the map
+    // didn't carry, breaking member references.)
     std::filesystem::remove_all(out_dir);
     for (const auto& [path, text] : m_sources) {
         const auto w = file_write(src_dir + "/" + path, text);
@@ -233,22 +238,29 @@ bool author_world::recook_and_swap(std::string* err) {
     }
     const auto res = cook_incremental(m_src, m_out);
     if (!res.ok) { *err = "cook gate: " + res.error; return false; }
+    // The world is EVERYTHING the gate cooked as a WRLD unit — not just the
+    // defs the sources map holds. ve_edit --src starts with only the system
+    // def parsed to text; member bodies/stations are plain files on disk
+    // (opened by the panels on demand), and assemble_rails needs every
+    // member (#45d: every system member must be a world def).
     std::map<std::string, cooked_def> fresh;
-    for (const auto& [path, text] : m_sources) {
-        std::ifstream probe(m_src + "/" + path);
-        std::stringstream ss;
-        ss << probe.rdbuf();
-        // only world defs (root table declares world_class) get WRLD units
-        if (ss.str().find("world_class") == std::string::npos) continue;
+    std::error_code wc_ec;
+    const auto units_dir = std::filesystem::path(m_out) / "units";
+    for (std::filesystem::recursive_directory_iterator it(units_dir, wc_ec), end;
+         wc_ec == std::error_code{} && it != end; it.increment(wc_ec)) {
+        if (it->path().extension() != ".ck") continue;
         core::cooked::Unit u;
         std::string uerr;
-        if (!core::cooked::read_unit_file(m_out + "/units/" + path + ".ck", u, &uerr)) {
+        if (!core::cooked::read_unit_file(it->path().string(), u, &uerr)) {
             *err = "post-cook read: " + uerr;
             return false;
         }
+        if (u.type != core::cooked::kUnitWrld) continue;  // only world defs (8.7 #45d)
         auto dec = game::decode_world(u.payload);
         if (!dec) { *err = "post-cook decode: " + dec.error(); return false; }
-        fresh[path] = cooked_def{*dec};
+        auto rel = std::filesystem::relative(it->path(), units_dir, wc_ec).generic_string();
+        rel.erase(rel.size() - 3);  // strip the .ck suffix -> source path
+        fresh[rel] = cooked_def{*dec};
     }
     m_defs = std::move(fresh);
     return assemble_rails(err);
