@@ -457,12 +457,15 @@ TEST_CASE("gfx_ui_immediate") {
         while (big.verts.size() * sizeof(ve::gfx::ui_vertex) <= 65536u) {
             // (vertex_base, not base: the enclosing TEST_CASE already has an
             // int `base` for the glyph baseline — MSVC C4456 under /W4 /WX.
-            // The index add is done in the index vector's own type so MSVC
-            // does not flag the size_t -> uint32_t narrowing C4267.)
+            // The index add is done in the index vector's own value_type so
+            // MSVC does not flag size_t -> uint32_t narrowing (C4267) and GCC
+            // does not flag casting to decltype(ix), which is const-qualified
+            // here (-Werror=ignored-qualifiers).)
             const auto vertex_base = big.verts.size();
             big.verts.insert(big.verts.end(), frame.verts.begin(), frame.verts.end());
             for (const auto ix : frame.indices)
-                big.indices.push_back(ix + static_cast<decltype(ix)>(vertex_base));
+                big.indices.push_back(
+                    ix + static_cast<typename decltype(big.indices)::value_type>(vertex_base));
         }
         REQUIRE(big.verts.size() > frame.verts.size());
         auto pres2 = ve::gfx::offscreen_presenter::create(*dev, kW, kH);
