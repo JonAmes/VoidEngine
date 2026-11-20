@@ -275,3 +275,50 @@
   made `wiring` unused -> -Werror=unused-parameter -> build fails ->
   chained run tested the STALE binary (vacuous "CAUGHT"-looking pass was
   actually BUILD-FAIL). Mutate compilable: `if (wiring) { (void) wiring; }`.
+
+## 9.16–9.24 (contact map -> duel hash) — back-half findings
+
+- 9.16 contact law is the 9.10 spread law VERBATIM (same expression
+  grouping) — reuse the proven RNG/frame recipe, never re-derive it.
+  Python hand-port trap: the world seed is the splitmix chain START, do
+  NOT XOR it into the keyed hash again. `std::span<const T>{obj}` on a
+  single object is a trap — spell `(ptr, 1)`.
+- 9.17/9.18: ghost-sim refinement needs CONTINUOUS per-segment CPA —
+  tick-sampled CPA floors at ~2.5 m (semi-implicit Euler moves whole
+  segments between samples). Correction term is `+D/(m*T)`, `D = model -
+  round_pos`. Duel hull half-extent 2 m < the sampled-CPA mutant floor
+  2.5 m so `assist_hits_evader` is non-vacuous against a ghost solver.
+- 9.19: crew gate refuses BEFORE any state-consuming gate — refusals
+  consume nothing, so a gated turret's shots bit-match an ungated twin's
+  spread stream (the strongest determinism proof the gate is free).
+- 9.20: director keeps NO stored stream position — every roll keyed
+  (world_seed, tick, signals); replay recomputes the offer sequence from
+  scratch (determinism rule #5). A second pinned seed with a
+  top-bit-clear roll landing on a non-first region kills the
+  "use-hash-top-bit-only" mutant class.
+- 9.21: scripted-fixture law — a withdrawn AI must get integrity back
+  before re-acquiring, else the transition script loops (t=400/401
+  engage->withdraw trace). Evaluation order (withdraw outranks
+  disengage when both fire) is a LAW and needs its own pin.
+- 9.22: `vector<vector<T>>::insert(pos, {})` COMPILES and inserts
+  garbage (wrong overload set; exit 134/139) — always spell the element
+  type `std::vector<adj>{}`. Convoy arrival = CUMULATIVE ceil
+  (ceil(L/speed/dt) per prefix), not per-edge ceil — the non-dyadic
+  {0,67,134,200,267} pin separates the variants (floor -> 200/267,
+  per-edge-ceil -> 201/268). Duplicate edges must min-dedupe at add
+  time or A* relaxation gets poisoned; discrimination needs edge-cost
+  `travel_length`, geometric node distance cannot see it. Mutation
+  ladders hold `-tc=` test names — after renaming a TEST_CASE the ladder
+  goes VACUOUS silently; update the filter.
+- 9.23: mutation discrimination is decided by the TEST BAND, not the
+  law — S3 (push unnormalized) landed at 52 m vs base 19 m and a 2x
+  upper band let it survive. Probe mutant outcomes numerically first,
+  then set bands well under the mutant values. `Fnv1a64` method is
+  `mix_u64`.
+- 9.24: the capstone caught two wiring facts outside any unit test:
+  every `gunner_seat` a gun names must exist as a MOUNTED seat component
+  (the never-manned decoy turret still mounts its seat — `sit()` fails
+  otherwise), and one per-tick FNV over the whole world bit state
+  (positions, projectile streams, shot counts, seat manning, FSM state,
+  both `stats_state_hash`) diverges on any seed change while two
+  replays stay bit-identical — the cheapest full-spine determinism net.
