@@ -56,6 +56,10 @@ rail_world test_world() {  // same body as 9.8's pin set
     return w;
 }
 
+std::vector<comp_bounds> hull_at(dvec3 c, std::uint32_t id) {
+    return {comp_bounds{id, obb{c, {2.0, 2.0, 2.0}, {}}}};  // 2 m hull: tighter than a sampled-CPA ghost's 2.5 m floor
+}
+
 rigid_state ship_at(dvec3 p, dvec3 v = {}) {
     rigid_state s;
     s.pos = p;
@@ -335,5 +339,89 @@ TEST_CASE("assist_refine_wells") {
         CHECK(r1.aim_dir.y == r2.aim_dir.y);
         CHECK(r1.aim_dir.z == r2.aim_dir.z);
         CHECK(r1.tof_s == r2.tof_s);
+    }
+}
+
+// done-when (b): assist-ON firing on the ballistic solution HITS a scripted
+// evader; assist-OFF straight-shot fire MISSES it. 9.18.
+TEST_CASE("assist_hits_evader") {
+    const rail_world w = test_world();
+    // Scripted evader: constant z-lane, scripted jink (20 -> 60 m/s) at
+    // t = 1.0 s. Piecewise-exact in both the hull bounds and the CPA check.
+    auto evader_pos = [](double t) {
+        return t < 1.0 ? dvec3{400.0, 400.0, 20.0 * t}
+                       : dvec3{400.0, 400.0, 20.0 + 60.0 * (t - 1.0)};
+    };
+    auto evader_vel = [](double t) { return t < 1.0 ? dvec3{0, 0, 20.0} : dvec3{0, 0, 60.0}; };
+    const dvec3 shooter{-400.0, 400.0, 0.0};  // across the well mouth (9.8 profile)
+    const double muzzle = 400.0;
+    constexpr tick_t fire_on = 66;  // after the jink: fresh solve
+
+    // Fly one round against the moving hull; report struck + swept-CPA floor.
+    struct duel_result { bool struck = false; int hit_tick = -1; double cpa = 1e30; };
+    auto duel = [&](dvec3 aim) {
+        duel_result dr;
+        auto pr = spawn_projectile(ship_at(shooter), aim, muzzle, 0, 300, 9);
+        if (!pr) return dr;
+        dvec3 prev = pr->state.pos;
+        for (std::size_t n = 1; n <= 300; ++n) {
+            const double t0 = static_cast<double>(n - 1) / kSim_tick_hz;
+            const auto res = projectile_step(w, *pr, static_cast<tick_t>(n - 1), 1, hull_at(evader_pos(t0), 7u));
+            const dvec3 dp = prev - evader_pos(t0);
+            const dvec3 dv = pr->state.vel - evader_vel(t0);
+            const double dv2 = dot(dv, dv);
+            double tau = dv2 > 0.0 ? -(dot(dp, dv)) / dv2 : 0.0;
+            tau = std::clamp(tau, 0.0, kSim_tick_dt);
+            dr.cpa = std::min(dr.cpa, length(dp + dv * tau));
+            prev = pr->state.pos;
+            if (res.life == projectile_life::struck) {
+                dr.struck = true; dr.hit_tick = static_cast<int>(n - 1);
+                REQUIRE(res.hit.has_value());
+                CHECK(res.hit->component == 7u);  // the report NAMES the evader
+                break;
+            }
+            if (res.life != projectile_life::alive) break;
+        }
+        return dr;
+    };
+
+    // ---- assist OFF: aim at the evader's CURRENT position -> MISS ----
+    {
+        const auto dr = duel(normalize(evader_pos(1.0) - shooter));
+        CHECK_FALSE(dr.struck);
+        CHECK(dr.cpa > 6.0);  // gravity drift + jink: clears the hull with margin
+    }
+    // ---- assist ON: locked computer, fresh solve post-jink -> HIT ----
+    auto assist_shot = [&]() {
+        pipe_fixture pf{1.0};
+        targeting_computer tc{7, &pf.sp, "pilot.gunnery", -1};
+        targeting_engage(tc, 0);
+        REQUIRE(targeting_lock_ready(tc, fire_on));
+        const auto sol = targeting_solution(
+            tc, inputs(shooter, {0, 0, 0}, evader_pos(1.1), {0, 0, 60.0}, muzzle), w, fire_on, 300);
+        REQUIRE(sol.has_value());
+        return *sol;
+    };
+    {
+        const auto sol = assist_shot();
+        // Spawn at fire_on from the shooter with the refined solution.
+        duel_result dr;
+        auto pr = spawn_projectile(ship_at(shooter), sol.aim_dir, muzzle, fire_on, 300, 9);
+        REQUIRE(pr.has_value());
+        dvec3 prev = pr->state.pos;
+        for (std::size_t n = 1; n <= 300; ++n) {
+            const double t0 = (static_cast<double>(fire_on) + static_cast<double>(n - 1)) / kSim_tick_hz;
+            const auto res = projectile_step(w, *pr, fire_on + static_cast<tick_t>(n - 1), 1, hull_at(evader_pos(t0), 7u));
+            prev = pr->state.pos;
+            if (res.life == projectile_life::struck) { dr.struck = true; dr.hit_tick = static_cast<int>(n - 1); break; }
+            if (res.life != projectile_life::alive) break;
+        }
+        CHECK(dr.struck);
+        CHECK(dr.hit_tick >= 100);  // tof ~2 s past fire_on=66: not an instant contact
+        // bit-determinism: identical re-run strikes the identical tick
+        const auto sol2 = assist_shot();
+        CHECK(sol2.aim_dir.x == sol.aim_dir.x);
+        CHECK(sol2.aim_dir.y == sol.aim_dir.y);
+        CHECK(sol2.aim_dir.z == sol.aim_dir.z);
     }
 }
