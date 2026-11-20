@@ -248,7 +248,10 @@ facts run_duel(const std::uint64_t world_seed, const int ticks) {
                                                   ko_fx(), inj_fx(), 9000u + static_cast<std::uint64_t>(t), ostack_b);
                 if (o == station_hit_outcome::ko && !f.ko_tick) {
                     f.ko_tick = static_cast<int>(t);
-                    f.b_shots_at_ko = gun_b.shots;
+                    // gun_b.shots is the sim's cumulative counter (uint64); the
+                    // sentinel field is signed (int, -1 = "no KO"). Duel shot
+                    // counts stay far below INT_MAX, so the cast is lossless here.
+                    f.b_shots_at_ko = static_cast<int>(gun_b.shots);
                 }
                 dead_a.push_back(i);
             } else if (res.life != projectile_life::alive) {

@@ -455,9 +455,14 @@ TEST_CASE("gfx_ui_immediate") {
         // the re-render stays byte-identical through the recreate.
         ve::gfx::ui_frame big = frame;
         while (big.verts.size() * sizeof(ve::gfx::ui_vertex) <= 65536u) {
-            const auto base = big.verts.size();
+            // (vertex_base, not base: the enclosing TEST_CASE already has an
+            // int `base` for the glyph baseline — MSVC C4456 under /W4 /WX.
+            // The index add is done in the index vector's own type so MSVC
+            // does not flag the size_t -> uint32_t narrowing C4267.)
+            const auto vertex_base = big.verts.size();
             big.verts.insert(big.verts.end(), frame.verts.begin(), frame.verts.end());
-            for (const auto ix : frame.indices) big.indices.push_back(ix + base);
+            for (const auto ix : frame.indices)
+                big.indices.push_back(ix + static_cast<decltype(ix)>(vertex_base));
         }
         REQUIRE(big.verts.size() > frame.verts.size());
         auto pres2 = ve::gfx::offscreen_presenter::create(*dev, kW, kH);

@@ -747,8 +747,10 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
         w.u8(wire.to_kind);
         w.str(wire.to_ref);
         w.u32(static_cast<std::uint32_t>(wire.route.size()));
-        for (const auto& cell : wire.route)
-            for (std::int32_t v : cell) w.i32(v);
+        // `rc` not `cell`: MSVC /W4 flags C4456 against the grid.cell TOML
+        // lookup earlier in this function.
+        for (const auto& rc : wire.route)
+            for (std::int32_t v : rc) w.i32(v);
     }
     // #51: section->wires index, DERIVED at cook — the query site for
     // damage severing (9.6: a hit on a section cuts exactly the wires routed
@@ -763,11 +765,11 @@ bool cook_hulldef_unit(const std::string& toml_text, Bytes& payload_out,
         std::vector<std::uint32_t> hits;
         for (std::size_t i = 0; i < wires.size(); ++i) {
             bool through = false;
-            for (const auto& cell : wires[i].route) {
+            for (const auto& rc : wires[i].route) {
                 for (const auto& b : boxes) {
-                    if (cell[0] >= b[0] && cell[0] <= b[3] &&
-                        cell[1] >= b[1] && cell[1] <= b[4] &&
-                        cell[2] >= b[2] && cell[2] <= b[5]) { through = true; break; }
+                    if (rc[0] >= b[0] && rc[0] <= b[3] &&
+                        rc[1] >= b[1] && rc[1] <= b[4] &&
+                        rc[2] >= b[2] && rc[2] <= b[5]) { through = true; break; }
                 }
                 if (through) break;
             }

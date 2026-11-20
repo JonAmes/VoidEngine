@@ -264,20 +264,23 @@ void loadout_editor_panel::render(gfx::ui_context& ui, std::int32_t x,
         // (#51); drafts re-validate through the SHARED route_law (G12).
         if (!s.wires.empty()) {
             ui.label("wires:");
-            for (auto& w : s.wires) {
-                const std::string key = "rt:" + w.id;
+            // loop var named `wire`: MSVC /W4 flags C4456 shadowing the panel
+            // width parameter `w` (GCC's -Wshadow is not in -Wall, so this
+            // only ever surfaced on the Windows wall).
+            for (auto& wire : s.wires) {
+                const std::string key = "rt:" + wire.id;
                 const std::string lbl =
-                    w.id + (m_route_edit && *m_route_edit == w.id
-                                ? " [editing, " + std::to_string(w.route.size()) +
-                                      " cells]"
-                                : " [" + std::to_string(w.route.size()) + " cells]");
+                    wire.id + (m_route_edit && *m_route_edit == wire.id
+                                 ? " [editing, " + std::to_string(wire.route.size()) +
+                                       " cells]"
+                                 : " [" + std::to_string(wire.route.size()) + " cells]");
                 if (ui.button(lbl.c_str(), key.c_str())) {
                     m_pick_socket.reset();  // route editor owns column 3
                     m_reject.reset();
-                    m_route_edit = w.id;
+                    m_route_edit = wire.id;
                     // Seed the draft buffer from the CURRENT committed route
                     // (canonical flat text; brackets optional).
-                    const std::string seed = route_text_of(w.route);
+                    const std::string seed = route_text_of(wire.route);
                     const std::size_t n =
                         seed.size() < sizeof m_route_buf - 1 ? seed.size()
                                                              : sizeof m_route_buf - 1;

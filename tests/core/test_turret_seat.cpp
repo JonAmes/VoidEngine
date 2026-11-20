@@ -201,7 +201,7 @@ TEST_CASE("turret_requires_seat") {
             gun_slot gun;
             setup_gun(gun, pf, "seat_gunner");
             ModifierStack ostack;
-            link.sit(kGunner, "seat_gunner", ostack);
+            REQUIRE(link.sit(kGunner, "seat_gunner", ostack).has_value());
             std::vector<std::uint64_t> bits;
             for (tick_t t = 10; t < 20; ++t) {
                 if (const auto f = gun_try_fire(gun, kAim, t, seed, &occ)) {

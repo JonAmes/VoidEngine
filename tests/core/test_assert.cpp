@@ -31,7 +31,11 @@ TEST_CASE("VE_ASSERT reports condition, message, and source location") {
     VE_ASSERT(true);
     CHECK(cap.fires == 0);
 
-    int x = 0;
+    // VE_ASSERT compiles to a no-op under NDEBUG, so in a release-configured
+    // object file `x` is only referenced by the stringified condition — hence
+    // maybe_unused (MSVC flags C4189 otherwise); this suite asserts debug-config
+    // behavior.
+    [[maybe_unused]] int x = 0;
     VE_ASSERT(x > 5);
     CHECK(cap.fires == 1);
     CHECK(cap.expr == "x > 5");

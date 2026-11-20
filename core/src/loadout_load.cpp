@@ -183,7 +183,7 @@ std::expected<loaded_hull, std::string> load_hull_loadout(
         if (w.from.kind > 1 || w.to.kind > 1)
             r.bad = true;  // endpoint kind out of DEF0 range
         const std::uint32_t ncell = r.u32();  // #51 route: spatial law lives
-        for (std::uint32_t k = 0; k < ncell && !r.bad; ++k)  // at cook (G12);
+        for (std::uint32_t c = 0; c < ncell && !r.bad; ++c)  // at cook (G12);
             { r.i32(); r.i32(); r.i32(); }  // simulation consumes it in 9.6
         wires.push_back(std::move(w));
     }
